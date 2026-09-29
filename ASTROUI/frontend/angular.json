@@ -1,0 +1,61 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "cli": {
+    "analytics": false,
+    "packageManager": "npm"
+  },
+  "projects": {
+    "astrolabe-studio": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "as",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": "dist/astrolabe-studio",
+            "index": "src/index.html",
+            "browser": "src/main.ts",
+            "tsConfig": "tsconfig.app.json",
+            "assets": [
+              { "glob": "**/*", "input": "public" }
+            ],
+            "styles": ["src/styles.css"],
+            "inlineStyleLanguage": "css"
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                { "type": "initial", "maximumWarning": "900kB", "maximumError": "1.6MB" },
+                { "type": "anyComponentStyle", "maximumWarning": "12kB", "maximumError": "24kB" }
+              ],
+              "outputHashing": "all",
+              "optimization": {
+                "scripts": true,
+                "fonts": true,
+                "styles": { "minify": true, "inlineCritical": false }
+              }
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "configurations": {
+            "production": { "buildTarget": "astrolabe-studio:build:production" },
+            "development": { "buildTarget": "astrolabe-studio:build:development" }
+          },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}

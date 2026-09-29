@@ -1,0 +1,12 @@
+{
+  "/api": {
+    "target": "http://127.0.0.1:8740",
+    "secure": false,
+    "ws": true,
+    "changeOrigin": false
+  },
+  "/launch": {
+    "target": "http://127.0.0.1:8740",
+    "secure": false
+  }
+}

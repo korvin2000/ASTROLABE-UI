@@ -1,0 +1,41 @@
+server:
+  address: 127.0.0.1
+  port: ${STUDIO_PORT:8740}
+  shutdown: graceful
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/css,application/javascript
+  servlet:
+    session:
+      tracking-modes: cookie
+
+spring:
+  application:
+    name: astrolabe-studio
+  threads:
+    virtual:
+      enabled: true
+  main:
+    banner-mode: off
+  lifecycle:
+    timeout-per-shutdown-phase: 70s
+  mvc:
+    problemdetails:
+      enabled: true
+  jackson:
+    default-property-inclusion: non_null
+
+studio:
+  data-dir: ${STUDIO_DATA_DIR:}
+  fixtures: ${STUDIO_FIXTURES:true}
+  fixture-latency-millis: ${STUDIO_FIXTURE_LATENCY:700}
+  security: ${STUDIO_SECURITY:true}
+  open-browser: ${STUDIO_OPEN_BROWSER:false}
+  dev-origins: ${STUDIO_DEV_ORIGINS:http://localhost:4200,http://127.0.0.1:4200}
+  use-environment-keys: ${STUDIO_ENV_KEYS:true}
+
+logging:
+  level:
+    root: INFO
+    io.astrolabe: INFO
+    org.springframework.web.socket: WARN
