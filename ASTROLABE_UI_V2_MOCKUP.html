@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASTROLABE Studio 2 — mockup</title>
+<style>
+  :root {
+    --bg: #ffffff; --side: #f7f7f5; --raised: #ffffff; --hover: #efeeeb; --border: #e6e5e1;
+    --text: #1f1f1d; --muted: #6b6a66; --faint: #9a9994;
+    --accent: #4a5fd0; --accent-soft: #eceffd; --on-accent: #ffffff;
+    --ok: #2f9e62; --warn: #c7841a; --bad: #d64545;
+    --add: rgba(47,158,98,.13); --del: rgba(214,69,69,.12); --warn-soft: #fdf6e7;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --shadow: 0 8px 28px rgba(0,0,0,.12);
+  }
+  :root[data-theme="dark"] {
+    --bg: #1b1b1a; --side: #212120; --raised: #262625; --hover: #2d2d2b; --border: #343432;
+    --text: #ececea; --muted: #a3a29d; --faint: #75746f;
+    --accent: #8d9cf2; --accent-soft: #2a2e47; --on-accent: #14162a;
+    --ok: #57c08a; --warn: #e0a544; --bad: #ee7171;
+    --add: rgba(87,192,138,.16); --del: rgba(238,113,113,.15); --warn-soft: #33290f;
+    --shadow: 0 8px 28px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); display: flex; flex-direction: column; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+
+  /* mockup switcher, not part of the product */
+  .mockbar { display: flex; gap: 6px; align-items: center; padding: 8px 12px; border-bottom: 1px dashed var(--border); background: var(--side); flex-wrap: wrap; }
+  .mockbar span { color: var(--faint); font-size: 12px; margin-right: 6px; }
+  .mockbar button { border: 1px solid var(--border); background: var(--raised); border-radius: 6px; padding: 3px 10px; font-size: 12px; }
+  .mockbar button.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .mockbar .sp { flex: 1; }
+
+  .app { flex: 1; min-height: 0; display: flex; }
+  .screen { display: none; flex: 1; min-width: 0; min-height: 0; }
+  .screen.on { display: flex; }
+
+  /* sidebar */
+  .side { width: 240px; flex: none; background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 12px 10px; }
+  .brand { font-weight: 600; letter-spacing: .04em; padding: 2px 8px 12px; }
+  .newtask { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid var(--border); background: var(--raised); border-radius: 8px; padding: 7px 10px; }
+  .newtask kbd { margin-left: auto; color: var(--faint); font: 11px var(--mono); }
+  .needs { margin: 12px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .proj { margin-top: 14px; }
+  .proj h4 { margin: 0; padding: 4px 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .task { display: flex; align-items: center; gap: 9px; padding: 5px 8px; border-radius: 6px; color: var(--text); white-space: nowrap; overflow: hidden; }
+  .task span.t { overflow: hidden; text-overflow: ellipsis; }
+  .task.cur { background: var(--hover); }
+  .side .foot { margin-top: auto; padding: 6px 8px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.work { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  .dot.need { background: var(--warn); }
+  .dot.pause { border: 1.5px solid var(--faint); }
+  .mark { width: 8px; flex: none; color: var(--ok); font-size: 11px; line-height: 1; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .dot.work, .rail .now i { animation: none !important; } }
+
+  /* main */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .head { height: 46px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid var(--border); }
+  .head .crumb { color: var(--muted); }
+  .head .title { font-weight: 600; }
+  .head .sp { flex: 1; }
+  .icon-btn { border: 0; background: transparent; border-radius: 6px; padding: 5px 8px; color: var(--muted); }
+  .icon-btn:hover { background: var(--hover); }
+  .state { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .scroll { flex: 1; min-height: 0; overflow: auto; padding: 26px 18px 10px; }
+  .col { max-width: 760px; margin: 0 auto; }
+  .who { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 4px; }
+  .who:first-child { margin-top: 0; }
+  .msg p { margin: 0 0 8px; }
+  .group { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .group summary { list-style: none; cursor: pointer; padding: 7px 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .group summary::-webkit-details-marker { display: none; }
+  .group summary::before { content: "▸"; font-size: 10px; color: var(--faint); }
+  .group[open] summary::before { content: "▾"; }
+  .step { display: flex; gap: 10px; align-items: center; padding: 5px 12px 5px 30px; border-top: 1px solid var(--border); font-size: 13px; }
+  .step .r { margin-left: auto; color: var(--faint); font-size: 12px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .note { color: var(--muted); font-size: 13px; margin: 10px 0; padding-left: 10px; border-left: 2px solid var(--border); }
+
+  .card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 14px 0; background: var(--raised); }
+  .card.attn { border-color: var(--warn); }
+  .card .k { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+  .card.attn .k { color: var(--warn); }
+  .card h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .card p { margin: 0 0 10px; }
+  .card .cmd { font-family: var(--mono); font-size: 13px; background: var(--side); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn { border: 1px solid var(--border); background: var(--raised); border-radius: 8px; padding: 6px 12px; }
+  .btn:hover { background: var(--hover); }
+  .btn.pri { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.ghost { border-color: transparent; color: var(--muted); }
+  .btn kbd { font: 11px var(--mono); color: var(--faint); margin-right: 6px; }
+  .kv { display: grid; grid-template-columns: 90px 1fr auto; gap: 6px 12px; align-items: center; margin: 10px 0 14px; }
+  .kv .l { color: var(--muted); }
+
+  /* composer */
+  .composer-wrap { flex: none; padding: 6px 18px 16px; }
+  .status { max-width: 760px; margin: 0 auto 6px; color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .composer { width: 100%; max-width: 760px; margin: 0 auto; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); box-shadow: 0 1px 2px rgba(0,0,0,.04); position: relative; }
+  .composer .ta { padding: 12px 14px 4px; min-height: 48px; color: var(--faint); }
+  .composer .bar { display: flex; gap: 4px; align-items: center; padding: 6px 8px 8px; }
+  .pill { border: 0; background: transparent; border-radius: 6px; padding: 4px 8px; color: var(--muted); display: flex; gap: 6px; align-items: center; font-size: 13px; }
+  .pill:hover, .pill.open { background: var(--hover); color: var(--text); }
+  .pill b { font-weight: 500; color: var(--text); }
+  .send { margin-left: auto; width: 30px; height: 30px; border-radius: 8px; border: 0; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; }
+  .send.stop { background: var(--text); color: var(--bg); }
+
+  /* popover */
+  .pop { position: absolute; bottom: 46px; left: 110px; width: 340px; background: var(--raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 8px; z-index: 5; }
+  .empty .pop { bottom: auto; top: calc(100% + 6px); }
+  .pop input { width: 100%; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; padding: 6px 8px; font: inherit; margin-bottom: 6px; }
+  .pop .sec { font-size: 11px; font-weight: 600; color: var(--faint); padding: 6px 8px 2px; }
+  .pop .opt { display: flex; gap: 8px; padding: 5px 8px; border-radius: 6px; align-items: center; }
+  .pop .opt.sel { background: var(--accent-soft); }
+  .pop .opt small { color: var(--muted); margin-left: auto; }
+  .pop .opt em { font-style: normal; color: var(--faint); width: 64px; text-align: right; font-size: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .seg span { padding: 3px 10px; font-size: 13px; color: var(--muted); }
+  .seg span.on { background: var(--accent-soft); color: var(--text); }
+  .pop .eff { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border); margin-top: 6px; padding: 8px 8px 2px; }
+
+  /* side panel */
+  .panel { width: 40%; min-width: 380px; flex: none; border-left: 1px solid var(--border); display: none; flex-direction: column; background: var(--bg); }
+  .screen.panel-open .panel { display: flex; }
+  @media (max-width: 1100px) {
+    .screen { position: relative; }
+    .screen.panel-open .panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 88%); min-width: 0; box-shadow: var(--shadow); z-index: 8; }
+  }
+  @media (max-width: 720px) { .side { display: none; } }
+  .tabs { height: 46px; flex: none; display: flex; gap: 2px; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--border); }
+  .tabs span { padding: 5px 10px; border-radius: 6px; color: var(--muted); }
+  .tabs span.on { background: var(--hover); color: var(--text); font-weight: 500; }
+  .tabs .sp { flex: 1; }
+  .pbody { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; }
+  .file { display: flex; gap: 8px; padding: 5px 8px; border-radius: 6px; align-items: center; font-size: 13px; }
+  .file.sel { background: var(--hover); }
+  .file .n { margin-left: auto; font: 12px var(--mono); }
+  .diff { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font: 12.5px/1.6 var(--mono); }
+  .diff .h { padding: 5px 10px; background: var(--side); color: var(--muted); border-bottom: 1px solid var(--border); display: flex; }
+  .diff div.l { padding: 0 10px; white-space: pre; }
+  .diff .a { background: var(--add); } .diff .d { background: var(--del); } .diff .c { color: var(--faint); }
+
+  .rail { display: grid; grid-template-columns: repeat(5, 1fr); margin: 6px 0 22px; position: relative; }
+  .rail::before { content: ""; position: absolute; left: 10%; right: 10%; top: 6px; height: 2px; background: var(--border); }
+  .rail::after { content: ""; position: absolute; left: 10%; width: 40%; top: 6px; height: 2px; background: var(--accent); }
+  .rail div { text-align: center; font-size: 12px; color: var(--faint); position: relative; z-index: 1; }
+  .rail i { display: block; width: 14px; height: 14px; border-radius: 50%; margin: 0 auto 6px; background: var(--bg); border: 2px solid var(--border); }
+  .rail .done i { background: var(--accent); border-color: var(--accent); }
+  .rail .done, .rail .now { color: var(--text); }
+  .rail .now i { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); animation: pulse 1.6s ease-in-out infinite; }
+  .pl { display: grid; grid-template-columns: 70px 1fr; gap: 8px 12px; font-size: 13px; }
+  .pl .l { color: var(--muted); }
+  .pl ol { margin: 0; padding: 0; list-style: none; }
+  .pl li { display: flex; gap: 8px; padding: 1px 0; }
+  .bar2 { height: 4px; border-radius: 2px; background: var(--border); margin-top: 6px; overflow: hidden; }
+  .bar2 i { display: block; height: 100%; width: 3%; background: var(--accent); }
+
+  /* welcome */
+  .welcome { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 56px 20px; position: relative; }
+  .welcome .in { width: 640px; max-width: 100%; }
+  .welcome h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; }
+  .welcome .sub { color: var(--muted); margin: 0 0 30px; }
+  .stepn { display: flex; gap: 12px; align-items: baseline; margin: 26px 0 12px; }
+  .stepn b { width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-size: 12px; flex: none; }
+  .stepn h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .big { text-align: left; border: 1px solid var(--border); background: var(--raised); border-radius: 10px; padding: 12px 14px; }
+  .big:hover { border-color: var(--accent); }
+  .big b { display: block; font-weight: 600; }
+  .big small { color: var(--muted); }
+  .found { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; }
+  .found .t { padding: 8px 14px 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .found .r { display: flex; align-items: center; gap: 10px; padding: 8px 14px; }
+  .found .r + .r { border-top: 1px solid var(--border); }
+  .found .r .btn { margin-left: auto; padding: 3px 10px; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 28px; }
+  .hint a, a.lnk { color: var(--accent); text-decoration: none; }
+
+  /* dialog */
+  .veil { position: absolute; inset: 0; background: rgba(0,0,0,.28); display: grid; place-items: center; z-index: 10; }
+  .dlg { width: 440px; background: var(--raised); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); padding: 22px; }
+  .dlg h3 { margin: 0 0 6px; font-size: 16px; }
+  .dlg p { margin: 0 0 14px; color: var(--muted); }
+  .spin { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: sp 1s linear infinite; flex: none; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* new task */
+  .empty { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 18px 60px; }
+  .empty h1 { max-width: 760px; width: 100%; margin: 0 auto 18px; font-size: 22px; font-weight: 600; }
+  .ex { max-width: 760px; width: 100%; margin: 14px auto 0; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ex button { border: 1px solid var(--border); background: transparent; border-radius: 999px; padding: 5px 12px; color: var(--muted); font-size: 13px; }
+
+  /* settings */
+  .set { flex: 1; display: flex; min-height: 0; }
+  .set nav { width: 200px; flex: none; padding: 22px 10px; border-right: 1px solid var(--border); }
+  .set nav div { padding: 6px 10px; border-radius: 6px; color: var(--muted); }
+  .set nav div.on { background: var(--hover); color: var(--text); font-weight: 500; }
+  .set section { flex: 1; overflow: auto; padding: 26px 34px; }
+  .set .w { max-width: 660px; }
+  .set h2 { font-size: 18px; margin: 0 0 18px; font-weight: 600; }
+  .set h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 26px 0 8px; }
+  .acct { display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+  .acct .av { width: 30px; height: 30px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 600; font-size: 12px; flex: none; }
+  .acct small { color: var(--muted); display: block; }
+  .acct .row { margin-left: auto; }
+  .opt-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .opt-row small { display: block; color: var(--muted); }
+  .opt-row .v { margin-left: auto; }
+  .sel-box { border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; background: var(--raised); display: inline-flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <span>Mockup · screen</span>
+  <button data-go="welcome" class="on">1 Welcome</button>
+  <button data-go="signin">2 Sign in</button>
+  <button data-go="new">3 New task</button>
+  <button data-go="working">4 Working</button>
+  <button data-go="approval">5 Approval</button>
+  <button data-go="done">6 Done</button>
+  <button data-go="settings">7 Settings</button>
+  <div class="sp"></div>
+  <button id="theme">Dark</button>
+</div>
+
+<template id="tpl-side">
+  <aside class="side">
+    <div class="brand">ASTROLABE</div>
+    <button class="newtask">+ New task <kbd>Ctrl N</kbd></button>
+    <div class="needs" data-if="needs"><span class="dot need"></span>Needs you (1)</div>
+    <div class="proj">
+      <h4>shop-api</h4>
+      <div class="task cur"><span class="dot work" data-cur></span><span class="t">Fix discount rounding</span></div>
+      <div class="task"><span class="mark">✓</span><span class="t">Add CSV export to orders</span></div>
+      <div class="task"><span class="dot pause"></span><span class="t">Upgrade to Spring Boot 4</span></div>
+    </div>
+    <div class="proj">
+      <h4>blog</h4>
+      <div class="task"><span class="mark">✓</span><span class="t">Dark mode for the reader</span></div>
+    </div>
+    <div class="foot">⚙ Settings</div>
+  </aside>
+</template>
+
+<template id="tpl-composer">
+  <div class="composer">
+    <div class="ta" data-ph>Reply…</div>
+    <div class="bar">
+      <button class="pill">▢ <b>shop-api</b></button>
+      <button class="pill" data-model>◆ <b>GPT-5.5</b> · Medium</button>
+      <button class="pill">Ask ▾</button>
+      <button class="send" data-send>↑</button>
+    </div>
+  </div>
+</template>
+
+<div class="app">
+
+  <!-- 1 Welcome -->
+  <div class="screen on" id="welcome">
+    <div class="welcome">
+      <div class="in">
+        <h1>Welcome to ASTROLABE</h1>
+        <p class="sub">Two steps and you can start your first task.</p>
+
+        <div class="stepn"><b>1</b><h2>Connect a model</h2></div>
+        <div class="grid2">
+          <button class="big" data-go="signin"><b>Sign in with ChatGPT</b><small>Plus or Pro subscription</small></button>
+          <button class="big"><b>OpenRouter</b><small>Sign in or paste an API key</small></button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn">Anthropic</button><button class="btn">OpenAI API</button><button class="btn">Google Gemini</button>
+          <button class="btn">Local model</button><button class="btn ghost">More…</button>
+        </div>
+        <div class="found">
+          <div class="t">Found on this computer</div>
+          <div class="r"><span class="ok">✓</span> <span><code>OPENAI_API_KEY</code> in your environment</span><button class="btn">Use it</button></div>
+          <div class="r"><span class="ok">✓</span> <span>Ollama is running with 4 models</span><button class="btn">Use it</button></div>
+        </div>
+
+        <div class="stepn"><b>2</b><h2>Open a project folder</h2></div>
+        <div class="row">
+          <button class="btn pri">Choose folder…</button>
+          <span style="color:var(--muted)">Recent: <code>C:\work\shop-api</code></span>
+        </div>
+
+        <p class="hint">No account yet? <a href="#" data-go="working">Run the demo</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 Sign in -->
+  <div class="screen" id="signin">
+    <div class="welcome">
+      <div class="in" style="opacity:.45">
+        <h1>Welcome to ASTROLABE</h1>
+        <p class="sub">Two steps and you can start your first task.</p>
+        <div class="stepn"><b>1</b><h2>Connect a model</h2></div>
+        <div class="grid2">
+          <button class="big"><b>Sign in with ChatGPT</b><small>Plus or Pro subscription</small></button>
+          <button class="big"><b>OpenRouter</b><small>Sign in or paste an API key</small></button>
+        </div>
+      </div>
+      <div class="veil">
+        <div class="dlg">
+          <h3>Sign in with ChatGPT</h3>
+          <p>Finish signing in in your browser. This window updates by itself.</p>
+          <div class="row" style="margin-bottom:16px"><span class="spin"></span><span>Waiting for you to sign in…</span></div>
+          <div class="row">
+            <a class="lnk" href="#">Open the sign-in page again</a>
+            <span style="color:var(--faint)">·</span>
+            <a class="lnk" href="#">Copy link</a>
+          </div>
+          <p style="margin:16px 0 18px;font-size:13px">Uses your ChatGPT subscription. Usage counts against your plan's limits.</p>
+          <div class="row"><button class="btn">Use a code instead</button><button class="btn ghost" data-go="welcome">Cancel</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 New task -->
+  <div class="screen" id="new">
+    <div data-side></div>
+    <div class="main">
+      <div class="head"><span class="crumb">shop-api</span><span class="sp"></span></div>
+      <div class="empty">
+        <h1>What should we work on?</h1>
+        <div data-composer data-ph="Describe what to build, fix or change…" data-pop></div>
+        <div class="ex">
+          <button>Fix the failing test in OrderServiceTest</button>
+          <button>Add input validation to the checkout endpoint</button>
+          <button>Explain how pricing is calculated</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 Working -->
+  <div class="screen" id="working">
+    <div data-side data-needs></div>
+    <div class="main">
+      <div class="head">
+        <span class="crumb">shop-api ›</span><span class="title">Fix discount rounding</span>
+        <span class="state"><span class="dot need"></span>Needs you</span>
+        <span class="sp"></span><button class="icon-btn" data-panel="toggle" title="Side panel">◧</button><button class="icon-btn">⋯</button>
+      </div>
+      <div class="scroll"><div class="col">
+        <div class="who">You</div>
+        <div class="msg"><p>Fix apply_discount in the pricing module so discounts are percentages and totals never go negative.</p></div>
+        <div class="note">Checks: <code>pytest</code> · <a class="lnk" href="#">Change</a></div>
+
+        <div class="who">ASTROLABE</div>
+        <div class="msg"><p>I'll read the pricing code and the tests that cover it, then make the fix.</p></div>
+        <details class="group" open>
+          <summary>Read 2 files · searched once</summary>
+          <div class="step">Read <code>src/shop/pricing.py</code><span class="r">0.2 s</span></div>
+          <div class="step">Read <code>tests/test_pricing.py</code><span class="r">0.1 s</span></div>
+          <div class="step">Searched for "apply_discount"<span class="r">3 results</span></div>
+        </details>
+        <div class="msg"><p>The request leaves rounding open, so I'm asking before I change behaviour.</p></div>
+
+        <div class="card attn">
+          <div class="k">Question</div>
+          <h3>How should cart totals be rounded after the discount?</h3>
+          <div class="row">
+            <button class="btn"><kbd>1</kbd>Round to cents</button>
+            <button class="btn"><kbd>2</kbd>Keep full precision</button>
+            <span style="color:var(--muted);font-size:13px">or type your answer below</span>
+          </div>
+        </div>
+      </div></div>
+      <div class="composer-wrap"><div data-composer data-ph="Answer the question…"></div></div>
+    </div>
+    <aside class="panel">
+      <div class="tabs"><span>Changes</span><span class="on">Progress</span><span>Output</span><span class="sp"></span><button class="icon-btn" data-panel="close" title="Close">✕</button></div>
+      <div class="pbody">
+        <div class="rail">
+          <div class="done"><i></i>Understand</div><div class="done"><i></i>Plan</div><div class="now"><i></i>Build</div><div><i></i>Check</div><div><i></i>Finish</div>
+        </div>
+        <div class="pl">
+          <div class="l">Now</div><div>Waiting for your answer</div>
+          <div class="l">Plan</div>
+          <ol>
+            <li><span class="ok">✓</span> Read the pricing logic and its tests</li>
+            <li><span style="color:var(--accent)">●</span> Fix apply_discount</li>
+            <li><span style="color:var(--faint)">○</span> Run the test suite</li>
+          </ol>
+          <div class="l">Used</div>
+          <div>4.1k tokens · 0 min 38 s<div class="bar2"><i></i></div><small style="color:var(--faint)">3 % of this task's limit</small></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 5 Approval -->
+  <div class="screen" id="approval">
+    <div data-side data-needs></div>
+    <div class="main">
+      <div class="head">
+        <span class="crumb">shop-api ›</span><span class="title">Add CSV export to orders</span>
+        <span class="state"><span class="dot need"></span>Needs you</span>
+        <span class="sp"></span><button class="icon-btn" data-panel="toggle" title="Side panel">◧</button><button class="icon-btn">⋯</button>
+      </div>
+      <div class="scroll"><div class="col">
+        <div class="who">You</div>
+        <div class="msg"><p>Add a CSV export button to the orders page.</p></div>
+        <div class="who">ASTROLABE</div>
+        <details class="group">
+          <summary>Read 5 files · edited 2</summary>
+        </details>
+        <div class="msg"><p>The export needs a CSV library that is not installed yet.</p></div>
+        <div class="card attn">
+          <div class="k">Approval needed</div>
+          <h3>Install packages</h3>
+          <div class="cmd">npm install papaparse</div>
+          <p style="color:var(--muted)">Needs network access and changes package files.</p>
+          <div class="row">
+            <button class="btn pri">Allow once</button>
+            <button class="btn">Always allow in this project</button>
+            <button class="btn ghost">Deny</button>
+          </div>
+        </div>
+      </div></div>
+      <div class="composer-wrap"><div data-composer data-ph="Add to the task…"></div></div>
+    </div>
+  </div>
+
+  <!-- 6 Done -->
+  <div class="screen" id="done">
+    <div data-side data-done></div>
+    <div class="main">
+      <div class="head">
+        <span class="crumb">shop-api ›</span><span class="title">Fix discount rounding</span>
+        <span class="state"><span class="ok">✓</span>Done</span>
+        <span class="sp"></span><button class="icon-btn" data-panel="toggle" title="Side panel">◧</button><button class="icon-btn">⋯</button>
+      </div>
+      <div class="scroll"><div class="col">
+        <div class="who">You</div>
+        <div class="msg"><p>Round to cents.</p></div>
+        <div class="who">ASTROLABE</div>
+        <details class="group">
+          <summary>Edited 2 files · ran tests <span class="ok">✓</span></summary>
+          <div class="step">Edited <code>src/shop/pricing.py</code><span class="r ok">+12 −3</span></div>
+          <div class="step">Edited <code>tests/test_pricing.py</code><span class="r ok">+8</span></div>
+          <div class="step">Ran <code>pytest</code> <span class="ok">✓</span><span class="r">3.2 s</span></div>
+        </details>
+        <div class="card">
+          <div class="k ok" style="color:var(--ok)">Done</div>
+          <p>Discounts are now percentages, totals are clamped at zero and rounded to cents. I added two tests for the edge cases.</p>
+          <div class="kv">
+            <span class="l">Changes</span><span>2 files · <span class="ok">+20</span> <span class="bad">−3</span></span><a class="lnk" href="#" data-panel="open">Review changes</a>
+            <span class="l">Verified</span><span><span class="ok">✓</span> Tests passed (26)</span><a class="lnk" href="#">Show output</a>
+            <span class="l">Used</span><span>18.4k tokens · $0.04 · 1 min 12 s</span><span></span>
+          </div>
+          <div class="row"><button class="btn pri">Commit…</button><button class="btn">Undo all</button></div>
+        </div>
+      </div></div>
+      <div class="composer-wrap"><div data-composer data-ph="Reply to continue…"></div></div>
+    </div>
+    <aside class="panel">
+      <div class="tabs"><span class="on">Changes</span><span>Progress</span><span>Output</span><span class="sp"></span><button class="icon-btn" data-panel="close" title="Close">✕</button></div>
+      <div class="pbody">
+        <div class="row" style="margin-bottom:10px"><b>2 files changed</b><span style="flex:1"></span><button class="btn" style="padding:3px 10px">Commit…</button><button class="btn ghost" style="padding:3px 10px">Undo all</button></div>
+        <div class="file sel"><code>src/shop/pricing.py</code><span class="n"><span class="ok">+12</span> <span class="bad">−3</span></span></div>
+        <div class="file"><code>tests/test_pricing.py</code><span class="n"><span class="ok">+8</span></span></div>
+        <div class="diff">
+          <div class="h">src/shop/pricing.py<span style="flex:1"></span><a class="lnk" href="#">Undo</a></div>
+          <div class="l c">@@ -14,7 +14,10 @@ def apply_discount(price, discount):</div>
+          <div class="l">     """Apply a discount to a price."""</div>
+          <div class="l d">-    total = price - discount</div>
+          <div class="l d">-    return total</div>
+          <div class="l a">+    if not 0 &lt;= discount &lt;= 100:</div>
+          <div class="l a">+        raise ValueError("discount is a percentage")</div>
+          <div class="l a">+    total = price * (1 - discount / 100)</div>
+          <div class="l a">+    return round(max(total, 0), 2)</div>
+          <div class="l"> </div>
+          <div class="l"> def cart_total(items):</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 7 Settings -->
+  <div class="screen" id="settings">
+    <div data-side></div>
+    <div class="main">
+      <div class="set">
+        <nav>
+          <div>General</div><div class="on">Models &amp; accounts</div><div>Permissions</div><div>Project</div><div>Advanced</div>
+        </nav>
+        <section><div class="w">
+          <h2>Models &amp; accounts</h2>
+
+          <h3>Accounts</h3>
+          <div class="acct"><div class="av">GP</div><div><b>ChatGPT Plus</b><small>Signed in as alan@example.com</small></div><div class="row"><button class="btn">Sign out</button></div></div>
+          <div class="acct"><div class="av">OR</div><div><b>OpenRouter</b><small>API key ending in 4f2a</small></div><div class="row"><button class="btn">Replace key</button><button class="btn ghost">Remove</button></div></div>
+          <div class="acct"><div class="av">OL</div><div><b>Ollama</b><small>On this computer · 4 models</small></div><div class="row"><button class="btn ghost">Hide</button></div></div>
+          <button class="btn">+ Add account</button>
+
+          <h3>Defaults</h3>
+          <div class="opt-row"><div><b>Default model</b><small>Used for new tasks. You can change it for each task in the message box.</small></div><div class="v"><span class="sel-box">◆ GPT-5.5 <span style="color:var(--faint)">▾</span></span></div></div>
+          <div class="opt-row"><div><b>Default effort</b><small>Higher effort thinks longer and costs more.</small></div><div class="v"><span class="seg"><span>Low</span><span class="on">Medium</span><span>High</span></span></div></div>
+        </div></section>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  // shared sidebar and composer
+  $$('[data-side]').forEach(host => {
+    const n = $('#tpl-side').content.cloneNode(true);
+    if (!host.hasAttribute('data-needs')) $('[data-if="needs"]', n).remove();
+    const cur = $('[data-cur]', n);
+    if (host.hasAttribute('data-needs')) cur.className = 'dot need';
+    if (host.hasAttribute('data-done')) { cur.className = 'mark'; cur.textContent = '✓'; }
+    if (host.closest('#new, #settings')) $('.task.cur', n).classList.remove('cur');
+    host.replaceWith(n);
+  });
+  $$('[data-composer]').forEach(host => {
+    const n = $('#tpl-composer').content.cloneNode(true);
+    $('[data-ph]', n).textContent = host.dataset.ph;
+    if (host.hasAttribute('data-pop')) {
+      $('[data-model]', n).classList.add('open');
+      const pop = document.createElement('div');
+      pop.className = 'pop';
+      pop.innerHTML = '<input placeholder="Search models">' +
+        '<div class="sec">Recommended</div>' +
+        '<div class="opt sel">◆ GPT-5.5<small>ChatGPT</small><em>included</em></div>' +
+        '<div class="opt">◆ DeepSeek V4 Flash<small>OpenRouter</small><em>$</em></div>' +
+        '<div class="sec">All models</div>' +
+        '<div class="opt">GPT-5.6 Sol<small>ChatGPT</small><em>included</em></div>' +
+        '<div class="opt">qwen3-coder<small>Ollama</small><em>free</em></div>' +
+        '<div class="eff"><span>Effort</span><span class="seg"><span>Low</span><span class="on">Medium</span><span>High</span></span></div>';
+      $('.composer', n).appendChild(pop);
+    }
+    host.replaceWith(n);
+  });
+  // side panel: open by default on wide windows, an overlay on narrow ones
+  $$('.screen').forEach(s => { if ($('.panel', s) && innerWidth >= 1100) s.classList.add('panel-open'); });
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-panel]');
+    if (!b) return;
+    e.preventDefault();
+    const s = b.closest('.screen');
+    if ($('.panel', s)) s.classList.toggle('panel-open', b.dataset.panel === 'toggle' ? undefined : b.dataset.panel === 'open');
+  });
+  // screen switcher
+  function go(id) {
+    $$('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+    $$('.mockbar [data-go]').forEach(b => b.classList.toggle('on', b.dataset.go === id));
+  }
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-go]');
+    if (t) { e.preventDefault(); go(t.dataset.go); }
+  });
+  // theme
+  const root = document.documentElement, tb = $('#theme');
+  tb.onclick = () => {
+    const dark = root.dataset.theme !== 'dark';
+    root.dataset.theme = dark ? 'dark' : 'light';
+    tb.textContent = dark ? 'Light' : 'Dark';
+  };
+</script>
+</body>
+</html>

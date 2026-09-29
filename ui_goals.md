@@ -20,10 +20,8 @@ analyze existing ASTROLABE code + llm-transport-sdk to understand UI entry point
 - UI : latest Angular version as frontend + SpringBoot and JAVA as backend, that uses and interacts with ASTROLABE coding agent + llm trasport layer
 - primarly websockets (+may be additionally REST/RESTfull) should be used as transport layer Frontend <> Backend.
 
-UI layer will be built on top of these libraries, and I need to consider later how to integrate them into the UI, as well as how to configure them, set their parameters, and so on - In other words, the ability to interact with the UI must be expected / supported.
+UI layer will be built on top of these projects/libraries, and I need to consider later how to integrate them into the UI, as well as how to configure them, set their parameters, and so on - In other words, the ability to interact with the UI must be expected / supported.
 
-## TODO / what is actually missing
-llm trasport layer 'llm-transport-sdk' is not yet integrated and used in 'ASTROLABE' coding agent, but it will be done as next step. Assume that they will be used together 
 
 ## UI Requirements
 

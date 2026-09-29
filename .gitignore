@@ -155,3 +155,5 @@ reports/
 .angular/
 /ASTROLABE/
 /llm-transport-sdk/
+devtools/
+ASTROUI/.idea/

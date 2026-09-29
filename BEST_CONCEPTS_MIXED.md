@@ -1,13 +1,16 @@
 # ASTROLABE Workbench — UI specification and implementation plan
 
-**Version:** 1.0.1 · **Date:** 2026-09-29 · **Status:** proposed design, rechecked against the integrated transport source\
+**Version:** mixed-1.0 · **Date:** 2026-09-29 · **Status:** proposed specification; selected integration claims checked against local source\
 **Brief:** [ui_goals.md](ui_goals.md)  
 **Deliverable:** a self-contained product concept, screen and interaction prototype, backend/frontend specification, implementation sequence, and ready-to-use implementation request.
 
-This document specifies the Web UI and desktop experience to build. The prototype is a set of wireframes and reproducible interaction scenarios in section 7; it is not a running application. No live provider calls, credential changes, or SDK modifications were made for this design.
+This document combines the three UI proposals into one implementation contract. Section 0 explains the comparison; sections 1–18 define the merged design. The wireframes and scenarios are specifications for a later runnable prototype. This synthesis changes documentation only; it does not establish application or live-provider readiness.
+
+**Reading routes:** product/design: 1, 4–7; integration/backend: 2–3, 8–12, 14; frontend: 6–7, 11–13; implementation: 15–17. Existing APIs are identified in section 2. Proposed `Host`/`Ui` APIs and G01–G10 are required work. A capability becomes available only after its owner implementation and acceptance checks exist.
 
 ## Contents
 
+0. [Comparative assessment and merge decisions](#0-comparative-assessment-and-merge-decisions)
 1. [Product direction and scope](#1-product-direction-and-scope)
 2. [Architecture findings and integration gaps](#2-architecture-findings-and-integration-gaps)
 3. [Domain model and ownership](#3-domain-model-and-ownership)
@@ -26,6 +29,46 @@ This document specifies the Web UI and desktop experience to build. The prototyp
 16. [Acceptance and verification](#16-acceptance-and-verification)
 17. [Implementation request](#17-implementation-request)
 18. [Sources and requirement coverage](#18-sources-and-requirement-coverage)
+
+## 0. Comparative assessment and merge decisions
+
+### 0.1 Ranking for this task
+
+The criteria are implementation correctness, clear ownership and failure handling, coverage of the brief, usable visual design, and information per token. This is an editorial ranking for a compact implementation specification; it is not a measured product-quality score. Source size is UTF-8 bytes, expressed as decimal kB.
+
+| Rank | Source | Size | Strongest contribution | Main weakness |
+|---|---|---:|---|---|
+| **1 — baseline** | [DESIGN](ASTROLABE_UI_DESIGN.md) | 159.0 kB | Compact structure; coherent workspace; candidate-bound evidence; explicit command, snapshot, ownership and delivery contracts | Its event table conflates declared events with emitted signals; role/settings descriptions need a stricter runtime-availability audit |
+| **2** | [OPUS](ASTROLABE_UI_OPUS.md) | 248.2 kB | Most actionable code-level gap audit; detailed conversation/STATE behavior, evidence views, statistics and integration seams | Greater host coupling and UI density; 24-hour deduplication is insufficient for uncertain effects; blanket resumable-shutdown promises need qualification |
+| **3** | [FABLE](ASTROLABE_UI_FABLE.md) | 261.9 kB | Rich architectural inventory, entity/source mapping, projection refresh model and screen-level acceptance detail | Event archival/cursor design and an inaccessible snapshot API undermine the read-model implementation; repeated catalogs make it costly to maintain |
+
+**Assessment of the initial assumptions:** DESIGN is the most compact and easiest to navigate. It contains Mermaid diagrams and text wireframes; these are design artifacts, not measured analytical results. OPUS has the more explicit analytics specification. FABLE has substantial architectural depth, but that breadth does not make its engineering contracts the most reliable. OPUS is technically detailed and often more accurate about current integration gaps, while DESIGN is the stronger overall baseline for this brief.
+
+### 0.2 Evidence behind the ranking
+
+| Finding | Evidence | Decision in this merge |
+|---|---|---|
+| DESIGN handles delivery boundaries best | DESIGN §§10.4, 11.4–11.5 separates core commits, host outbox commits, snapshots and unknown command outcomes | Retain these contracts; add explicit source mappings |
+| OPUS distinguishes definitions from working behavior | OPUS G-03/G-23/G-24; `Controller` constructs checkers/budgets without event sinks; `RoleTexts.worded` copies wording only | Correct event mapping and disable ineffective role/default controls |
+| FABLE's durable event key is unsound | FABLE §§3.2, 9.5, 9.9 uses `(work, seq)` from the bus; `Events.counter` is per bus instance and restarts at zero; `Astrolabe` shares that bus | Use durable host stream cursors; retain `(busEpoch, sourceSeq)` only as diagnostic provenance |
+| FABLE's atomic-read mechanism is unavailable to an ordinary external bridge | FABLE §§9.5, 13 calls `store.db.snapshot`; both `Db.snapshot` and `Views.snapshot` are Kotlin `internal` | Add a supported core snapshot API; do not assume a separate Kotlin module unlocks internal methods |
+| OPUS's deduplication claim is too broad | OPUS §§27.1, 28.5 says a 24-hour key makes retries safe, without an atomic core mutation receipt | Keep command identities with history and reconcile uncertain effects; host dedup alone is insufficient |
+| Resume/publication needs tighter bounds | `Controller.open` rejects a different attempt for existing work; lease expiry fences operations; publication consumes live run/finish state | Expose supported resume separately from new attempt, restart and publication; add owner APIs before enabling missing actions |
+
+These findings were checked selectively in the current local repositories (section 2.1). They support the comparison but do not constitute an exhaustive code audit or runtime validation. Other source inventories are retained as navigation aids and must be checked when their implementation slice begins.
+
+### 0.3 What was retained, imported or replaced
+
+| Area | Selected material | Result |
+|---|---|---|
+| Structure, identity, protocol, security, responsive shell, delivery plan | DESIGN | One vocabulary: **Workbench**, **Conversation**, **Agent Overview**; one route and protocol scheme |
+| Tool/turn rendering, STATE history, evidence layers, metric sources | OPUS §§8, 10, 13, 18 | Compact tables and progressive disclosure in section 6 |
+| Entity-to-source mapping, journal/projection refresh, host-owned records | FABLE §§3, 9 | Explicit data contracts in sections 10–12, using DESIGN's cursor and snapshot guarantees |
+| Dormant defaults, wording-only roles, lease and finish-record gaps | OPUS §2.7; FABLE Appendix B; local code | Current limitations stated at the point where they affect controls |
+| Charts and workflow diagrams | All three | Keep DESIGN's layout/diagrams; add OPUS/FABLE metric and chart rules, with explicit missing-data semantics |
+| Repeated inventories, kickoff prompts, competing names and fixed framework patch versions | Condensed or removed | One normative statement per behavior; versions verified during T01 |
+
+The merged contract resolves disagreements explicitly. It does not combine competing bridges, event archives, navigation systems or visual palettes. Historical source documents remain unchanged.
 
 ## 1. Product direction and scope
 
@@ -135,6 +178,10 @@ The Java-specific methods and authority futures are defined in [AstrolabeJava][A
 - Background processes are owned by the harness; the core does not supply detached jobs that survive host exit. After a crash, recovery can report `lost`. [A05]
 - `CampaignOutcome` has `completed, waiting_for_process, waiting_for_input, blocked_external, budget_exhausted, cancelled, failed`. Cell `partial` or `replan` is not a campaign completion state. [A15]
 - Settings and prices are frozen per attempt. Transport catalog refresh and configuration editing must not silently alter the active attempt. [A16]
+- Event declarations are not an emission guarantee. In the inspected controller path, `Checker` and `CellBudget.of` receive no event bus. Their check/budget notifications therefore do not drive the normal campaign UI. Section 11.6 specifies durable fallbacks. [A13][A43][A44]
+- Configured roles currently change `personaLines`, `duties` and `policyTextVersion` through `RoleTexts.worded`. Validated mask/permission/context overrides are not applied by that function. Show other role fields as read-only until their runtime binding is implemented and tested. [A45]
+- The controller's default lease is one hour, acquired at open; the normal controller path has no periodic renewal. A long human wait can outlast it. Show lease expiry and a supported reopen action; increasing a timeout does not supply renewal. [A13][A46]
+- `Views.finishReceipt` queries `packets.kind=finish_receipt`, while `FinishReceipts.export` writes a PACKET blob and `exports/<work>/finish-receipt.json`. Resolve the emitted digest or validated export; an empty view is not proof that no receipt exists. The export path is per work, so future multi-attempt history requires immutable attempt-qualified references. Cell result packets also need an explicit persistence/read contract; a boundary summary cannot reproduce an uncaptured full packet. [A10][A47]
 
 ### 2.5 Required additions and owners
 
@@ -143,17 +190,25 @@ All names prefixed `Host` or `Ui` below are **proposed**, not existing APIs. G01
 | Gap | Required contract | Owner / dependency |
 |---|---|---|
 | G01 Transport host wiring and qualification | Compose the existing `AiGateAdapter`, estimators, validated profiles and resource ownership; qualify the host's selected profiles | Spring host + existing `:provider-ai-gate`; transport implementation is present [A21][A33][A34] |
-| G02 Java recovery and controlled starts | Java facade operations for start with durable command identity, reopen by work/attempt ID, and start a new authorized attempt | Core; reuse `Controller` |
-| G03 Complete read projections | `HostSnapshot` in one read transaction with revision; campaign enumeration; transcript/artifact, context, process/intent, KB, routing and integration projections | Core read API + host DTO mapper |
+| G02 Java recovery and controlled starts | Java facade operations for start with durable command identity, reopen by work/attempt ID, lease visibility/renewal policy, and a supported new attempt | Core; reuse `Controller`; current open rejects a different attempt on existing work |
+| G03 Complete read projections | `HostSnapshot` in one read transaction with revision; enumeration; transcript/artifact, context, process/intent, KB, routing and integration projections; stable finish/result packet references | Core read API + host DTO mapper; current internal snapshot methods are not a host API |
 | G04 Reliable UI delivery | Host outbox, replay, subscription cursor, snapshots, and explicit loss/resync semantics | Spring host; core durable change revision/read support |
 | G05 Human interaction persistence | Pending question/approval/review store, single-use resolution, and recovery binding to current core requests | Spring authority bridge + core recovery support |
 | G06 Token presentation | Add an opt-in text bridge to the existing call path, preserve one stream consumer and terminal outcome, link safe deltas to canonical messages | Adapter/SDK presentation seam + host; count/status progress already exists |
 | G07 Idempotent core mutations | Stable command IDs and expected revisions at core mutation boundaries, with durable result lookup | Core; especially amendment, start, publication and new attempt |
 | G08 Explicit user operations | Structured initial contract, check request, process cancellation, unknown-effect reconciliation, guarded revert, post-run publication and curator actions through owner APIs | Core facade additions; no direct SQL writes |
-| G09 Complete configuration binding | Explicit binding for supported nested policies and host SPI registrations; capability availability metadata | Host + narrowly scoped core configuration additions |
+| G09 Complete configuration binding | Consumer audit for each field, role override enforcement, supported nested policies and host SPI registrations; capability metadata | Host + narrowly scoped core additions; a field passing validation does not establish that the runtime consumes it |
 | G10 Desktop integration | Local launcher, project picker, external browser auth, packaged runtime, lifecycle notifications | Desktop host; same web contracts |
 
 G02 does not make every terminal outcome resumable. Current core resumes external waits and reconciles interrupted activity. Completed/cancelled/budget-exhausted/failed runs require an explicitly supported new-attempt or follow-up path with preserved history and budget accounting.
+
+### 2.6 Integration decision
+
+Use the public Java facade for supported operations and add narrow owner APIs for G02/G03/G07/G08. This preserves the requested Java backend and keeps scheduling, authority, reconciliation and publication semantics inside core.
+
+A thin Kotlin adapter is an optional interoperability detail when a necessary public API is suspending. It may convert futures/serialization, but it must not copy the controller loop, reach Kotlin `internal` methods, or turn direct SQL access into a second mutation path. A temporary read adapter needs pinned schema support and contract tests; it cannot claim atomic cross-view snapshots without a public transaction boundary. This resolves the bridge-first proposals in OPUS/FABLE in favor of the stronger ownership boundary in DESIGN.
+
+Connected mode refuses unavailable prerequisites with their gap IDs. Demo mode is selected explicitly and labeled throughout; a missing adapter must not silently switch a real campaign to a fake provider.
 
 ## 3. Domain model and ownership
 
@@ -289,6 +344,8 @@ Pending actions appear inline above the composer and increment an attention coun
 
 A D-class approval is scoped to that request and revision. “Always allow” is not an incidental button; persistent policy changes go through settings/contract authorization. Human review displays the evidence packet and allows Accept, Reject, or Insufficient evidence using the runtime verdict vocabulary. A review does not rewrite test results.
 
+The current `resolve` type also carries plan acceptance and knowledge-admission proposals. Add a typed proposal kind/provenance through G08 before offering specialized actions. Reason-text prefixes may help display diagnostics, but cannot decide authority or silently classify an unknown proposal. Unknown kinds open a generic inspection state until the owner supplies a supported resolution path.
+
 Browser disconnect keeps a valid pending item available. An explicit timeout resolves through policy into a supported blocked/denied outcome; it never counts as consent. Reconnect shows the current item. A stale response gets a revision conflict and a refreshed preview.
 
 ### 5.4 Completion and publication
@@ -308,6 +365,8 @@ The current facade accepts publication at campaign start and exposes results aft
 **Reconnect** restores display from snapshot plus stream replay; it never restarts the campaign.
 
 **Resume** asks core to reopen eligible existing work, reconcile pending effects, inspect external changes, and recover checkpoints. With the default `unknownOutcomeReconciliation=Host`, unresolved effects require an evidence-backed host action through G08 before the fence can lift; a Resume acknowledgment alone is insufficient. A lost process is shown as lost, not silently relaunched. [A36][A41]
+
+An expired lease or reply is shown with its original request and current disposition. Reopen may produce a new authority request; a late answer is retained as context and must be rebound and revalidated before use. Do not auto-resume merely because an old answer arrived. After host restart or lease expiry, post-run publication stays unavailable until the publisher can reconstruct and validate the finish evidence through G08.
 
 **New attempt** uses the same logical work when supported, a new attempt ID, and a newly frozen policy. The UI shows prior outcomes and accumulated cost. Budget changes require an explicit authorized amendment; a model change cannot reset expenditure.
 
@@ -329,6 +388,20 @@ Use a chronological, selectable transcript with stable message anchors:
 - Interrupted output is marked Partial; it cannot masquerade as the final assistant response.
 
 Do not auto-scroll when the user has scrolled away from the bottom. Show “12 new events · Jump to live.” Preserve text selection, expanded rows, and scroll position when updates arrive. Virtualize or page old activity while retaining accessible navigation and search.
+
+Group the conversation by **campaign → cell → turn**, with child cells linked under their delegation. A collapsed turn shows its number, first response line or “Tool calls only,” operation counts, duration and output usage. Expanded turns preserve the dispatcher's **Read → Edit → Execute → Metadata** order. Live model progress shows observed stage/counts; canonical text appears when the journal response is available. Completed cells collapse unless the user pinned them open.
+
+| Tool family | Collapsed row | Expanded detail |
+|---|---|---|
+| `look` | Operation, path/range, result count | Versioned captured content; search coverage, truncation, retrieval tier and recall refs |
+| `edit` | Paths, diffstat, before/after versions, outcome | Diff, syntax result, scope and test-integrity flags, transform receipt |
+| `run` | Redacted argv, effect class, status, duration | cwd, deadlines, observed/unknown effects, process handle, parsed counts and bounded log |
+| `verify` | Check/acceptance ID, outcome and current validity | Candidate, receipt, closure/reuse proof and evidence refs |
+| `state` | Register version and changed-section count | Validated patch and register diff |
+| `task` | Question, delegation, collection or proposal | Typed request, authority response, child lineage and packet availability |
+| `kb` | Search/get/propose/skill action | Note kind, scope, provenance, admission status and freshness |
+
+Use result-envelope status; model commentary cannot overwrite it. Surface `truncated`, `redacted`, `effects unknown`, stale-version and instruction-shaped-content flags where supplied. Filters cover Conversation, Tools, Checks, Decisions, Problems and role. Loaded-item search reports its range; whole-campaign search is paged and reports completeness. All items support Copy link.
 
 ### 6.2 Agent Overview
 
@@ -364,6 +437,21 @@ The active cell expands in place to show `model → tool batch → observation`.
 
 **Graph controls:** Fit, Follow active, selected lineage, time range, and list view. Default shows current increment and immediate dependencies; expand completed groups. Disable Follow active when the user pans or selects history. S3 exposes “3 active cells” instead of suggesting one active agent.
 
+**Visual grammar:** deterministic services use squared outlines; model cells use rounded outlines; stores use a double top rule. Labels and icons remain authoritative. Keep topology stable within a shape and reserve child slots to prevent movement when events arrive. At most three expanded child lanes are shown initially; the rest are listed. A selected cell can show a small Model/Read/Edit/Execute/Metadata strip and its last 12 turns. Turns and context meters indicate consumption, not completion.
+
+**Working register (STATE):** a tab below the graph shows the latest captured register, its source version, and history. It shares space with Activity rather than creating a permanent extra panel.
+
+| Register section | Presentation |
+|---|---|
+| Plan | Done/current/pending/cancelled marks, dependencies and acceptance refs |
+| Facts | Hypothesis / recorded verified / refuted; anchors, evidence refs and staleness |
+| Decisions and dead ends | Decision, recorded rationale, rejected option and reopen condition |
+| Open, Focus, Amendments, Next | Unresolved question, current scope, pending proposal and next recorded action |
+
+STATE is a model-maintained, validated artifact. A fact tagged verified in STATE is not independently accepted by the verifier; distinguish that tag from check receipts and requirement acceptance. Show exact captured records and their evidence instead of generating an extra model summary. Historical missing fields stay “Not captured.”
+
+**Replay:** use the same pure projection reducer for live and retained normalized events. A historical position reproduces captured state at its recorded revision; it cannot reconstruct unrecorded thoughts, transient events or text. Store periodic reducer checkpoints only when replay cost warrants them. Jump to live replaces historical selection without mutating the campaign. Gaps are visible and never filled with fabricated animations.
+
 ### 6.3 Contract and requirements
 
 An inspector shows verbatim objective and amendment history; constraints and exclusions; write/protected scopes; acceptance items `run / check / review`; dependencies; ledger status; and source authority.
@@ -385,6 +473,19 @@ Default table columns: Check, Scope, Outcome, Current validity, Candidate, Count
 Filters: Required, Failed, Stale, Running, All. An empty run that discovered no tests must be distinct from a passing suite. Show pre-existing failures only with linked baseline evidence. Refactor mode exposes `red_ok_until` and its expiry; temporary red does not remove final acceptance.
 
 Receipt detail includes command/argv, cwd, environment, verifier/check definition versions, contract revision, input closure, before/after stamps, parsed counts, raw-output reference, redaction/capture limits, and any reuse proof. Retain older results; do not repaint an old receipt green for the new tree.
+
+Provide an **Acceptance matrix** linking requirement → obligation version → receipt/review → candidate → current validity. Separate executable checks, evidence assessments and signed reviews. An acceptance run passing does not independently close an increment; the ledger transition comes from core.
+
+| Evidence layer | Detail shown when produced |
+|---|---|
+| L0 | Syntax, types and lint; absolute counts and deltas |
+| L1 | Unit, impact/blast and acceptance runs |
+| L2 | Integration, full suite, quality gates and combined S3 candidate |
+| L3 | Product-use cases, expected/observed behavior and artifacts |
+| L4 | Measurement workload, environment, variability and limits |
+| L5 | Independent review, signer, coverage and findings |
+
+Unavailable layers remain labeled by capability. Review outcomes retain the core vocabulary, including insufficient evidence. An Integrity inspector pairs each test deletion, assertion weakening, skip/config/snapshot change or unknown weakening risk with the original obligation, justification and resolving verdict. A failed required check remains failed regardless of review prose.
 
 ### 6.6 Context and knowledge
 
@@ -426,6 +527,22 @@ Price uncached input, cache reads, each cache-write class, and output once each.
 Progress counts are provisional. AI Gate `Usage.finalForCall() == false` means output may still grow; the adapter maps that output dimension to unknown. Render core `BillableUsage` and its frozen price table for campaign totals. SDK retry attempts belong inside one invocation and must remain distinct from campaign `attemptId`; correlate transport diagnostics using `astrolabe.invocation` and `astrolabe.profile` tags. [A33][A39][S19][S21]
 
 Routing inspector shows function, required tier, selected profile/effort, price/calibration date, risk floor, excluded alternatives and refusal reason where captured. Missing traces display “Not captured in this runtime version”; a profile switch is recorded, not silently animated.
+
+**Analytics:** default to this campaign, with project/time-range aggregation available. Every aggregate states its covered attempts, observation window and completeness. Use core invocation accounting for spend; SDK request telemetry supplies provider diagnostics.
+
+| View | Metric/source | Display and limitation |
+|---|---|---|
+| Spend | `Accounting.calls/totals`, dated prices | Known cost over time and disjoint token-dimension bars; coverage such as “118 of 121 calls fully priced” |
+| Outcome economics | Ledger + accounting | Cost per currently accepted requirement with explicit numerator scope; undefined at zero acceptance; incomplete if any included cost is unknown |
+| Cell behavior | Captured cells, turns, rebuilds and boundary records | Turns/cell, continuations/increment and rebuild reasons; report denominator and sample count |
+| Verification | Receipts + journal | Outcomes by layer and candidate; current/stale/inconclusive separated |
+| Recovery and routing | Recovery boundaries + `routing_log` | Failure classes, repairs, escalation and selected profiles; unavailable traces labeled |
+| Human interventions | Host interaction records | Pending count and response latency; unanswered items excluded from latency distributions and counted separately |
+| Execution timing | Captured `span.*` + trace projection | Indented duration bars; wall time separate from summed worker time; exclusive cost for totals, inclusive cost for inspection |
+| Provider health | Correlated SDK listener telemetry | Latency, first-output time, retry count and error category; coverage and provider-retry identity shown |
+| Knowledge | Supported KB health projections | Admission, citation and freshness counts; missing producers yield “Not measured” |
+
+Chart rules: lines for time, horizontal/stacked bars for known quantities, indented bars for spans. Use the accent for selection/primary series and neutrals for the rest; failure/stale markers retain text labels. No 3-D or pie charts. Every chart has a table and explicit units/timezone. An unknown amount has no numerical segment width: show a separate unknown badge/region and known subtotal. Do not fabricate a total or proportional share. Cache-hit rate is diagnostic; it does not establish lower cost or better outcomes. Critical-path/concurrency claims require sufficiently complete span capture.
 
 ### 6.9 State and error treatments
 
@@ -577,10 +694,10 @@ Fixture only; it does not recommend this dependency. On a revision change, repla
 │ Settings             │ Roles / implementing                                  │
 │ Appearance           │ Project: payments · Override inherited settings       │
 │ Connections          │                                                        │
-│ Model profiles       │ Profile prior      High                  SDK default   │
-│ Roles                │ Permission         Local commit ▾       Override      │
+│ Model profiles       │ Tier prior         High                 Declared role  │
+│ Roles                │ Permission         Local commit         Read-only     │
 │ Execution            │ Effective ceiling  Patch                Task contract │
-│ Verification         │ Tool operations    38 allowed / 2 masked    Inspect    │
+│ Verification         │ Tool operations    Declared role mask       Inspect    │
 │ Context & knowledge  │ Persona            2 of 3 lines                       │
 │ Integrations         │ Policy text        roles/project-payments/1            │
 │ Advanced             │                                                        │
@@ -591,7 +708,7 @@ Fixture only; it does not recommend this dependency. On a revision change, repla
 └──────────────────────┴────────────────────────────────────────────────────────┘
 ```
 
-Counts are illustrative. Production values must come from the backend's effective role projection. Restrictions on role fields remain those in section 8.
+Values are illustrative. The current role editor changes wording only; permission and tool-mask rows are inspections. A later narrowing editor requires G09 runtime enforcement. Active values must come from the backend's effective role projection.
 
 ### 7.7 Reproducible prototype scenarios
 
@@ -611,6 +728,9 @@ Implement the later clickable prototype with these fixtures, each switchable fro
 | P10 Superseded answer | Open approval v1 → amend to v2 → submit v1 response | Conflict; no authorization effect |
 | P11 Recovery | Restart host with an unknown process effect | Honest unknown/lost state; no automatic repeat |
 | P12 Layout/accessibility | Dark/light; reduced motion; keyboard-only; 720px height | Reachable composer, focus, legible data and list alternative |
+| P13 Signal coverage | Suppress check/budget bus events; interleave two works; restart bus numbering | Journal/projections converge; no false per-work gap or cursor collision |
+| P14 Lease and publication | Wait past lease expiry; submit an old answer; restart before publishing | Expiry remains explicit; reply revalidated against a recovered request; unsupported publication stays disabled |
+| P15 Configuration honesty | Inspect dormant Defaults and role permission; edit allowed role wording | Ineffective controls are read-only; actual wording change applies at the next attempt |
 
 ### 7.8 Accessibility and keyboard behavior
 
@@ -632,7 +752,7 @@ Resolve core values as **ASTROLABE defaults → host defaults → project overri
 - Credentials rotate through the credential store. Rotation changes auth material, not provider identity or the frozen model policy. Expose revoked/expired credentials as failures; do not switch identities silently.
 - Task budget or authority amendments require dedicated validated core operations. They are not general mutable settings.
 
-Each settings descriptor contains `key, type, label, group, unit, default, enum/range, secret, nullable, scope, activation, sourceSymbol, availability, unavailableReason`. Validate using `Config.violations()`, `AiGateAdapter.violations(llm, profiles)`, `ProvidersConfig.validate(...)` and SDK builders; surface `adapter.warnings()` separately. Frontend constraints are only early feedback. A schema coverage test must account for every serializable public field of `Config, Defaults, Flags, ShapePolicy, ProfileRoles, Role, Profile` and their supported nested value types, plus the versioned `gate` block. [A33][A35][S20]
+Each settings descriptor contains `key, type, label, group, unit, default, enum/range, secret, nullable, scope, activation, sourceSymbol, consumerSymbol, availability, unavailableReason`. Availability is `editable | read_only | host_managed | declared_unwired | unsupported`. Validate using `Config.violations()`, `AiGateAdapter.violations(llm, profiles)`, `ProvidersConfig.validate(...)` and SDK builders; surface `adapter.warnings()` separately. Frontend constraints are early feedback. A schema coverage test accounts for every serializable public field of `Config, Defaults, Flags, ShapePolicy, ProfileRoles, Role, Profile`, supported nested values and the versioned `gate` block. A consumer/behavior test is required before a field becomes editable. [A33][A35][S20]
 
 ### 8.2 Main settings pages
 
@@ -652,29 +772,24 @@ Each settings descriptor contains `key, type, label, group, unit, default, enum/
 | Advanced | Full validated values, import/export redacted config, snapshot diff, policy availability | No raw executable code or secret export |
 | Storage & diagnostics | State-root location, export/retention policy, logs, runtime/SDK versions, graceful shutdown | Host-managed; migration/restart where required |
 
-Default profile-role IDs are `main="main", helper="helper", escalation=null`. Referenced non-null IDs must exist; the default empty profile map is not a runnable configuration. Choosing “No helper” explicitly sets nullable helper rather than leaving a dangling default.
+Default profile-role IDs are `main="main", helper="helper", escalation=null`. Referenced non-null IDs must exist; the default empty profile map is not a runnable configuration. A null helper declaration avoids a dangling profile reference. The inspected `profileRoles.helper/escalation` reads are validation-only, while `main` selects the facade's main profile. Keep helper/escalation assignments read-only until a runtime consumer is qualified; do not describe null as disabling all helper cells. Effective routing comes from the controller/router projection, not those labels. [A05][A07]
 
 ### 8.3 Role editor
 
-Expose each current `Role` field:
+The current runtime applies wording overrides through `RoleTexts.worded`. Show the full role schema, with this disposition:
 
 | Field | Control / constraint |
 |---|---|
 | `name` | Read-only declared identity; no arbitrary new runtime duties |
-| `contextView` | Advanced supported context-part selection; explain required role inputs |
-| `noteScope` | Note kinds allowed in role context |
-| `skillFilter` | Admitted skill IDs/tags, including `*` where supported |
-| `toolMask.allowed` | Operation checklist, only narrowing the default role mask |
-| `permission` | Stage ceiling, at or below role default; effective contract ceiling shown beside it |
-| `tierPrior` | Supported tier; display routing floors and effective selection separately |
-| `duties` | Versioned policy text; protected operational duties cannot be removed by UI presets |
-| `askBack` | Boolean subject to role/core validation |
+| `contextView, noteScope, skillFilter` | Read-only declared inputs; configured structural overrides are not consumed by the current wording path |
+| `toolMask.allowed, permission, deniedNoteKinds` | Read-only effective restrictions; validation of proposed narrowing is insufficient to enable editing |
+| `tierPrior, askBack` | Read-only declared role behavior; routing floors shown separately |
+| `duties` | Editable wording subject to core validation; preserve required operational duties |
 | `packetKind` | Read-only; override cannot change it |
 | `personaLines` | Zero to three concise lines; inline validation |
 | `policyTextVersion` | Host-generated version on saved text changes; included in snapshot |
-| `deniedNoteKinds` | May retain/add restrictions; cannot remove default denied kinds |
 
-Advanced fields are exposed only when core validation and runtime behavior support them. Preserve the role kernel and required role texts. Editing “review” must not give it the proposer's transcript or permission to accept its own implementation. Curator admission remains deterministic ownership; “extractor” does not become a second admission authority. [A06]
+G09 may enable structural narrowing after proving the runtime uses it. It must never widen a default mask, raise permission, change packet kind or re-grant denied notes. Preserve the role kernel and independent review context; wording cannot grant authority, accept work or bypass gates. Curator admission remains deterministic ownership. [A06][A45]
 
 ### 8.4 Complete current Defaults inventory
 
@@ -703,6 +818,8 @@ Never equate `alpha` (context pressure) with overall task progress. All reserves
 
 The effective digest cap is `min(base + perRequirement × count, max(base, ceiling))`; zero per-requirement growth pins the base. The fallback checker deadline applies when a touched-file selector expands to project scope. Provider terminal wait is a settlement bound, separate from AI Gate's connect/idle/total deadlines.
 
+**Declared but unwired at this source baseline:** a property-read scan outside `Defaults.kt` found no reads of `probeTurns, probeTier, reviewTier, reviewRoutineTier, reviewLookMax, reviewCampaignTokens, runTimeoutSeconds, flakyIsolatedReruns, injectionMaxNotes, injectionMaxTokens, noteBodyMaxTokens, noteSummaryMaxChars, seedsMaxTokens, factLineMaxChars, campaignRecoveryReserve, admissionConfidenceMax, m`. Keep them visible as read-only declarations with “No runtime consumer found”; do not claim their displayed values control execution. A static scan is a warning, not a behavior proof: recheck direct/indirect consumption and add a focused behavior test before enabling each field. Some runtime modules use their own constants. This qualification applies to the inventory above and imported settings.
+
 ### 8.5 Optional flags and integration prerequisites
 
 All Boolean flags below default to `false`; `kbInjection` defaults to `Off`. Show enabled, installed, qualified, and active-for-this-attempt as separate facts.
@@ -724,7 +841,7 @@ All Boolean flags below default to `false`; `kbInjection` defaults to `Off`. Sho
 | `worthTestEstimate` | Advisory delegation economics; not dispatch authority |
 | `kbInjection` | `Off / Frozen / Live`; does not remove mandatory in-scope contract knowledge |
 
-`OptionalLayers` currently takes `outlines, dense, tools, mounts`. Other flags may have lower-level seams without facade wiring; G09 must determine supported bindings individually. Do not treat every flag as an installed host integration.
+`OptionalLayers` currently takes `outlines, dense, tools, mounts`. The source proposals identify `languageService`, `asyncChecker`, `l4Gates`, `skillsPromotion` and `worthTestEstimate` as absent or limited in the controller path; verify their consumers individually in T18. MCP catalog presence does not supply an `McpClient` to `Run`. QA, curator and some telemetry/export operations are host-invoked; the host must provide their execution path. Other flags may have lower-level seams without facade wiring. G09 tracks each binding and qualification separately.
 
 ### 8.6 Policies, authority, and settings limits
 
@@ -847,11 +964,13 @@ AI Gate exposes `CredentialStore` with memory/file implementations and scoped vi
 
 Secrets do not enter URLs, browser local storage, exported settings, transcripts, general WebSocket replay, analytics, error text, or logs. Secret entry uses a private HTTPS/loopback POST; the response returns only status/credential reference. Auth notices and device codes use a private, bounded, non-replayed channel and expire with the flow.
 
+If the OS secret store is unavailable, offer session-only credentials or an explicitly unlocked encrypted store with a separately protected key. Do not describe encryption as a fallback while requiring the missing vault to hold its key. Persisted-secret availability is a host capability with an explicit failure state.
+
 ## 10. Backend architecture
 
 ### 10.1 Stack and packaging
 
-Use **Angular 22.2.0**, rechecked as the npm `latest` release on 2026-09-29, and **Java 26 + Spring Boot 4.1.1**, the stable version shown by the inspected Spring documentation. Recheck stable versions when scaffolding, pin all selected versions, and record the date. No prerelease is required. Angular 22 is active; its Node/TypeScript compatibility must follow the selected CLI package and the official version table. Choose a supported Node 24 release at or above 24.15.0 for this baseline. [Angular releases](https://angular.dev/reference/releases), [Angular compatibility](https://angular.dev/reference/versions), [Angular package metadata](https://registry.npmjs.org/@angular/core/latest), [Spring Boot requirements](https://docs.spring.io/spring-boot/system-requirements.html).
+Use the latest stable Angular available when T01 begins and a stable Spring Boot release compatible with the libraries' **Java 26** target. Pin Angular/CLI/Node/TypeScript and Spring/Java/Gradle as a tested set, record the resolution date, and compile a Java consumer before selecting the stack. This synthesis does not revalidate the original documents' framework patch-version claims. Check [Angular compatibility](https://angular.dev/reference/versions) and [Spring Boot requirements](https://docs.spring.io/spring-boot/system-requirements.html) during T01.
 
 Both inspected libraries target JDK 26, so a Java 21 host cannot simply load them. Keep Kotlin inside ASTROLABE and the adapter where needed; author the Spring backend in Java as requested. Spring Boot's documented Gradle 9.x support fits the current builds; prove dependency/bytecode compatibility in the first implementation slice.
 
@@ -894,6 +1013,8 @@ Maintain one opened project owner and one active campaign per canonical reposito
 - Serialize outbound sends per WebSocket session; Spring documents this requirement and provides `ConcurrentWebSocketSessionDecorator` as one option. [Spring WebSocket API](https://docs.spring.io/spring-framework/reference/web/websocket/server.html)
 - On shutdown: stop admission; request cancellation; await recorded settlement within a configured deadline; mark unresolved operations for reconciliation; close subscriptions/runtimes; then close projects/stores and borrowed resources according to ownership. Do not close a project while its campaign still uses it.
 
+Normal **Quit and stop tasks** follows this cancellation contract. A separate **Interrupt for later recovery** action is unavailable until core exposes and tests it. Cancelling an internal coroutine is not by itself a durable pause protocol; unplanned crashes may leave lost cells, processes or unknown effects. Browser close only disconnects the viewer. A publication window also keeps its owning resources alive until published, dismissed or safely invalidated.
+
 `AstrolabeJava`'s provider-module overload defaults `ownsAdapter=false`; `AiGateAdapter` defaults `ownsLlm=false`. Assign each resource one closer. `ownsAdapter=true` makes core wait up to `providerTerminalWaitSeconds` before closing the adapter; deadline expiry still requires incomplete-usage reporting. [A07][A21][A33]
 
 ### 10.4 Durable facts and delivery
@@ -920,6 +1041,46 @@ The existing adapter starts calls with `Llm.start(...)`; the SDK consumes the st
 Before the UI marks an assistant message final, link it to the persisted canonical response/journal reference. Replace provisional text with canonical text on finalization or reconnect. Complete tool calls go through core journaling, validation, permissions, and dispatch; partial tool-call JSON never executes.
 
 Cancellation uses the existing terminal reconciliation path. Cancelling an SDK reply future is not evidence that billing or server computation stopped; `LlmCall.outcome()` survives cancellation. Preserve late usage and output for accounting without executing late calls, and retain unknown usage when the core's settlement deadline expires. Keep errors, refusals, truncation, and unknown outcomes distinct. [A20][A39][A40][S18]
+
+### 10.6 Projection and narrative sources
+
+Use the event bus for liveness, the journal for durable narrative, and owner projections for current state. Their cursors and lifetimes differ. The following source map defines G03's required read coverage; raw table names describe provenance, not a browser API or authorization to write core SQL.
+
+| Projection | Canonical source | Refresh / missing-data rule |
+|---|---|---|
+| Campaign and contract | Campaign/attempt records, contract/requests, graph and ledger | Lifecycle/contract invalidation; keep attempts separate |
+| Conversation | Journal `call, result, edit-intent, edit-outcome, check, nudge, boundary, intent, reconcile`; authorized requests and host interactions | Incremental journal read plus typed markers; load bodies by safe artifact reference |
+| Cells and STATE | Cells/turns, `register_versions`, workset exports and manifests | Cell/register/workset/rebuild signals; no invented historical anchor |
+| Changes | Edit outcomes, recorded snapshots/checkpoint touched paths, permitted diff artifacts | Tool result/journal update plus candidate refresh; reconcile external changes |
+| Checks and acceptance | Checks, receipts, contract obligations and ledger | Journal check/receipt updates and candidate changes; validity computed by the verifier |
+| Processes and intents | Handles, intent records, core-owned logs/status | Tool results plus bounded active-process refresh; silence does not mean exit |
+| Delegation/integration | Dispatch/collection records, captured child packets and integration/review packets | Missing packet body is explicit; stale result never enters acceptance by UI inference |
+| Routing/recovery | `routing_log`, typed recovery/attempt journal boundaries | Journal refresh; show only captured decisions |
+| Knowledge | Notes, queue, revisions, usage and supported curator reads | Host operation completion and KB invalidation; `Project.kb=EmptyKb` is insufficient |
+| Usage and traces | Core invocation usage + captured spans; SDK diagnostics joined by invocation | Responses/terminal reconciliation; missing spans limit timing claims |
+| Finish and publication | Digest-linked finish PACKET/export, publication journal and owner state | Validate work/attempt/candidate; empty `Views.finishReceipt` is not authoritative absence |
+
+Each timeline item has a stable `itemId` and typed source reference. Journal rows use `(projectId, workId, journalSeq)`; interaction and request items retain their own IDs. Multiple items may relate to the same journal position. Order presentation by committed host stream cursor with causal source links; do not deduplicate different sources using journal sequence alone or claim exact cross-source wall-clock order.
+
+Coalesce reads after event batches and reconcile active work periodically to discover durable changes that emit no event. Keep transactions short; large diffs and log shaping run outside the core read lock against captured refs. The reconciliation interval is bounded and configurable, not a tight polling loop. Persist the source checkpoint only with the corresponding host projection/outbox update. Mark derivations `recorded | derived | reconstructed` and record missing capture.
+
+### 10.7 Minimal host persistence
+
+One small host SQLite database is sufficient. These records define ownership and recovery needs; do not create extra services or duplicate canonical evidence.
+
+| Record / key | Contents |
+|---|---|
+| Project / canonical repository identity | Host ID, display metadata, authorized root, core state location |
+| Campaign index / project + work | Rebuildable summary, title/archive metadata and core refs |
+| Projection / stream | Snapshot body, core revision, source checkpoints and matching cursor |
+| Outbox / stream + cursor | Safe normalized events, event ID, provenance and optional bus epoch/sequence |
+| Command / principal + command ID | Canonical request hash, target/preconditions, operation state, safe result and owner receipt ref |
+| Interaction / request ID | Typed request, work/attempt/candidate/revision, lifecycle, actor/reply and recovered binding state |
+| Settings / scope + revision | Secret-free values, override provenance and fingerprint |
+| Draft / owner + draft ID | Request/controls, revision and retention preference |
+| Connection/profile / ID + revision | Secret-free definitions, credential reference, validation and qualification evidence |
+
+Auth workers, futures and notice buffers are ephemeral; only safe flow status may persist. Restart expires unfinished flows. Event retention may prune delivery rows, but command tombstones and core evidence follow their own retention rules. Migrations and backup/restore cover host data separately from the core stores. Refuse incompatible core schemas with a clear diagnostic.
 
 ## 11. WebSocket protocol
 
@@ -961,8 +1122,8 @@ Example subscribe and domain event:
   "seq": "482",
   "eventId": "evt-482",
   "at": "2026-09-28T10:30:00Z",
-  "source": "core",
-  "name": "check.finished",
+  "source": "derived",
+  "name": "projection.changed",
   "ids": {
     "projectId": "p-1",
     "workId": "w-123",
@@ -975,6 +1136,7 @@ Example subscribe and domain event:
   "contractRevision": 3,
   "projectionRevision": "77",
   "payload": {
+    "projection": "checks",
     "checkId": "CHK-cache",
     "receiptRef": "receipt-17",
     "outcome": "passed",
@@ -1055,28 +1217,32 @@ Unknown commands are rejected. Capability-gated commands return `UNSUPPORTED_CAP
 
 Server snapshot refresh is reconciled with the core revision as described in section 10.4. The browser must not implement receipt validity itself to “catch up.”
 
-### 11.6 Event mapping
+### 11.6 Signal availability and refresh mapping
 
-| Existing core events | UI projection |
-|---|---|
-| `campaign.opened / shape_selected / increment_selected / increment_closed / finished` | Header, graph, session status, final receipt |
-| `contract.amended / amendment_proposed / amendment_resolved` | Contract timeline, composer notices, pending proposal |
-| `cell.started / turn_started / model_requested / model_responded / ended` | Active role, turn, invocation, packets |
-| `cell.model_progress` | Invocation started/output/retrying status and provisional counts; no text or completion claim |
-| `cell.tool_called / tool_resulted` | Tool groups and result artifact references |
-| `cell.gate_fired / register_patched / workset_changed / rebuilt` | High-level progress, context inspector, coherence notices |
-| `edit.applied / rejected / reverted / transformed` | Changes and candidate refresh |
-| `run.started / output / finished / reconciled` | Process list and cursor-based output retrieval |
-| `check.scheduled / started / finished / stale` | Verification table and validity refresh |
-| `ask.question / answered; blocked; warning` | Attention state; authority callback supplies full pending item |
-| `budget.reserved / reconciled / exhausted` | Consumption/reserve display |
-| `routing.decided` | Function/tier/profile explanation |
-| `delegation.dispatched / collected / rejected` | Child cells, returned packets, integration state |
-| `recovery.classified / repaired / escalated` | Recovery branch and failure explanation |
-| `kb.proposed / admitted / invalidated` | KB status and freshness |
-| `span.started / ended` | Durations/phase diagnostics; avoid double-counting nested cost |
+This table distinguishes **emitted in the inspected controller path**, **host-invoked**, and **declared/optional**. The wire protocol carries normalized projections and provenance. Adding a producer later must not duplicate an existing derived timeline item.
 
-Proposed host events include `projection.changed, interaction.pending/resolved/superseded, command.result, connection.status, auth.notice, settings.saved, resync.required`; `auth.notice` is private and never enters the durable replay stream. Proposed adapter presentation events include `model.text.delta / model.text.final / model.text.interrupted`. These names are the new UI protocol, not claims about existing `AgentEvent` variants.
+| Signal/source | Baseline availability | UI refresh |
+|---|---|---|
+| `campaign.opened / shape_selected / increment_selected / increment_closed / finished` | Emitted | Campaign/graph/ledger; resolve finish artifact |
+| `contract.amended / amendment_proposed / amendment_resolved` | Emitted when that operation runs | Contract, proposal state and composer revision |
+| `cell.started / turn_started / model_requested / model_progress / model_responded / ended` | Emitted; progress has counts/status only | Cell/turn/invocation, usage and canonical response; missing packet refs remain missing |
+| `cell.tool_called / tool_resulted` | Emitted | Relevant tool family and journal tail; use result status, not inferred success |
+| `cell.gate_fired / register_patched / workset_changed / rebuilt` | Emitted | STATE, context, coherence and boundary rows |
+| `ask.question / answered`, `blocked`, `warning` | Emitted | Attention/status; full typed request comes from the authority bridge |
+| `delegation.dispatched / collected / rejected` | Emitted on supported delegation paths | Children and returned records; refresh integration state separately |
+| `run.reconciled` | Emitted on reconciliation | Intent outcome and recovery state |
+| `kb.proposed` | Controller path | Knowledge proposal/queue |
+| `kb.admitted / invalidated` | Host-invoked curator with the event bus | Knowledge freshness and admission; refresh after all curator commands even without an event |
+| `span.started / ended` | Emitted where spans are instrumented | Trace projection; no assumption that every phase has a span |
+| `check.started / finished`, `budget.reserved / exhausted` | Optional producers exist; controller-created Checker/CellBudget omit their event sink | Read journal checks/receipts, usage/reserves and campaign outcome; never wait for these signals |
+| `edit.applied / rejected / reverted / transformed` | Declared; no producer established in inspected normal path | Derive safe summaries from edit outcomes/snapshots |
+| `run.started / output / finished` | Declared; no producer established in inspected normal path | Handles, logs, tool results and active-process refresh |
+| `check.scheduled / stale` | Declared | Owner check/validity projection; relevant workspace change triggers refresh |
+| `routing.decided`, `recovery.classified / repaired / escalated`, `budget.reconciled` | Declared; no producer established in inspected normal path | Routing/journal/usage projections and explicit unknowns |
+
+`Checker.Finished.receiptRef`, when emitted, currently receives `result.resultId`; do not assume it is the receipt primary key. Resolve through the check/receipt projection. [A43] Track bus gaps before work filtering and include a bus epoch: sequence discontinuities in a filtered campaign stream may simply belong to other work. Host durable stream cursors are independent (section 11.2).
+
+Proposed host messages are `projection.changed`, `interaction.pending/resolved/superseded`, `command.result`, `connection.status`, `settings.saved` and `resync.required`. Auth notices/prompts stay on a private non-replayed channel. Proposed text presentation messages are `model.text.delta/final/interrupted`; they are not existing core events. Future unknown event variants trigger safe refresh rather than invented status or actions.
 
 ### 11.7 Flow control
 
@@ -1167,6 +1333,9 @@ These are minimum required fields; publish machine-readable schemas in the first
 | `KnowledgeDto` | note ID/version/kind, scope/status/freshness, summary, anchors, provenance, evidence, supersession and module refs |
 | `ConnectionDto` | ID/preset/endpoint, protocol, credential status/source label, available methods, last diagnostic, qualification |
 | `ModelDto` | provider/model/API, limits, protocol features including output-cap enforcement, adapter availability, supported/unsupported/unknown capabilities, reasoning levels, field descriptors, catalog source/date |
+| `RegisterDto` | IDs, register version, capturedAt, typed plan/facts/decisions/deadEnds/open/focus/amendments/next, evidence refs, token count and completeness |
+| `MetricDto` | metric ID, value or null, unit, population/denominator, time window, included attempts, source refs and known/partial/unmeasured state |
+| `CapabilityDto` | ID, implemented/installed/qualified state, enabled for attempt, prerequisites, reason and supported actions |
 
 Unknown enum values must be handled without crashing older clients. However, unknown authority or completion values fail closed: render “Unsupported state” and refresh capabilities rather than enabling an action.
 
@@ -1240,6 +1409,8 @@ All file reads, diffs, and mutation requests resolve through canonical project/w
 
 Keep trusted rules separate from repository/model/tool text. A knowledge note or streamed assistant sentence cannot grant a permission. Approval binding includes user, pending request, work, attempt, revision, and where relevant candidate, target and expiry.
 
+Artifact reads use an allowlist and content policy. Recovery preimages and opaque native provider replay state are never served directly, even when a digest is known. Server-side diff generation may use protected source material internally and returns a bounded, redacted presentation. Logs use opaque cursors over source positions; account for UTF-8 boundaries and secrets split across chunks before returning text. Redacted text length is not a source byte offset.
+
 Stopping a campaign must prevent new tool dispatch and publication while settling prior effects. Error dialogs must not offer an unsafe “Retry anyway” for an unknown external effect.
 
 ### 14.3 Recovery and multi-tab behavior
@@ -1266,11 +1437,9 @@ A dedicated embedded webview shell is a later packaging choice after proving fil
 
 ### 15.1 Implementation rules
 
-This section is the authoritative plan. [tasks/plan.md](tasks/plan.md) is its execution index; [tasks/todo.md](tasks/todo.md) tracks implementation tasks, initially unchecked. Completing this specification does not mark application implementation tasks complete.
+T01-T22 are the implementation sequence. Before coding, reconcile their scope with `tasks/plan.md` and `tasks/todo.md`; this synthesis does not modify those files or mark implementation complete. Keep proposed APIs and unsupported capabilities explicit.
 
-Implement small vertical slices with a visible outcome, deterministic fixture, and focused verification. Keep proposed APIs marked until they exist. Reuse the integrated adapter and recheck it against this baseline before UI work; G01 now covers host wiring and qualification. The existing 22 task IDs remain unchanged.
-
-The module/file names below are proposed locations. Existing source conventions continue to govern changes within either library. New dependencies are pinned and justified in the application build. Do not mutate unrelated library code or their completed historical task records as part of creating the UI.
+Deliver thin slices with a visible result, deterministic fixture and focused verification. Follow repository conventions for library changes. Pin dependencies and justify additions. Existing AI Gate integration is reused; G01 covers host wiring and qualification. Protocol/schema changes update fixtures and generated types together. A release claims only capabilities whose owner APIs and acceptance gates pass.
 
 ### 15.2 Dependencies
 
@@ -1306,241 +1475,55 @@ flowchart TD
     T21 --> T22[T22 Desktop packaging]
 ```
 
-### 15.3 Phase A — contracts and reviewable prototype
-
-#### T01 — Prove version and library compatibility
-
-**Depends:** none. **Scope:** M; backend build, frontend package manifest, one Java consumer smoke test.
-
-- Pin supported Angular/CLI/Node/TypeScript and Spring/Java/Gradle versions; record resolution date.
-- Compile a Java consumer of the actual ASTROLABE facade and AI Gate dependency without provider calls.
-- Compile against the existing `:provider-ai-gate` module and the provider-module `AstrolabeJava` overload with the adapter's estimator factory; verify the conditional composite includes it.
-
-**Verify:** Java compile/classpath test and Angular production build. No credentials or network-dependent tests.
-
-#### T02 — Publish schemas and fixtures
-
-**Depends:** T01. **Scope:** M; `contracts/openapi.yaml`, WebSocket schemas, DTO generator configuration, fixture validator.
-
-- Define every active command/resource in sections 11–12, including failure and unknown states.
-- Generate TypeScript/Java transport types or validate handwritten records against one schema source.
-- Encode P01–P12 fixtures; schemas reject unscoped commands and inconsistent revisions.
-
-**Verify:** schema validation, JSON round trips, unknown-event compatibility tests; exact decimal and 64-bit cursor preservation.
-
-#### T03 — Implement the responsive shell
-
-**Depends:** T02. **Scope:** M; frontend shell/routes/theme and project/session fixture store.
-
-- Project/session navigation, route reload, search, dark/light theme and collapsed sidebar work.
-- No-project, no-model, busy-project and disconnected states have concrete actions.
-- At 1280×720 the composer region and navigation remain usable.
-
-**Verify:** production build and keyboard/layout browser checks on desktop/narrow layouts.
-
-#### T04 — Implement conversation and attention prototype
-
-**Depends:** T03. **Scope:** M; conversation, composer, pending-action components.
-
-- Render grouped tools, edits, checks, boundaries and partial output with stable IDs.
-- Composer modes preserve separate drafts; simulated answer/deny/amend commands update fixture state.
-- Superseded approval and cancellation settlement are visible.
-
-**Verify:** P01, P03, P06, P10; reload/draft and scroll-anchor checks.
-
-#### T05 — Implement Overview and evidence prototype
-
-**Depends:** T04. **Scope:** M; Overview, inspector, fixture check/diff projections.
-
-- S0/S2/S3 fixtures show distinct actual execution shapes with a list alternative.
-- Select node → evidence → diff/check works through stable references.
-- Stale evidence, unknown usage and reduced motion are represented correctly.
-
-**Verify:** P02, P04, P07, P09, P12; visual review at 1440×900, 1280×720, and 390×844.
-
-**Checkpoint A:** the prototype is fully navigable and labeled Demo data. Review the core workflow before expanding visual detail. A demo cannot be advertised as an integrated agent.
-
-### 15.4 Phase B — a real observable campaign
-
-#### T06 — Establish local host session and project ownership
-
-**Depends:** T02. **Scope:** M; backend application/bootstrap, Projects, host persistence, session filter.
-
-- Loopback session/pairing and Origin/CSRF checks work; unauthorized sockets fail.
-- Canonical repository registration deduplicates path aliases and reports the existing project lock.
-- A host owns and releases Project resources in the correct order.
-
-**Verify:** local integration tests for paths/locks/session; Windows and Linux project lifecycle tests.
-
-#### T07 — Add supported core read projections
-
-**Depends:** T06. **Scope:** core/read-API work, split into contract/ledger snapshot then artifact/process/KB projections.
-
-- Public atomic snapshot carries a durable revision and all necessary identity qualifiers.
-- Current receipt validity is returned by its owner; StoredRow bodies are mapped to typed DTOs.
-- Artifact reads are bounded, authorized, and redacted; missing capture is explicit.
-
-**Verify:** concurrent amendment/check snapshot consistency, per-attempt filtering, stale receipt and cross-project artifact denial tests. Compile Java consumers after public API changes.
-
-#### T08 — Implement replay and reconnect
-
-**Depends:** T07. **Scope:** M; EventBridge, host outbox, socket endpoint, Angular socket/store.
-
-- Subscribe, replay, deduplication, snapshot replacement and cursor expiry work.
-- Event-bus gaps and host restart reconcile from authoritative state.
-- Slow clients cannot stall campaigns or lose an approval silently.
-
-**Verify:** disconnect between snapshot and subscribe; dropped callback; outbox overflow; core commit before host crash; two-tab audience isolation.
-
-#### T09 — Add idempotent lifecycle commands
-
-**Depends:** T06. **Scope:** core facade and host dispatcher, split into start/cancel then dedup/preconditions.
-
-- Start uses stable command/work identity; one active campaign per project.
-- Core mutation receipts and host command results reconcile after crash.
-- Cancel settles to the actual outcome; duplicate start cannot create duplicate work.
-
-**Verify:** retry same key/body; same key/different body; concurrent start; crash before and after dispatch; repeated cancel during settlement.
-
-#### T10 — Implement provider connections and auth
-
-**Depends:** T06. **Scope:** M per slice; Connections, private auth flow, credential adapter, Angular forms.
-
-- API-key/environment status, supported OAuth/device-code flows and cancellation use AI Gate APIs.
-- Credential source/status and staged diagnostics are accurate; secrets remain private.
-- Model forms use FieldDescriptor and represent unknown capabilities.
-
-**Verify:** SDK fake provider and local OAuth issuer; prompt expiry; wrong-session callback; revoked credential; redacted export and log tests.
-
-#### T11 — Qualify the ASTROLABE transport adapter
-
-**Depends:** T10. **Scope:** host composition and qualification of the existing adapter (G01); extend adapter/core only for demonstrated gaps.
-
-- Reuse `AiGateAdapter`, `AiGateProfiles`, and existing offline protocol fixtures; verify host profile settings, estimators and resource ownership preserve core semantics.
-- Cancellation and errors preserve terminal usage and reject execution of partial/late calls.
-- One configured provider/model/API profile passes offline conformance before broadening provider support.
-
-**Verify:** existing `:provider-ai-gate:test` fixtures plus host wiring tests for pairing, truncation, unknown usage/history, unsupported capabilities, cancellation and explicit profile routing. `:provider-ai-gate:liveTest` is a separate billable opt-in; do not infer live qualification from offline success. [A33][A34]
-
-#### T12 — Connect the first campaign end to end
-
-**Depends:** T05, T08, T09, T11. **Scope:** M; CampaignHost, main frontend store, start flow.
-
-- Start request → contract → cell → edit/check → finish is driven by real backend state.
-- One tab can reconnect or a second tab attach without restarting work.
-- Completion comes from core outcome/receipt; model text cannot manufacture it.
-
-**Verify:** deterministic fake-provider repository fixture over real HTTP/WebSocket; one intentionally failing acceptance run and one successful run.
-
-**Checkpoint B:** real offline end-to-end campaign, consistent replay, current candidate-bound evidence, and honest failure/cancellation. Live provider integration remains separately qualified.
-
-### 15.5 Phase C — daily use and recovery
-
-#### T13 — Complete human interaction lifecycle
-
-**Depends:** T12. **Scope:** M; HostAuthority, pending-action persistence, attention UI.
-
-- Question, D-class decision, amendment resolution and human review have typed forms.
-- Resolve exactly one current request; stale or cross-user replies fail.
-- Disconnect/restart/expiry has an explicit blocked or rebound path.
-
-**Verify:** P03/P10 plus delayed reply after cancellation, simultaneous answers from two tabs, restart while awaiting authority.
-
-#### T14 — Bind amendments and all supported settings
-
-**Depends:** T13. **Scope:** separate M slices for contract controls, settings schema, roles/profiles.
-
-- Structured start/amendment data uses core authority APIs, not prompt-only enforcement.
-- Every current configuration field appears in the catalog as editable, read-only, host-managed or unavailable with reason.
-- Precedence, null/inherit, validation and frozen-attempt comparison work.
-
-**Verify:** settings coverage against source types; round-trip defaults; invalid reserves/missing profiles; role mask widening rejected; active attempt fingerprint unchanged after Save.
-
-#### T15 — Add streaming and process inspection
-
-**Depends:** T12. **Scope:** M; G06 presentation seam in the existing adapter/SDK call path, transcript finalization, process/log endpoint and viewer.
-
-- Reuse `cell.model_progress` immediately; add opt-in text delivery without a second call/stream consumer or a replacement invocation state machine. Partial text and final artifacts reconcile.
-- Process output follows cursors with truncation/redaction labels.
-- Handle cancellation uses the runner and settles honestly.
-
-**Verify:** interleaved parts, dropped deltas, overflow, partial JSON, cancellation during stream, lost process, bounded log retrieval.
-
-#### T16 — Complete changes and verification actions
-
-**Depends:** T12. **Scope:** M slices; diff/check UI plus G08 operation facade.
-
-- Pre-existing edits, agent changes and external changes retain provenance.
-- Check request and guarded revert validate candidate/version and preserve user work.
-- Baseline, zero-test, stale, closure-reuse and refactor-red cases display correctly.
-
-**Verify:** dirty-tree/revert fixture, external edit between preview/apply, unrelated edit reuse, related edit invalidation, no-tests case.
-
-#### T17 — Implement recovery and authorized new attempts
-
-**Depends:** T14–T16. **Scope:** core facade/recovery plus UI history, split by outcome.
-
-- Eligible waits resume existing work after reconciliation; unresolved intents use the evidence-backed G08 action under the configured Host/Automatic policy.
-- Cancelled/failed/exhausted cases offer only supported new-attempt/follow-up actions.
-- Configuration changes, prior cost and unknown effects remain visible across attempts.
-
-**Verify:** host restart during run and finalization, orphaned process, Host/Automatic reconciliation boundaries, stale reconciliation rejected, new profile boundary, no budget reset or duplicated command.
-
-**Checkpoint C:** everyday workflow is complete: configure → start → inspect → intervene → verify → recover. Required capabilities without a working owner API block release of that action.
-
-### 15.6 Phase D — advanced architecture and delivery
-
-#### T18 — Wire optional host integrations
-
-**Depends:** T14. **Scope:** one M slice per integration.
-
-- Bind only actual Java SPI implementations and show availability/health/qualification.
-- Freeze MCP/generated-tool catalogs and role policies at attempt boundaries.
-- S3/QA/LSP/telemetry flags cannot claim functionality when their host prerequisite is absent.
-
-**Verify:** missing adapter refusal, lexical/index fallback, changed MCP schema reapproval, mask/ceiling enforcement. Qualify each added integration independently.
-
-#### T19 — Complete knowledge and economics
-
-**Depends:** T17. **Scope:** separate M slices for knowledge and usage projections.
-
-- Actual KB records and curator proposal/admission lifecycle are accessible.
-- Context provenance and stale/unseen distinctions remain intact.
-- Usage includes all children/attempts without double-counting or treating missing dimensions as zero.
-
-**Verify:** stale-note exclusion, unauthorized admission refusal, mixed known/unknown billing dimensions, currency separation, zero accepted-task denominator.
-
-#### T20 — Complete S3 and staged publication
-
-**Depends:** T16, T18. **Scope:** separate M slices for S3 visualization and post-run publication.
-
-- Writer lanes, ownership, packet staleness, queue and combined checks match core execution.
-- Candidate-bound publication previews call the controller/publisher in stage order.
-- Stop/revision/candidate changes fence publication; missing deployer is explicit.
-
-**Verify:** disjoint writers, changed read dependency, integration failure, dirty user branch protection, stage-specific denial, cancellation before push. Use fake/local remotes only.
-
-#### T21 — Pass product reliability and accessibility gate
-
-**Depends:** T19, T20. **Scope:** M per failed concern; browser and backend integration tests.
-
-- All section 16 acceptance scenarios pass in real browser tests against the fake-provider host.
-- Dark/light, keyboard, reduced motion, screen-reader labeling and narrow layout pass review.
-- Backpressure, prolonged sessions, multiple tabs, secret redaction and recovery meet their contracts.
-
-**Verify:** focused suites plus production builds; browser console/network inspection; documented reference-machine performance run.
-
-#### T22 — Package desktop delivery
-
-**Depends:** T21. **Scope:** M per platform; launcher, runtime packaging and smoke tests.
-
-- Signed/versioned package strategy and local runtime assets documented; single-instance lifecycle works.
-- Native project opening and external auth browser return to the same session.
-- Quit settles active tasks or records an explicit recoverable interruption.
-
-**Verify:** clean-machine install/start/update/quit smoke on Windows and Linux, including offline UI load and project-path spaces/non-ASCII characters.
-
-**Final checkpoint:** all claimed capabilities are implemented and tested; unsupported optional integrations have clear explanations; no mocked success states remain in connected mode.
+### 15.3 Phase A - contracts and reviewable prototype
+
+| Task | Depends | Deliverable | Verification |
+|---|---|---|---|
+| T01 Compatibility proof | - | Pinned compatible toolchain; Java consumer of the actual facade/AI Gate adapter and estimator overload; assert the conditional adapter module is included | Java classpath/compile smoke and Angular production build; no provider calls |
+| T02 Schemas and fixtures | T01 | Versioned commands, REST/WS schemas, DTO types and P01-P15 fixtures; capability/availability metadata | JSON round trips, unknown variants, decimal/64-bit cursor preservation, invalid/unscoped command rejection |
+| T03 Responsive shell | T02 | Routes, project/session navigation, theme, persistent composer, empty/busy/disconnected states | Browser layout at desktop/narrow sizes, keyboard/focus and production build |
+| T04 Conversation and attention prototype | T03 | Stable turn/tool rows, draft modes, answer/deny/amend fixtures, supersession and settlement | P01/P03/P06/P10; reload, selection and scroll-anchor preservation |
+| T05 Overview and evidence prototype | T04 | S0/S2/S3 topology, STATE history, list alternative, graph-to-evidence navigation and chart tables | P02/P04/P07/P09/P12; dark/light screenshots at 1440x900, 1280x720 and 390x844 |
+
+**Gate A:** complete navigation and interaction fixtures, visibly labeled Demo data. Review the core workflow before expanding visual detail.
+
+### 15.4 Phase B - a real observable campaign
+
+| Task | Depends | Deliverable | Verification |
+|---|---|---|---|
+| T06 Local session and project ownership | T02 | Host persistence, secure pairing/session, canonical path registry, one project owner and lifecycle | Unauthorized socket/CSRF rejection; path aliases, locks and close order on Windows/Linux |
+| T07 Core read projections | T06 | G03 public atomic snapshot/revision; typed contract/ledger/check reads, safe artifacts, stable finish refs; extend to process/KB detail in later slices | Concurrent amendment/check consistency, stale receipts, attempt filtering, cross-project denial; Java consumer compile |
+| T08 Replay and reconnect | T07 | EventBridge, source checkpoints, transactional host projection/outbox, bounded gateway and client reducer | Snapshot-subscribe race, bus loss, epoch changes, overflow, core commit before host crash, two-tab convergence and P13 |
+| T09 Idempotent lifecycle | T06 | G02/G07 durable start identity, ordered dispatch, core receipts and cancellation settlement | Same-key duplicate/conflict, concurrent start, crash around mutation, unknown reconciliation, repeated stop |
+| T10 Connections and auth | T06 | Credential adapter, private expiring auth flows, model descriptors and staged diagnostics | Fake provider/OAuth issuer, wrong-session callback, expiry/revocation, redaction and unavailable credential-store behavior |
+| T11 Transport wiring and qualification | T10 | Existing adapter, estimators, validated frozen profiles, resource ownership and qualification state | Existing offline adapter fixtures plus host pairing/truncation/usage/cancellation/routing tests; liveTest separately opt-in |
+| T12 First connected campaign | T05, T08, T09, T11 | Real HTTP/WS campaign through fake-provider core, current evidence and finish; minimal JavaAuthority request/response support before any interactive run | Success and failed acceptance; pending ask/deny; second viewer/reconnect; model prose cannot manufacture completion |
+
+**Gate B:** a real offline campaign reaches the correct outcome through the integrated host. Basic authority handling is required here; T13 adds complete persistence/recovery behavior. Live provider readiness remains separately qualified.
+
+### 15.5 Phase C - daily use and recovery
+
+| Task | Depends | Deliverable | Verification |
+|---|---|---|---|
+| T13 Complete authority lifecycle | T12 | Typed questions, effect decisions, proposals and reviews; durable single-use responses; cancellation, expiry and recovered request binding | Simultaneous replies, wrong revision/owner, late reply, restart while awaiting authority; no text-prefix authorization |
+| T14 Amendments and settings | T13 | G08 structured contracts; preservation preview; complete settings catalog with consumer/activation audit; wording-only role editing until G09 qualifies more | Coverage/round-trip/merge tests, missing profiles, invalid reserves, dormant controls, role widening rejection, frozen attempt unchanged |
+| T15 Model progress and processes | T12 | Content-free progress, bounded redacted log cursors and core process cancellation; optional G06 text seam in the existing call path | Lost/truncated process output, redaction across chunks, dropped/interleaved deltas, cancellation, partial/late tool-call rejection |
+| T16 Changes and verification actions | T12 | Baseline/agent/external attribution, check request and guarded revert through G08 | Dirty-user-tree preservation, preview/apply race, related/unrelated edit validity, zero tests, refactor-red and reuse proofs |
+| T17 Recovery and new attempts | T14, T15, T16 | Supported reopen/reconciliation, lease visibility, history; new attempts only after owner implementation | Restart during run/finalization, lost process, stale/unknown effects, Host/Automatic boundaries, lease expiry, no duplicate effect or budget reset |
+
+**Gate C:** configure, start, inspect, intervene, verify and recover work together. Ineligible terminal states offer a linked follow-up while new-attempt support is unavailable. Text deltas are optional; accurate progress and canonical messages satisfy the baseline conversation requirement.
+
+### 15.6 Phase D - advanced capabilities and delivery
+
+| Task | Depends | Deliverable | Verification |
+|---|---|---|---|
+| T18 Optional integrations | T14 | One qualified binding at a time: role narrowing, MCP, indexes/retrievers, QA, telemetry and other flags; frozen catalogs | Missing adapter refusal, consumer behavior, scope/mask/ceiling enforcement, changed schema approval and fallback behavior |
+| T19 Knowledge and economics | T17 | Supported curator/provenance workflows and metric projections with explicit coverage | Stale-note treatment, unauthorized admission, incomplete/mixed-currency usage, zero denominator, missing spans, child/retry accounting |
+| T20 S3 and publication | T16, T18 | Workspace-qualified writer lanes, integration queue and combined checks; G08 candidate-bound post-run publication | Stale packet/read dependency, integration failure, dirty baseline protection, stage denial, stop-before-push, expired lease/restart; fake/local remotes |
+| T21 Reliability and accessibility | T19, T20 | Applicable AC01-AC30 pass for claimed capabilities; recorded unsupported cases | Production builds, browser console/network, keyboard/screen-reader/reduced-motion/zoom, bounded stream soak and reference-machine performance |
+| T22 Desktop package | T21 | Same Angular/host contract, packaged runtime/native dependencies, single instance, picker, external auth and explicit quit behavior | Windows/Linux clean-machine install/start/upgrade/quit; paths with spaces/non-ASCII; offline UI; license/dependency inventory |
+
+**Release gate:** runnable instructions, capability matrix and recorded verification for the shipped scope. Advanced integrations may remain unavailable with reasons; connected behavior cannot substitute mock success. A future resume-after-interruption feature requires its own qualified core lifecycle contract.
 
 ### 15.7 Risk register
 
@@ -1590,6 +1573,9 @@ Remaining implementation choices are narrow: exact credential-store backend per 
 | AC25 | Compact two-pane workspace works in both themes, keyboard-only, reduced motion, 200% zoom | T03, T21 |
 | AC26 | Each protocol error and unsupported capability has a useful explanation and recovery action | T02, T21 |
 | AC27 | Windows/Linux launcher lifecycle follows actual process ownership; no hidden detached execution | T22 |
+| AC28 | Missing check/budget notifications, interleaved bus records and source epoch reset still converge through authoritative projections without false cursor gaps | T07, T08 |
+| AC29 | Dormant defaults and structural role overrides cannot be presented as effective edits; each enabled field has a verified consumer | T14, T18 |
+| AC30 | Expired leases, late answers and restart-before-publication cannot silently resume work, restore dead futures or bypass current publication evidence | T13, T17, T20 |
 
 ### 16.2 Test strategy
 
@@ -1616,98 +1602,48 @@ npm run e2e
 
 Define these frontend scripts during T01/T02; they do not exist in the current workspace. Use each library's existing focused tests and Java consumer compilation when changing its API. Run its required ABI checks before publishing updated library artifacts.
 
-### 16.3 Specification verification performed
+### 16.3 Verification scope of this synthesis
 
-This revision was checked against the current facade, events, authority interfaces, configuration/defaults/roles, controller lifecycle, provider contracts, the integrated AI Gate adapter and its fixtures, and SDK call/progress/usage/profile-form APIs. The two integration change plans were compared with the implementation; their proposed interfaces are not treated as current APIs. Official stack links were rechecked on 2026-09-29.
+The three documents were compared against the brief by topic, with targeted local-source checks for disputed claims. Both local repository HEADs match section 2.1. Checks covered bus sequence lifetime, checker/budget event injection, role wording application, dormant Defaults reads, snapshot visibility, amendment objective behavior, lease fencing, new-attempt refusal and finish-receipt persistence. A property-read scan does not prove every possible indirect consumer; T14/T18 must establish behavior before enabling controls.
 
-Validation results: local source links and internal heading anchors resolve; source-reference definitions and JSON examples validate; Markdown fences and table columns are consistent; all 22 task IDs still match the existing checklist. The configuration inventory includes the new policies, all 51 numeric `Defaults` values plus five `ShapePolicy` values, and every accepted `gate` member. Both library working trees remain unchanged. Runtime tests were inspected for coverage, not rerun for this documentation-only revision.
-
-Application builds, browser tests, visual contrast checks, and live provider tests are future implementation gates. The wireframes are design artifacts and fixture specifications; they are not evidence that those gates passed.
+Document validation covers UTF-8 byte size, local source links/internal anchors, reference definitions, fenced JSON, table structure, task/acceptance IDs and retained source-file hashes. The three input documents remain unchanged. No application build, browser/contrast test, library runtime suite or live-provider test is claimed. Current framework versions were not externally rechecked; T01 owns that verification.
 
 ## 17. Implementation request
 
-The following request can be given to an implementation agent with this document and the two library repositories.
-
 ```text
-Implement ASTROLABE Workbench using ASTROLABE_UI_DESIGN.md v1.0.1 as the
-product specification and acceptance contract.
+Implement ASTROLABE Workbench using BEST_CONCEPTS_MIXED.md mixed-1.0.
+Sections 1-18 are the product and acceptance contract; section 0 explains provenance.
 
-Goal:
-Build the compact Angular Web UI and Java Spring Boot host described in
-the document, including the two-pane conversation workspace, Agent Overview,
-current candidate-bound evidence, settings, provider authentication,
-human interactions, process inspection, usage, recovery and staged publication.
+First inspect repository instructions, the architecture entry map, current code
+and integration status. Resolve a supported Angular + Java 26/Spring toolchain
+in T01. Follow T01-T22 dependencies, beginning with schemas and a clearly labeled
+fixture prototype. Record completed checks and capability gaps in the task index.
 
-Source authority:
-Read ASTROLABE/SOTA-BEST-MIXED-AGENT.md and the relevant linked subsystem
-contracts. Inspect the actual code in ASTROLABE and llm-transport-sdk.
-Do not implement from the immutable historical sources/ documents.
-Recheck repository instructions and current integration state first.
-The source revisions in section 2 are the design baseline, not a guarantee
-that the checkout is unchanged.
+Keep scheduling, contract, acceptance, workspace effects, KB admission and
+accounting in their core owners. Reuse AstrolabeJava, JavaAuthority, AiGateAdapter
+and AiGateProfiles. Add the narrow G02/G03/G07/G08 owner APIs before enabling their
+controls. Use the event/journal/projection mappings and availability audit;
+declared events and validated settings are not proof of working behavior.
 
-Stack:
-Use the latest stable Angular at implementation time and a supported stable
-Spring Boot on Java 26, pinned with compatible CLI/Node/TypeScript versions.
-The design rechecked Angular 22.2.0 and Spring Boot 4.1.1 on 2026-09-29.
-Use WebSocket as the primary live/command transport and REST for snapshots,
-artifacts, paged resources and private credential entry.
+Build the compact two-pane Angular workspace, persistent composer, evidence-linked
+Conversation and Agent Overview, settings, authentication, processes, usage,
+recovery and staged publication. Follow section 7 tokens, wireframes and fixtures.
+Apply section 11 command identity, cursor, snapshot and unknown-effect rules.
+Preserve frozen attempts, scoped approvals, current evidence, honest missing data,
+secret boundaries and cancellation settlement. Text streaming is optional and
+must share the existing provider call and canonical response path.
 
-Implementation:
-Execute T01-T22 in dependency order with the checkpoints and focused
-verification in section 15. Start with a Java compatibility proof, transport
-schemas, and the fixture-backed shell. Mark fixture mode as Demo data.
-Maintain tasks/todo.md as work is verified.
-
-Preserve ownership:
-The controller owns scheduling, contract and ledger; verifier owns acceptance;
-runner owns tool outcomes; curator owns KB admission; core owns accounting.
-The UI and host submit commands and render projections.
-Do not add a second model loop or mutate core SQL/Markdown exports.
-
-Integrate correctly:
-Reuse AstrolabeJava's ProviderAdapter/EstimatorFactory overload, JavaAuthority,
-Events/Views, AiGateAdapter and AiGateProfiles. G01 is host wiring and qualification
-of the existing transport; implement the remaining G02-G10 work through owner APIs.
-ModelProgress already supplies counts/status. Text deltas, Java resume, atomic
-snapshots, complete host settings binding and post-run publication remain gaps.
-Keep SDK continuation/compaction/hosted tools unavailable for campaigns while
-the adapter rejects them. Never add a second provider call to obtain UI text.
-
-Required semantics:
-Frozen attempt configuration; stable identities; bounded streams;
-single-use revision-bound approvals; idempotent command intents;
-snapshot/replay convergence; explicit unknown effects and usage;
-guarded edits; current receipt validity; cancellation settlement.
-Never execute partial/late streamed tool calls or let assistant text
-mark work complete. Preserve required correctness controls and quality floors.
-
-Design:
-Follow section 7 tokens, dimensions, responsive rules, wireframes and
-P01-P12 scenarios. Keep details expandable and avoid a permanent third panel.
-Animate only observed workflow activity. High-level progress uses observable
-intent, claims, decisions, tool/check status and evidence, without inventing
-private reasoning.
-
-Configuration:
-Expose every supported field with source, scope, units, validation,
-availability and activation timing. Unsupported integrations need a named
-prerequisite. Roles remain bounded configurations of the declared runtime roles.
-Credentials and opaque provider state stay server-side.
-
-Completion:
-Pass AC01-AC27 for every capability claimed by the release.
-Record build/test/browser/platform evidence and exact remaining unsupported
-capabilities. Keep offline tests deterministic; report opt-in live tests
-separately. Deliver runnable instructions and verified screenshots.
-Do not replace missing runtime behavior with mock success in connected mode.
+Deliver runnable instructions, focused test/build/browser/platform evidence,
+and the capability matrix for each release. Pass applicable AC01-AC30 before
+claiming support. Keep live billable qualification separately authorized and
+reported. A connected run must never silently fall back to demo behavior.
 ```
 
 ## 18. Sources and requirement coverage
 
 ### 18.1 Local source register
 
-Source links are relative to this document. Symbols, rather than unstable line numbers, identify the inspected contracts.
+Source links are relative to this document. Symbols identify the contracts. DESIGN's source register is retained for implementation navigation; section 16.3 distinguishes the targeted checks performed for this synthesis from inherited coverage.
 
 | Ref | Source / relevant symbols |
 |---|---|
@@ -1753,6 +1689,12 @@ Source links are relative to this document. Symbols, rather than unstable line n
 | A40 | [AiGateInvocation.kt][A40] — `LlmCall` terminal settlement, cancellation and error mapping |
 | A41 | [Intent.kt][A41] — intent status and evidence-backed `IntentJournal.reconcile` |
 | A42 | [HeuristicEstimator.kt][A42] — local planning estimator supplied to the adapter factory |
+| A43 | [Checker.kt][A43] — optional event sink and check result/receipt references |
+| A44 | [CellBudget.kt][A44] — optional event sink and reservation producers |
+| A45 | [RoleTexts.kt][A45] — wording-only application of configured roles |
+| A46 | [Controls.kt][A46] — lease generation, expiry and publication authority |
+| A47 | [FinishReceipt.kt][A47] — finish receipt construction and blob/export persistence |
+| A48 | [Db.kt][A48] — internal snapshot boundary and read locking |
 | S01 | [Llm.java][S01] — runtime, catalog/auth, streams, diagnostics, scoped credentials |
 | S02 | [Auth.java][S02] — status/methods/login/save/logout/revoke |
 | S03 | [ChatEvent.java][S03] — deltas, part ends, aggregate Done |
@@ -1788,7 +1730,7 @@ Architecture companion documents informing the UI are [roles and shapes](ASTROLA
 | Understand architecture/philosophy/current implementation | Sections 2–3; source register; explicit integration gaps |
 | Self-contained structured specification and implementation prompt | Sections 1–18; section 17 handoff |
 | Backend requirements, APIs, entry points | Sections 9–12, 14; G01–G10 |
-| Angular + Java Spring Boot, WebSocket primary | Sections 10–13; version evidence |
+| Angular + Java Spring Boot, WebSocket primary | Sections 10–13; T01 compatibility gate |
 | Project selection and main coding workflow | Sections 4–6 |
 | Roles, agents, configurable settings | Section 8 complete source inventory and activation rules |
 | LLM connections/auth/multiple models | Sections 8.7 and 9 |
@@ -1866,3 +1808,10 @@ Architecture companion documents informing the UI are [roles and shapes](ASTROLA
 [I01]: TRASPORT_INTEGRATION_ANALYZE_01.md
 [I02]: LLM_TRANSPORT_SDK_CHANGES_FOR_ASTROLABE.md
 [I03]: ASTROLABE_CHANGES_FOR_LLM_TRANSPORT_SDK.md
+
+[A43]: ASTROLABE/core/src/main/kotlin/io/astrolabe/verify/Checker.kt
+[A44]: ASTROLABE/core/src/main/kotlin/io/astrolabe/budget/CellBudget.kt
+[A45]: ASTROLABE/core/src/main/kotlin/io/astrolabe/cell/RoleTexts.kt
+[A46]: ASTROLABE/core/src/main/kotlin/io/astrolabe/campaign/Controls.kt
+[A47]: ASTROLABE/core/src/main/kotlin/io/astrolabe/campaign/FinishReceipt.kt
+[A48]: ASTROLABE/core/src/main/kotlin/io/astrolabe/store/Db.kt
