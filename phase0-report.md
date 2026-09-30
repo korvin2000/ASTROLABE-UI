@@ -144,6 +144,22 @@ Checks on the final code:
 - Studio: `:backend:bridge:test` 10, `:backend:server:test` 19, `npm test` 121, `npm run e2e` 27 of 27.
 - SDK: `./gradlew test` green.
 
+## Follow-up: Next from the cursor (D-356, core `d3d45a6`, branch `phase0/next-from-cursor`)
+
+If a patch names no `next` and STATE has none yet, Next now becomes the `[>]` step. Before, this was refused. A patch that leaves no open step is still refused. Live, one run each, auto mode:
+
+| Scenario | GLM before → after (calls / tokens) | Luna before → after (calls / tokens) |
+|---|---|---|
+| S3 | 8 / 39,935 → **6 / 28,854** | 8 / 31,568 → 9 / 36,422 |
+| S4 | 10 / 67,134 → **4 / 20,890** | 5 / 20,819 → 6 / 27,041 |
+
+Remaining refusals in these runs:
+- `op:1` used as evidence in a turn without a run.
+- A fact anchor `version` sent as 4 hex characters (Luna S3).
+- A patch that adds and ticks its only step without a `next`.
+
+Luna's single runs vary by ±1–2 calls, so one run is not a trend.
+
 ## Not verified, and why
 
 - **Full `./gradlew build` of the core** (§11.4). The owner asked for targeted tests only, because a full build takes about 40 minutes on Windows. It is left for CI.
