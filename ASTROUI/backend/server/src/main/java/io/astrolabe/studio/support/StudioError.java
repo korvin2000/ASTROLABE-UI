@@ -35,6 +35,10 @@ public class StudioError extends ApiException {
     public static final String CONTEXT_TOO_LARGE = "context_too_large";
     /** Not errors of §10 but reasons of a paused or unverified task; they have sentences in the catalog too. */
     public static final String NEEDS_ANSWER = "needs_answer";
+    /** Phase 0 B3: the result could not be verified; the user decides whether the task is done. */
+    public static final String ACCEPTANCE_DECISION = "acceptance_decision";
+    /** Phase 0 B3: the review found problems after the agent's rework round; the user decides. */
+    public static final String REVIEW_REJECTED = "review_rejected";
     public static final String WAITING_FOR_PROCESS = "waiting_for_process";
     public static final String BLOCKED = "blocked";
     public static final String INTERRUPTED = "interrupted";

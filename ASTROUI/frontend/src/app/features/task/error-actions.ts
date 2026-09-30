@@ -28,6 +28,9 @@ const ACTIONS: Record<string, ActionId[]> = {
   waiting_for_process: ['continue'],
   blocked: ['continue'],
   interrupted: ['continue'],
+  // The run waits for the user's word on its result: the acceptance card answers it, never Continue.
+  acceptance_decision: ['copy_details'],
+  review_rejected: ['copy_details'],
 };
 
 /** The actions of [code]; a code nobody knows is an agent error (section 10 rule 3). */

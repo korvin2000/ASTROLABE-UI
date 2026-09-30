@@ -36,7 +36,7 @@ class VerificationSetupTest {
     @TempDir
     lateinit var dir: Path
 
-    private class Ended(val outcome: String?, val reason: String?)
+    private class Ended(val outcome: String?, val reason: String?, val code: String? = null)
 
     /** A repository without any manifest; [tests] adds a unittest suite that no manifest declares. */
     private fun repo(name: String, tests: Boolean): Path {
@@ -120,6 +120,7 @@ class VerificationSetupTest {
             override fun ask(workId: String, questionJson: String) = CompletableFuture.completedFuture<String?>(null)
             override fun approve(workId: String, requestJson: String): CompletableFuture<String> = CompletableFuture.failedFuture(IllegalStateException("no approval expected"))
             override fun resolve(workId: String, proposalJson: String): CompletableFuture<String> = CompletableFuture.failedFuture(IllegalStateException("no proposal expected"))
+            override fun decide(workId: String, requestJson: String) = CompletableFuture.completedFuture<String?>(null)
             override fun review(workId: String, requestJson: String): CompletableFuture<String?> {
                 if (!hostReview) return CompletableFuture.completedFuture(null)
                 val r = ConfigSupport.obj(requestJson)
@@ -137,7 +138,7 @@ class VerificationSetupTest {
                     "p1", null,
                     StartSpec("Create hello.txt containing the text Hello, world!", 400_000, verificationSetup = verificationSetup, savedChecks = saved),
                     configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions(),
-                ) { _, o, r, f -> ended = Ended(o, r ?: f?.toString()); latch.countDown() }
+                ) { _, o, r, code, f -> ended = Ended(o, r ?: f?.toString(), code); latch.countDown() }
                 assertTrue(latch.await(180, TimeUnit.SECONDS), "run ended")
                 val journal = ConfigSupport.parse(host.journalAfter("p1", ref.workId, 0, 2000)) as JsonArray
                 journal.forEach { e -> println("J ${e.jsonObject["kind"]} :: ${e.jsonObject["text"]?.jsonPrimitive?.content?.take(200)}") }
@@ -174,10 +175,11 @@ class VerificationSetupTest {
     }
 
     @Test
-    fun `a check item without a host verdict leaves the task unaccepted`() {
+    fun `a check item without a host verdict waits for the user's decision, never fails (phase 0)`() {
         val (_, ended, _) = run("check-unreviewed", SavedChecks())
-        assertEquals("failed", ended.outcome)
-        assertTrue(ended.reason!!.contains("no assessment recorded"), ended.reason)
+        assertEquals("waiting_for_input", ended.outcome, ended.reason)
+        assertEquals("acceptance_decision", ended.code)
+        assertTrue(ended.reason!!.contains("acceptance needs a decision"), ended.reason)
     }
 
     @Test

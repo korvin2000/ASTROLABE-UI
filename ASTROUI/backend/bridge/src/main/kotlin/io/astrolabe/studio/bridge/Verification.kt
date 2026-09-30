@@ -90,9 +90,9 @@ public object Verification {
         fun list(commands: List<List<String>>) = commands.joinToString(", ") { "`${Command(it).text}`" }
         val steps = if (setup.hints.isEmpty()) "" else " Run ${list(setup.hints)} before finishing and fix what it reports."
         return if (setup.commands.isEmpty()) {
-            "Verification: this project declares no test command.$steps When you finish, the result is reviewed independently. That review is arranged for you: do not ask for it, delegate it or record it yourself."
+            "Studio note: this project has no test command.$steps The Studio takes care of accepting the result. When the work is done, write a short summary of what you changed and stop. Do not call verify for acceptance: there is nothing to run."
         } else {
-            "Verification: the result is checked with ${list(setup.commands)}.$steps"
+            "Studio note: the result is checked with ${list(setup.commands)}.$steps"
         }
     }
 }

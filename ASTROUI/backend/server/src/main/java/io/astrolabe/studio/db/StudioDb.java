@@ -74,6 +74,16 @@ public class StudioDb {
             "UPDATE campaign_index SET task_id = coalesce(parent_work, work_id) WHERE task_id IS NULL",
             "CREATE INDEX campaign_index_by_task ON campaign_index (task_id, created_at)",
             "CREATE TABLE preference (key TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        ),
+        // Phase 0: the core's stop code of a waiting run, the user's acceptance decisions, request diagnostics (B3, B6).
+        List.of(
+            "ALTER TABLE campaign_index ADD COLUMN stop_code TEXT",
+            "CREATE TABLE acceptance_decision (request_id TEXT PRIMARY KEY, work_id TEXT NOT NULL, candidate TEXT NOT NULL, " +
+                "contract_revision INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT, by_authority TEXT NOT NULL, created_at TEXT NOT NULL)",
+            "CREATE INDEX acceptance_decision_by_work ON acceptance_decision (work_id, created_at)",
+            "ALTER TABLE llm_request ADD COLUMN error_code TEXT",
+            "ALTER TABLE llm_request ADD COLUMN attempts_detail TEXT",
+            "ALTER TABLE llm_request ADD COLUMN tags TEXT"
         )
     );
 
@@ -105,7 +115,8 @@ public class StudioDb {
         return new TransactionTemplate(new DataSourceTransactionManager(dataSource));
     }
 
-    static void migrate(JdbcTemplate jdbc) {
+    /** Applies the migrations to [jdbc]; public for tests over a scratch database. */
+    public static void migrate(JdbcTemplate jdbc) {
         jdbc.execute("PRAGMA journal_mode = WAL");
         jdbc.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL, applied_at TEXT NOT NULL)");
         Integer current = jdbc.queryForObject("SELECT coalesce(max(version), 0) FROM schema_version", Integer.class);

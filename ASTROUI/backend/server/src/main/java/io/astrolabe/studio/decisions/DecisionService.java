@@ -2,6 +2,7 @@ package io.astrolabe.studio.decisions;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -181,6 +182,109 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return raise("review", workId, requestJson);
     }
 
+    /**
+     * The acceptance decision (D-338, phase 0 B2): what to do with a result the core could not verify, or with a change
+     * a review rejected after its rework round. A decision the user already made for this very request (a card answered
+     * before the run resumed) is returned as the user's. Otherwise, in `auto` mode, unverified work is accepted on the
+     * policy's word with its reasons as the label — a rejection by review never is; in `ask` mode, and for a rejection,
+     * there is no decision now: the request is kept as an open card and the run stops waiting for the user.
+     */
+    @Override
+    public CompletableFuture<String> decide(String workId, String requestJson) {
+        JsonNode request = Json.parse(requestJson);
+        String requestId = Json.text(request, "id");
+        ObjectNode stored = storedDecision(request);
+        if (stored != null) {
+            record("acceptance", workId, requestJson, "answered", stored, Json.text(stored, "by"), Json.text(stored, "kind").toLowerCase(Locale.ROOT));
+            return CompletableFuture.completedFuture(Json.write(stored));
+        }
+        HostPolicy policy = policyOf.apply(workId);
+        boolean rejected = false;
+        StringBuilder why = new StringBuilder();
+        for (JsonNode item : Json.each(request.get("items"))) {
+            if ("Failed".equals(Json.text(item, "status"))) rejected = true;
+            why.append(why.isEmpty() ? "" : "; ").append(Json.text(item, "reason", Json.text(item, "obligation", "")));
+        }
+        if (policy != null && policy.auto() && !rejected) {
+            ObjectNode decision = decision(request, "Accept", "Policy", "studio:policy(auto)", "not verified: " + why);
+            return byPolicy("acceptance", workId, requestJson, decision, "accepted");
+        }
+        // Earlier open requests of this run are replaced by the newest one: one card at a time.
+        jdbc.update("UPDATE decision SET status = 'superseded', answered_at = ? WHERE work_id = ? AND kind = 'acceptance' AND status = 'open'", Json.now(), workId);
+        String id = "a-" + requestId;
+        jdbc.update("INSERT OR REPLACE INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            id, "acceptance", projectOf.apply(workId), workId, request.has("ids") ? Json.text(request.get("ids"), "context") : null,
+            request.path("contractRevision").asInt(), requestJson, "open", Json.now());
+        campaignItems.accept(workId, studioItem("studio.decision_requested", get(id)));
+        waitingChanged.accept(workId);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /** The open acceptance request of [workId], shown as a card while its run waits (B3); null when there is none. */
+    public ObjectNode openAcceptance(String workId) {
+        List<ObjectNode> rows = jdbc.query("SELECT * FROM decision WHERE work_id = ? AND kind = 'acceptance' AND status = 'open' ORDER BY created_at DESC LIMIT 1", (rs, i) -> row(rs), workId);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    /**
+     * Stores the user's answer to an acceptance card (B3): `accept` or `rework` with [text], bound to the request, its
+     * candidate and contract revision. A second answer to the same card changes nothing: false.
+     */
+    public boolean answerAcceptance(ObjectNode card, String kind, String text, String actor) {
+        JsonNode request = card.get("request");
+        String requestId = Json.text(request, "id");
+        String candidate = Json.write(request.get("candidate"));
+        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            requestId, Json.text(card, "workId"), candidate, request.path("contractRevision").asInt(), kind, text, "user:" + actor, Json.now());
+        if (claimed == 0) return false;
+        jdbc.update("UPDATE decision SET status = 'answered', reply_json = ?, by_authority = ?, reason = ?, answered_at = ? WHERE id = ? AND status = 'open'",
+            Json.write(Json.obj().put("kind", kind).put("text", text)), "user:" + actor, kind, Json.now(), Json.text(card, "id"));
+        jdbc.update("INSERT INTO audit (at, actor, action, target, details) VALUES (?,?,?,?,?)", Json.now(), actor, "acceptance." + kind, requestId, text);
+        ObjectNode dto = get(Json.text(card, "id"));
+        broker.publishApp("decision.resolved", dto);
+        campaignItems.accept(Json.text(card, "workId"), studioItem("studio.decision_resolved", dto));
+        return true;
+    }
+
+    /** Closes the open acceptance card of a run that no longer waits for it (it went on, or ended otherwise). */
+    public void closeAcceptance(String workId, String reason) {
+        jdbc.update("UPDATE decision SET status = 'closed', reason = ?, answered_at = ? WHERE work_id = ? AND kind = 'acceptance' AND status = 'open'", reason, Json.now(), workId);
+    }
+
+    /** The user's stored answer to exactly this request, as the core's `AcceptanceDecision`; null when none. */
+    private ObjectNode storedDecision(JsonNode request) {
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT kind, text, by_authority, contract_revision FROM acceptance_decision WHERE request_id = ?", Json.text(request, "id"));
+        if (rows.isEmpty()) return null;
+        Map<String, Object> row = rows.getFirst();
+        if (((Number) row.get("contract_revision")).intValue() != request.path("contractRevision").asInt()) return null;
+        boolean accept = "accept".equals(row.get("kind"));
+        String text = (String) row.get("text");
+        String reason = text != null && !text.isBlank() ? text : accept ? "accepted by the user" : "the user asked to rework it";
+        return decision(request, accept ? "Accept" : "Rework", "User", (String) row.get("by_authority"), reason);
+    }
+
+    private static ObjectNode decision(JsonNode request, String kind, String decider, String by, String reason) {
+        ObjectNode d = Json.obj();
+        d.put("requestId", Json.text(request, "id"));
+        d.put("contractRevision", request.path("contractRevision").asInt());
+        d.set("candidate", request.get("candidate"));
+        d.put("kind", kind);
+        d.put("decider", decider);
+        d.put("by", by);
+        d.put("reason", reason);
+        return d;
+    }
+
+    /** A row of the host's own answer (a stored user decision replayed to the core): a policy line of the task. */
+    private void record(String kind, String workId, String requestJson, String status, ObjectNode reply, String by, String verdict) {
+        String id = "p-" + UUID.randomUUID().toString().substring(0, 8);
+        JsonNode request = Json.parse(requestJson);
+        jdbc.update("INSERT INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, reply_json, by_authority, reason, created_at, answered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            id, kind, projectOf.apply(workId), workId, request.has("ids") ? Json.text(request.get("ids"), "context") : null, request.path("contractRevision").asInt(),
+            requestJson, "policy", Json.write(reply), by, verdict, Json.now(), Json.now());
+        campaignItems.accept(workId, studioItem("studio.policy_decision", get(id)));
+    }
+
     /** A reply the host policy gave: recorded like a decision and shown in the task as a policy line. */
     private CompletableFuture<String> byPolicy(String kind, String workId, String requestJson, ObjectNode reply, String verdict) {
         String id = "p-" + UUID.randomUUID().toString().substring(0, 8);
@@ -201,13 +305,18 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return a;
     }
 
-    /** Records the review pass of the host as a policy line of the task. */
-    public void recordReview(String workId, JsonNode request, JsonNode verdict) {
+    /**
+     * Records the review pass of the host as a policy line of the task: the verdict with the reviewer's summary and
+     * notes, or — without a verdict — why none came (B6), so the task and the diagnostics export show the cause.
+     */
+    public void recordReview(String workId, JsonNode request, JsonNode verdict, JsonNode notes, String failure) {
         String id = "p-" + UUID.randomUUID().toString().substring(0, 8);
         String outcome = verdict == null ? "unavailable" : Json.text(verdict, "outcome", "unavailable").toLowerCase();
+        ObjectNode reply = verdict == null ? null : ((ObjectNode) verdict).deepCopy();
+        if (reply != null && notes != null) reply.setAll((ObjectNode) notes);
         jdbc.update("INSERT INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, reply_json, by_authority, reason, created_at, answered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             id, "review", projectOf.apply(workId), workId, null, request.path("contractRevision").asInt(), Json.write(request), "policy",
-            verdict == null ? null : Json.write(verdict), "policy:studio", outcome, Json.now(), Json.now());
+            reply == null ? null : Json.write(reply), "policy:studio", failure == null ? outcome : outcome + ": " + failure, Json.now(), Json.now());
         campaignItems.accept(workId, studioItem("studio.policy_decision", get(id)));
     }
 
@@ -471,6 +580,22 @@ public class DecisionService implements AuthorityPort, PolicyListener {
                 o.put("text", Json.text(request, "text"));
                 ArrayNode options = o.putArray("options");
                 for (JsonNode op : Json.each(request.get("options"))) options.add(op.asString());
+            }
+            case "acceptance" -> {
+                // B3: "could not verify — is it done?" or "the review found problems".
+                o.put("kind", "acceptance");
+                o.put("variant", "review_rejected".equals(Json.text(request, "code")) ? "rejected" : "unverified");
+                ArrayNode items = o.putArray("items");
+                for (JsonNode item : Json.each(request.get("items"))) {
+                    ObjectNode i = items.addObject();
+                    i.put("reason", Json.text(item, "reason", ""));
+                    i.put("status", Json.text(item, "status", ""));
+                    ArrayNode findings = i.putArray("findings");
+                    for (JsonNode f : Json.each(item.get("findings"))) {
+                        findings.addObject().put("severity", Json.text(f, "severity", "").toLowerCase(Locale.ROOT)).put("location", Json.text(f, "location", "")).put("issue", Json.text(f, "issue", ""));
+                    }
+                }
+                o.put("summary", Json.text(request, "summary", ""));
             }
             case "effect", "publication" -> {
                 o.put("kind", "approval");

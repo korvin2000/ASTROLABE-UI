@@ -80,8 +80,25 @@ Live spend on the owner's OpenRouter account: about USD 0.17 on the spike runs a
 - Effort "Medium" was shown for a model without it.
 - A lost connection was reported as an agent error.
 
+## Phase 0 (2026-09-30): acceptance decisions, reliable runs
+
+Goal `../../next-goal.md`; report `../../phase0-report.md`. The core decides acceptance (passed / failed /
+unverified; unverified waits for a decision, never blocks); the Studio answers it (D2-22–D2-27): `auto` accepts
+unverified items on the policy's word, `ask` shows a card ("could not be checked — is it done?" / "the review found
+problems"); "done" costs no model call; the Verified label comes from the core's receipt. Review pass: approve /
+revise / cannot_verify, 600-token cap, tagged. Continue/Retry/messages are safe while a run opens (C1–C3). A greeting
+or question ends `answered`. The SDK now reads the Codex backend's untyped event stream (F-13), so reviews work on a
+ChatGPT sign-in.
+
+Verified on the final build: `npm test` 121, `:backend:bridge:test` 10, `:backend:server:test` 19, `npm run e2e` 27.
+Live on an isolated instance (own data folder and port), both `openai-codex/gpt-6-luna` and
+`openrouter/z-ai/glm-5.3-flash`: S1–S6 auto all done (S1/S2 answered with one call); ask S3/S5; S11 (no
+`project_busy`, queued message delivered); S12 (the card survives a backend restart, "done" with no model call).
+S1–S6 tokens: 28 % (GLM) and 20 % (Luna) of the 2026-09-29 baseline. Numbers per run: the report.
+
 ## Open
 
 - S-2 and A-14: the last step of the ChatGPT sign-in and of the sign-in by code; S-3 on that account.
 - A-3 with a real local server.
-- Upstream proposals F-1 and F-4 to F-12.
+- Upstream proposals F-1, F-4, F-5, F-6, F-8, F-10 to F-12 (F-7, F-9 fixed in the core in phase 0; F-13 in the SDK).
+- Phase 0: S3/S4 still take 5–10 model calls (target 6); proposals in the report.

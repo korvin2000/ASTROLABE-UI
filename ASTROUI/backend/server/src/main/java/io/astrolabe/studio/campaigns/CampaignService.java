@@ -52,12 +52,13 @@ public class CampaignService {
     private final Set<String> opening = ConcurrentHashMap.newKeySet();
     private final Set<String> cancelling = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> lastChanged = new ConcurrentHashMap<>();
-    private volatile RunEnded runEnded = (w, o, r, f) -> { };
+    private volatile RunEnded runEnded = (w, o, r, c, f) -> { };
 
     /** Told once per run after its end was recorded (Studio 2 BE-8). */
     @FunctionalInterface
     public interface RunEnded {
-        void ended(String workId, String outcome, String reason, Throwable failure);
+        /** [stopCode]: the core's reason a `waiting_for_input` run waits (D-339), `acceptance_decision` or `review_rejected`. */
+        void ended(String workId, String outcome, String reason, String stopCode, Throwable failure);
     }
 
     public void onRunEnded(RunEnded listener) { this.runEnded = listener; }
@@ -107,12 +108,13 @@ public class CampaignService {
         String now = Json.now();
         String created = Json.text(c, "createdAt", now);
         String updated = Json.text(c, "updatedAt", created);
-        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, phase, outcome, reason, shape, mode, fingerprint, created_at, updated_at) " +
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET phase = excluded.phase, outcome = excluded.outcome, reason = excluded.reason, " +
+        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, phase, outcome, reason, shape, mode, fingerprint, created_at, updated_at, stop_code) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET phase = excluded.phase, outcome = excluded.outcome, reason = excluded.reason, stop_code = excluded.stop_code, " +
                 "shape = coalesce(excluded.shape, campaign_index.shape), mode = coalesce(excluded.mode, campaign_index.mode), fingerprint = coalesce(excluded.fingerprint, campaign_index.fingerprint), " +
                 "title = coalesce(campaign_index.title, excluded.title), updated_at = max(campaign_index.updated_at, excluded.updated_at)",
             work, projectId, firstLine(title), "stored", Json.text(c, "phase"), Json.text(c, "outcome"), state == null ? null : Json.text(state, "reason"),
-            contract == null ? null : Json.text(contract, "shape"), contract == null ? null : Json.text(contract, "mode"), Json.text(c, "fingerprint"), created, updated);
+            contract == null ? null : Json.text(contract, "shape"), contract == null ? null : Json.text(contract, "mode"), Json.text(c, "fingerprint"), created, updated,
+            state == null ? null : Json.text(state, "stopCode"));
     }
 
     /** Re-reads one campaign from its store into the index and notifies clients (R-SHL-01). */
@@ -298,7 +300,7 @@ public class CampaignService {
         try {
             CampaignRef ref = host().start(projectId, workId, spec, configJson, transport.llm(), decisions, decisions,
                 new AutonomousPolicyOptions(runtime.path("acceptNonWeakening").asBoolean(false), Json.text(runtime, "reviewer")),
-                (w, outcome, reason, failure) -> onRunEnded(w, outcome, reason, failure));
+                (w, outcome, reason, code, failure) -> onRunEnded(w, outcome, reason, code, failure));
             opening.remove(workId);
             jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ? WHERE work_id = ?", ref.getShape(), ref.getFingerprint(), workId);
             pipeline.studioItem(workId, "studio.opened", opened(ref, spec, demo));
@@ -340,8 +342,8 @@ public class CampaignService {
         try {
             AutonomousPolicyOptions policy = new AutonomousPolicyOptions(false, null);
             CampaignRef ref = resume
-                ? host().resume(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, failure) -> onRunEnded(w, outcome, reason, failure))
-                : host().start(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, failure) -> onRunEnded(w, outcome, reason, failure));
+                ? host().resume(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, code, failure) -> onRunEnded(w, outcome, reason, code, failure))
+                : host().start(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, code, failure) -> onRunEnded(w, outcome, reason, code, failure));
             var v = ref.getVerification();
             String verification = v == null ? null : Json.write(Json.obj().put("kind", v.getKind()).put("source", v.getSource()).put("command", v.getCommandText()));
             jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ?, verification_json = coalesce(?, verification_json), reason_json = NULL, outcome = NULL, ended_at = NULL WHERE work_id = ?",
@@ -406,6 +408,7 @@ public class CampaignService {
         o.put("fingerprint", ref.getFingerprint());
         o.set("reconciliation", Json.parse(ref.getReconciliationJson()));
         if (ref.getStopReason() != null) o.put("stopReason", ref.getStopReason());
+        if (ref.getStopCode() != null) o.put("stopCode", ref.getStopCode());
         o.put("tokens", spec.getTokens());
         o.put("maxCells", spec.getMaxCells());
         o.put("leaseMinutes", spec.getLeaseMinutes());
@@ -414,7 +417,7 @@ public class CampaignService {
         return o;
     }
 
-    private void onRunEnded(String workId, String outcome, String reason, Throwable failure) {
+    private void onRunEnded(String workId, String outcome, String reason, String stopCode, Throwable failure) {
         transport.demoEnded(workId);
         cancelling.remove(workId);
         String why = outcome == null ? "campaign run stopped: " + (reason == null ? "unknown" : reason) : "campaign ended " + outcome;
@@ -422,12 +425,14 @@ public class CampaignService {
         ObjectNode data = Json.obj();
         data.put("outcome", outcome);
         data.put("reason", reason);
+        if (stopCode != null) data.put("stopCode", stopCode);
         if (failure != null) data.put("failure", failure.getClass().getSimpleName() + (failure.getMessage() == null ? "" : ": " + failure.getMessage()));
         pipeline.runEnded(workId, data);
         markEnded(workId);
         refresh(workId);
+        jdbc.update("UPDATE campaign_index SET stop_code = ? WHERE work_id = ?", "waiting_for_input".equals(outcome) ? stopCode : null, workId);
         try {
-            runEnded.ended(workId, outcome, reason, failure);
+            runEnded.ended(workId, outcome, reason, stopCode, failure);
         } catch (RuntimeException e) {
             log.warn("run-end listener failed for {}: {}", workId, e.toString());
         }
@@ -465,7 +470,7 @@ public class CampaignService {
         try {
             CampaignRef ref = host().resume(projectId, workId, spec, configJson, transport.llm(), decisions, decisions,
                 new AutonomousPolicyOptions(runtime.path("acceptNonWeakening").asBoolean(false), Json.text(runtime, "reviewer")),
-                (w, outcome, reason, failure) -> onRunEnded(w, outcome, reason, failure));
+                (w, outcome, reason, code, failure) -> onRunEnded(w, outcome, reason, code, failure));
             opening.remove(workId);
             ObjectNode data = opened(ref, spec, s.get("demo").asBoolean());
             data.put("resumed", true);

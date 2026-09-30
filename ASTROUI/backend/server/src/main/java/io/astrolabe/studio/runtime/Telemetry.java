@@ -56,10 +56,14 @@ public class Telemetry implements LlmListener, DisposableBean {
                 String warnings = f.warnings().isEmpty() ? null : f.warnings().toString();
                 Long ttfo = f.timeToFirstOutput().map(Duration::toMillis).orElse(null);
                 String invocation = f.tags().get("astrolabe.invocation");
+                // B6: why a call failed and how each attempt went, and the host's own tags (the review pass names its task).
+                String error = f.errorCode().map(Object::toString).orElse(null);
+                String detail = f.attemptsDetail().isEmpty() ? null : f.attemptsDetail().toString();
+                String tags = f.tags().isEmpty() ? null : Json.write(Json.MAPPER.valueToTree(f.tags()));
                 writer.execute(() -> jdbc.update(
-                    "INSERT INTO llm_request (at, provider, model, invocation, outcome, latency_ms, first_output_ms, attempts, input_tokens, output_tokens, cost, warnings) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO llm_request (at, provider, model, invocation, outcome, latency_ms, first_output_ms, attempts, input_tokens, output_tokens, cost, warnings, error_code, attempts_detail, tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     f.at().toString(), f.providerId(), f.model().modelId(), invocation, String.valueOf(f.outcome()), f.latency().toMillis(), ttfo,
-                    f.attempts(), in < 0 ? null : in, out < 0 ? null : out, cost, warnings));
+                    f.attempts(), in < 0 ? null : in, out < 0 ? null : out, cost, warnings, error, detail, tags));
                 onChange.run();
             }
             case CredentialEvent c -> onChange.run();
@@ -92,6 +96,10 @@ public class Telemetry implements LlmListener, DisposableBean {
             if (!rs.wasNull()) o.put("outputTokens", out);
             o.put("cost", rs.getString("cost"));
             o.put("warnings", rs.getString("warnings"));
+            o.put("errorCode", rs.getString("error_code"));
+            o.put("attemptsDetail", rs.getString("attempts_detail"));
+            String tags = rs.getString("tags");
+            if (tags != null) o.set("tags", Json.parse(tags));
         }, args);
         return rows;
     }

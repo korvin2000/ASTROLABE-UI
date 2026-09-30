@@ -440,7 +440,7 @@ export class FlowModel {
     this.helpers = 0;
     this.pendingCards.clear();
     for (const id of NODES) { this.nodes[id].busy = false; this.nodes[id].thinking = false; }
-    if (outcome === 'completed') {
+    if (outcome === 'completed' || outcome === 'answered') {
       this.finished = true;
       if (this.checksRan && this.nodes.checks.state === 'passed') this.send('checks', 'agent', live, 'ok');
       if (this.saved > 0) this.send('agent', 'memory', live);

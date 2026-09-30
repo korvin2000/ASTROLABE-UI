@@ -4,6 +4,7 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
+import { acceptanceBody, acceptanceChoices, reworkable, verifiedOf } from './acceptance';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { sends } from './keys';
 import { kindOf } from './project-kind';
@@ -76,6 +77,62 @@ describe('errors (section 10)', () => {
     expect(actionsOf('project_busy')).toEqual(['open_task', 'stop_other']);
     expect(actionsOf('limit_reached')).toEqual(['continue_more', 'stop']);
     expect(actionsOf('interrupted')).toEqual(['continue']);
+  });
+});
+
+describe('acceptance (B3)', () => {
+  it('asks "is it done?" when the result could not be checked', () => {
+    const c = acceptanceChoices({ variant: 'unverified' });
+    expect(c.map(x => [x.label, x.decision])).toEqual([['action.acceptance_done', 'done'], ['action.acceptance_rework', 'rework']]);
+    expect(translate('en', c[0].label)).toBe("Yes, it's done");
+    expect(translate('en', c[1].label)).toBe('No, rework it');
+    expect(translate('en', 'card.acceptance_unverified', { reasons: 'no tests' })).toBe('The result could not be checked automatically: no tests. Is the task done?');
+  });
+
+  it('offers to continue fixing first when the review found problems', () => {
+    const c = acceptanceChoices({ variant: 'rejected' });
+    expect(c.map(x => [x.label, x.decision])).toEqual([['action.continue_fixing', 'rework'], ['action.accept_as_is', 'done']]);
+    expect(c[0].primary).toBe(true);
+    expect(translate('ru', c[0].label)).toBe('Продолжить исправление');
+    expect(translate('ru', c[1].label)).toBe('Принять как есть');
+  });
+
+  it('posts the decision, with the words of the user only for a rework', () => {
+    expect(acceptanceBody('done')).toEqual({ decision: 'done' });
+    expect(acceptanceBody('done', 'ignored')).toEqual({ decision: 'done' });
+    expect(acceptanceBody('rework')).toEqual({ decision: 'rework' });
+    expect(acceptanceBody('rework', '  ')).toEqual({ decision: 'rework' });
+    expect(acceptanceBody('rework', ' handle nulls ')).toEqual({ decision: 'rework', answer: 'handle nulls' });
+  });
+
+  it('never offers Continue while the result waits for the word of the user', () => {
+    for (const code of ['acceptance_decision', 'review_rejected']) {
+      expect(ERROR_CODES).toContain(code);
+      expect(actionsOf(code)).not.toContain('continue');
+      expect(actionsOf(code)).toEqual(['copy_details']);
+    }
+  });
+
+  it('offers "Not done — rework it" only for a result nobody checked automatically', () => {
+    expect(reworkable('unverified')).toBe(true);
+    expect(reworkable('user')).toBe(true);
+    for (const kind of ['tests', 'review', 'build', 'answer', 'none', undefined]) expect(reworkable(kind), String(kind)).toBe(false);
+    expect(translate('en', 'action.not_done_rework')).toBe('Not done — rework it');
+    expect(translate('ru', 'composer.rework')).toBe('Что нужно изменить?');
+  });
+
+  it('says how the result was verified', () => {
+    expect(verifiedOf('tests')).toMatchObject({ ok: true, output: true });
+    expect(verifiedOf('review')).toEqual({ key: 'verified.review', ok: true, output: false });
+    expect(verifiedOf('build')).toEqual({ key: 'verified.build', ok: true, output: true });
+    expect(verifiedOf('user')).toEqual({ key: 'verified.user', ok: false, output: false });
+    expect(verifiedOf('unverified')).toEqual({ key: 'verified.unverified', ok: false, output: false });
+    expect(verifiedOf('answer')).toEqual({ key: 'verified.answer', ok: false, output: false });
+    expect(verifiedOf('none').key).toBe('verified.none');
+    expect(verifiedOf('something_new').key).toBe('verified.none');
+    expect(translate('en', 'verified.user')).toBe('Accepted by you — not checked automatically');
+    expect(translate('ru', 'verified.unverified')).toBe('Не проверено: принято автоматически');
+    expect(translate('ru', 'verified.answer')).toBe('Изменений нет — агент ответил');
   });
 });
 

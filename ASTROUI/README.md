@@ -10,7 +10,9 @@ screens follow `../ASTROLABE_UI_V2_MOCKUP.html`.
 - `frontend` — Angular 22 application (standalone components, signals, zoneless).
 
 ASTROLABE (`../ASTROLABE`) and the AI Gate SDK (`../llm-transport-sdk/llm`, via ASTROLABE's build) are included
-builds; neither is modified. What the Studio needs from them is recorded in `docs/decisions.md`.
+builds. Since phase 0 (2026-09-30, `../next-goal.md`) they are changed where the right fix is theirs — the acceptance
+rule lives in the core, the Codex transport fix in the SDK — instead of being worked around in the Studio. What the
+Studio needs from them is recorded in `docs/decisions.md`.
 
 ## Requirements
 
@@ -94,5 +96,4 @@ Details and the upstream proposals are in `docs/decisions.md`.
 - The last step of the ChatGPT sign-in and of the sign-in by code needs the account owner; both were checked up to
   the point where the browser or the code is awaited.
 - Saved keys use the SDK's owner-only file store, not an OS vault.
-- The tokens of the review pass are not part of a task's usage numbers.
 - macOS is not supported by ASTROLABE's process layer; the first run says so.

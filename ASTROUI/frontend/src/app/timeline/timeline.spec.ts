@@ -8,6 +8,7 @@ import live from '../../testing/task-live-openrouter.events.json';
 import paused from '../../testing/task-live-paused.events.json';
 import asked from '../../testing/task-question-approval.events.json';
 import { FORBIDDEN, offences } from '../vocabulary';
+import { FlowModel } from '../features/panel/flow/flow-model';
 import { Item, Timeline, summarize } from './timeline';
 
 // Replays of recorded event logs (Studio 2 FE-6): the demo runs of the test backend and the live runs of spike S-3.
@@ -231,6 +232,65 @@ describe('robustness (FE-6)', () => {
     const t = replay(legacy as unknown as StudioItem[]);
     expect(of(t, 'result')).toHaveLength(1);
     expect(of(t, 'activity').length).toBeGreaterThan(0);
+  });
+});
+
+describe('the acceptance decision (B3)', () => {
+  const at = (n: number) => `2026-09-29T10:00:${String(n).padStart(2, '0')}Z`;
+  const card = (id: string, variant: 'unverified' | 'rejected') => ({
+    id, workId: 'W-a', createdAt: at(1), status: 'open', kind: 'acceptance', variant, summary: 'Fixed the rounding',
+    items: [{ reason: 'no tests in this project', status: variant === 'rejected' ? 'Failed' : 'Unverified',
+      findings: variant === 'rejected' ? [{ severity: 'blocker', location: 'src/a.py:3', issue: 'rounds down' }] : [] }],
+  });
+  const studio = (seq: number, kind: string, data: Record<string, unknown>): StudioItem => ({ at: at(seq), source: 'studio', ids: { work: 'W-a' }, seq, kind, data });
+  const requested = (seq: number, c: ReturnType<typeof card>) => studio(seq, 'studio.decision_requested', { id: c.id, kind: 'acceptance', status: 'open', card: c });
+  const ended = (seq: number) => studio(seq, 'studio.run_ended', { outcome: 'waiting_for_input', stopCode: 'acceptance_decision' });
+  const waiting = (seq: number) => studio(seq, 'studio.task_state', { state: 'needs_you', reason: { code: 'acceptance_decision', detail: 'no tests' } });
+
+  it('keeps the card open while the run waits for the user, then records "done"', () => {
+    const t = replay([requested(1, card('a-1', 'unverified')), ended(2), waiting(3)]);
+    expect(t.state).toBe('needs_you');
+    expect(t.pending().map(c => c.card.kind)).toEqual(['acceptance']);
+    expect(of(t, 'error')).toEqual([]);
+    t.apply(studio(4, 'studio.decision_resolved', { id: 'a-1', kind: 'acceptance', status: 'answered', reply: { kind: 'accept', text: 'the user confirmed the task is done' }, card: card('a-1', 'unverified') }));
+    const c = of(t, 'card')[0];
+    expect(c).toMatchObject({ status: 'answered', decision: 'done' });
+    expect(c.answer).toBeUndefined();
+    expect(t.pending()).toEqual([]);
+  });
+
+  it('records a rework with the words the user typed', () => {
+    const t = replay([
+      requested(1, card('a-2', 'rejected')), ended(2), waiting(3),
+      studio(4, 'studio.user_message', { text: 'handle negative prices', role: 'answer', cardId: 'a-2' }),
+      studio(5, 'studio.decision_resolved', { id: 'a-2', kind: 'acceptance', status: 'answered', reply: { kind: 'rework', text: 'handle negative prices' } }),
+    ]);
+    expect(of(t, 'card')[0]).toMatchObject({ status: 'answered', decision: 'rework', answer: 'handle negative prices' });
+    expect(of(t, 'user')).toEqual([]);
+    expect(translate('en', 'card.acceptance_rework_text', { text: 'x' })).toBe('You asked for rework: x');
+  });
+
+  it('shows an acceptance by the auto mode as a notice and keeps a replayed decision of the user out of the conversation', () => {
+    const t = replay([
+      studio(1, 'studio.policy_decision', { kind: 'acceptance', status: 'policy', reason: 'accepted', reply: { kind: 'Accept', reason: 'not verified: no tests' }, card: card('p-1', 'unverified') }),
+      studio(2, 'studio.policy_decision', { kind: 'acceptance', status: 'policy', reason: 'accept', reply: { kind: 'Accept' }, card: card('p-2', 'unverified') }),
+    ]);
+    expect(of(t, 'notice').map(n => translate('en', n.text.key, n.text.params))).toEqual(['Accepted automatically: not verified']);
+    expect(t.technical).toHaveLength(1);
+  });
+
+  it('replaces an open card by a newer one and closes it when the task stops', () => {
+    const t = replay([requested(1, card('a-3', 'unverified')), requested(2, card('a-4', 'rejected'))]);
+    expect(t.pending().map(c => c.id)).toEqual(['a-4']);
+    t.apply(studio(3, 'studio.task_state', { state: 'stopped' }));
+    expect(t.pending()).toEqual([]);
+  });
+
+  it('is replayed by the Flow without breaking', () => {
+    const m = new FlowModel();
+    const items = [requested(1, card('a-5', 'rejected')), ended(2), waiting(3), studio(4, 'studio.decision_resolved', { id: 'a-5', status: 'answered', reply: { kind: 'rework' } }),
+      studio(5, 'studio.policy_decision', { kind: 'acceptance', reason: 'accepted', card: card('p-3', 'unverified') })];
+    expect(() => { for (const i of items) m.apply(i, false); }).not.toThrow();
   });
 });
 

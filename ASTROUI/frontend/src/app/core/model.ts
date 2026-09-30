@@ -39,7 +39,7 @@ export type Effort = 'low' | 'medium' | 'high';
 export interface Card {
   id: string;
   workId: string;
-  kind: 'question' | 'approval' | 'suggestion';
+  kind: 'question' | 'approval' | 'suggestion' | 'acceptance';
   status: string;
   createdAt: string;
   text?: string;
@@ -50,6 +50,10 @@ export interface Card {
   detail?: string;
   pattern?: string;
   relaxes?: boolean;
+  /** Acceptance: the result could not be checked (`unverified`) or a review rejected it after one rework round. */
+  variant?: 'unverified' | 'rejected';
+  items?: { reason: string; status: string; findings: { severity: string; location: string; issue: string }[] }[];
+  summary?: string;
 }
 
 export interface TaskRun {
@@ -70,7 +74,7 @@ export interface Task {
   title: string;
   state: TaskState;
   reason?: ErrorInfo;
-  verified: 'tests' | 'build' | 'review' | 'none';
+  verified: 'tests' | 'build' | 'review' | 'user' | 'unverified' | 'answer' | 'none';
   verification?: Verification;
   model: { ref: string | null; name: string | null; effort: Effort | null };
   mode: Mode;

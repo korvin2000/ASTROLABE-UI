@@ -1,5 +1,6 @@
 package io.astrolabe.studio.tasks;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -14,7 +15,10 @@ import io.astrolabe.studio.runtime.TransportService;
 import io.astrolabe.studio.support.Json;
 
 import net.ai.gate.chat.Conversation;
+import net.ai.gate.chat.options.ChatOptions;
+import net.ai.gate.error.LlmException;
 import net.ai.gate.model.Model;
+import net.ai.gate.model.ReasoningLevel;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,15 +32,37 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * The review pass (Studio 2 §7.3 order 4, finding F-5). A task without tests is accepted through a `check:` item,
- * which the core lets only the host assess. The host asks the model a second time, as a reviewer that sees the
- * request and the change but not the conversation, and signs the verdict. No verdict means the task stays
- * unaccepted: a review is never skipped.
+ * The review pass (Studio 2 §7.3 order 4, finding F-5; phase 0 B1): a task without tests is accepted through a
+ * `check:` item that the host's reviewer assesses. The reviewer only verifies and reports honestly — it sees the
+ * request, what the user said and the change, and answers `approve`, `revise` (a concrete defect in the shown change)
+ * or `cannot_verify` (what it would need is not visible to it). What to do with an unverified result is the acceptance
+ * decision's business (B2), never the reviewer's: a failed or unreadable review is `null`, an unverified result for
+ * the core, with its cause recorded for the task (B6).
  */
 @Service
 public class ReviewPass implements DisposableBean {
     private static final Logger log = LoggerFactory.getLogger(ReviewPass.class);
     private static final int MAX_DIFF_CHARS = 60_000;
+    /** D2: a verdict is one short JSON object; low reasoning keeps it fast. */
+    private static final int MAX_OUTPUT_TOKENS = 600;
+    static final String PARTIAL = "only part of the change was shown to the reviewer";
+
+    static final String SYSTEM = Verification.REVIEW_MARKER + "\n"
+        + "You check one finished change against the user's request. You see the request, what the user said during the\n"
+        + "task, and the change as a diff. You cannot run anything and you see no other files.\n"
+        + "Answer with exactly one verdict:\n"
+        + "- \"approve\": the change does what was asked and you see no defect in the shown change.\n"
+        + "- \"revise\": you found a concrete defect IN THE SHOWN CHANGE that breaks what was asked. Every finding names the\n"
+        + "  file and line and says what is wrong. Missing information is never a defect.\n"
+        + "- \"cannot_verify\": you cannot tell, because something you would need is not visible to you: program output,\n"
+        + "  other files, a running application, an action that leaves no trace in files, the environment. Say what is missing.\n"
+        + "Judge only what the diff shows. Do not demand tests or proof of actions such as opening a browser.\n"
+        + "If the request needed no change to the files and nothing was changed, that is \"approve\".\n"
+        + "Between \"revise\" and \"cannot_verify\" choose \"cannot_verify\".\n"
+        + "Reply with one JSON object and nothing else:\n"
+        + "{\"verdict\":\"approve\"|\"revise\"|\"cannot_verify\",\"summary\":\"one sentence\",\n"
+        + " \"findings\":[{\"severity\":\"blocker\"|\"major\"|\"minor\",\"location\":\"path:line\",\"issue\":\"what is wrong\"}],\n"
+        + " \"missing\":\"what could not be checked\"}";
 
     private final TransportService transport;
     private final ChangesService changes;
@@ -56,93 +82,146 @@ public class ReviewPass implements DisposableBean {
 
     public CompletableFuture<String> review(String workId, JsonNode request) {
         return CompletableFuture.supplyAsync(() -> {
-            JsonNode verdict = null;
+            Assessed assessed;
             try {
-                verdict = assess(workId, request);
+                assessed = assess(workId, request);
             } catch (RuntimeException e) {
-                log.warn("review pass for {} gave no verdict: {}", workId, e.toString());
+                // B6: the cause goes to the task and the export, not only to the console.
+                assessed = new Assessed(null, null, failure(e));
+                log.warn("review pass for {} gave no verdict: {}", workId, assessed.failure());
             }
-            decisions.recordReview(workId, request, verdict);
-            return verdict == null ? null : Json.write(verdict);
+            decisions.recordReview(workId, request, assessed.verdict(), assessed.notes(), assessed.failure());
+            return assessed.verdict() == null ? null : Json.write(assessed.verdict());
         }, executor);
     }
 
-    private JsonNode assess(String workId, JsonNode request) {
+    /** What the review pass produced: the core's verdict (or null), the notes for the task, the cause of a missing verdict. */
+    record Assessed(ObjectNode verdict, ObjectNode notes, String failure) { }
+
+    private Assessed assess(String workId, JsonNode request) {
         List<java.util.Map<String, Object>> rows = jdbc.queryForList("SELECT project_id, model_ref, request_text FROM campaign_index WHERE work_id = ?", workId);
-        if (rows.isEmpty()) return null;
+        if (rows.isEmpty()) return new Assessed(null, null, "the run is not known to the Studio");
         String projectId = (String) rows.getFirst().get("project_id");
         ModelService.Ref ref = ModelService.Ref.parse((String) rows.getFirst().get("model_ref"));
         String asked = (String) rows.getFirst().get("request_text");
-        if (ref == null || asked == null) return null;
-        String diff = cut(evidence(projectId, workId, request));
-        if (diff.isBlank()) diff = "(no file was changed)";
-        String before = cut(earlier(projectId, workId));
+        if (ref == null || asked == null) return new Assessed(null, null, "the run has no model or no request");
+        String change = evidence(projectId, workId, request);
+        String earlier = earlier(projectId, workId);
+        boolean partial = change.length() > MAX_DIFF_CHARS || earlier.length() > MAX_DIFF_CHARS;
+        String diff = change.isBlank() ? "(no file was changed)" : cut(change);
+        // D1: only the contract's criteria; the core's architecture rubric and its diff-limit lines are not the user's.
         StringBuilder criteria = new StringBuilder();
         for (JsonNode c : Json.each(request.get("criteria"))) criteria.append("- ").append(c.asString()).append('\n');
-        for (JsonNode c : Json.each(request.get("rubric"))) criteria.append("- ").append(c.asString()).append('\n');
-
-        String system = Verification.REVIEW_MARKER + "\n"
-            + "You are an independent reviewer of a code change. You did not write it and you do not see the conversation that produced it.\n"
-            + "What the user answered or allowed during the task is part of the request.\n"
-            + "A task may take several runs. Judge the project as it is after this run: what an earlier run of the same task changed counts.\n"
-            + "Decide whether the change fulfils the request. Approve only when it does what was asked and you see no defect that would break it.\n"
-            + "Reply with one JSON object and nothing else:\n"
-            + "{\"verdict\":\"approve\"|\"revise\",\"confidence\":0.0-1.0,\"summary\":\"one sentence\","
-            + "\"findings\":[{\"severity\":\"blocker\"|\"major\"|\"minor\",\"location\":\"path:line\",\"issue\":\"what is wrong\"}]}";
         String said = said(workId);
         String user = "Request:\n" + asked.strip() + "\n\n" + (said.isEmpty() ? "" : "During the task:\n" + said + "\n")
             + "Criteria:\n" + (criteria.isEmpty() ? "- " + Verification.REVIEW_TEXT + "\n" : criteria)
-            + (before.isBlank() ? "" : "\nChanges of earlier runs of this task, already in the project (unified diff):\n" + before + "\n")
+            + (earlier.isBlank() ? "" : "\nChanges of earlier runs of this task, already in the project (unified diff):\n" + cut(earlier) + "\n")
             + "\nChange of this run (unified diff):\n" + diff;
 
         Model model = transport.llm().models().require(ref.provider(), ref.model());
-        String reply = transport.llm().complete(model, Conversation.builder().system(system).user(user).build()).text();
+        // D2: low reasoning and a short output cap; `strict` stays off (Codex drops the cap with a warning).
+        ChatOptions.Builder options = ChatOptions.builder().maxTokens(MAX_OUTPUT_TOKENS).tag("studio.purpose", "review").tag("astrolabe.work", workId);
+        ReasoningLevel low = ReasoningLevel.LOW.nearest(model.reasoningLevels());
+        if (low != null) options.reasoning(low);
+        String reply = transport.llm().complete(model, Conversation.builder().system(SYSTEM).user(user).build(), options.build()).text();
         JsonNode parsed = parse(reply);
-        if (parsed == null) {
-            log.warn("review pass for {}: the reply was not a verdict", workId);
-            return null;
+        if (parsed == null) return new Assessed(null, null, "the reviewer's reply was not a verdict: " + cutLine(reply, 200));
+        return verdict(request, parsed, "studio:review-pass(" + ref.text() + ")", partial);
+    }
+
+    /**
+     * B1: the reviewer's answer as the core's verdict. `approve` approves — unless the reviewer saw only part of the
+     * change; `revise` with a blocker or major finding that names a place and an issue rejects; `revise` with minor
+     * findings only approves, the findings becoming notes; anything else cannot be verified (`InsufficientEvidence`).
+     */
+    static Assessed verdict(JsonNode request, JsonNode parsed, String signedBy, boolean partial) {
+        String answer = Json.text(parsed, "verdict", "").toLowerCase(Locale.ROOT).replace('-', '_').strip();
+        String summary = Json.text(parsed, "summary", "");
+        List<ObjectNode> substantive = new ArrayList<>();
+        List<ObjectNode> minor = new ArrayList<>();
+        boolean unplaced = false;
+        for (JsonNode f : Json.each(parsed.get("findings"))) {
+            String issue = Json.text(f, "issue", "").strip();
+            String location = Json.text(f, "location", "").strip();
+            String severity = Json.text(f, "severity", "").toLowerCase(Locale.ROOT).strip();
+            if (issue.isEmpty()) continue;
+            ObjectNode finding = Json.obj();
+            finding.put("severity", switch (severity) {
+                case "blocker" -> "Blocker";
+                case "major" -> "Major";
+                default -> "Minor";
+            });
+            finding.put("location", location.isEmpty() ? "change" : location);
+            finding.put("issue", issue);
+            finding.put("kind", "Correctness");
+            boolean serious = severity.equals("blocker") || severity.equals("major");
+            if (serious && !location.isEmpty()) substantive.add(finding);
+            else if (serious) unplaced = true;
+            else minor.add(finding);
         }
-        boolean approve = "approve".equalsIgnoreCase(Json.text(parsed, "verdict", ""));
         ObjectNode verdict = Json.obj();
         verdict.put("requestId", Json.text(request, "id"));
         verdict.put("contractRevision", request.path("contractRevision").asInt());
         verdict.set("reviewedCandidate", request.get("candidate"));
-        verdict.put("outcome", approve ? "Approve" : "Revise");
+        verdict.put("confidence", 0.7);
+        verdict.put("signedBy", signedBy);
         ArrayNode findings = verdict.putArray("findings");
-        if (!approve) {
-            for (JsonNode f : Json.each(parsed.get("findings"))) {
-                String issue = Json.text(f, "issue");
-                if (issue == null || issue.isBlank()) continue;
-                ObjectNode finding = findings.addObject();
-                finding.put("severity", switch (Json.text(f, "severity", "major").toLowerCase(Locale.ROOT)) {
-                    case "blocker" -> "Blocker";
-                    case "minor" -> "Minor";
-                    default -> "Major";
-                });
-                finding.put("location", Json.text(f, "location", "change"));
-                finding.put("issue", issue);
-                finding.put("kind", "Correctness");
+        String missing = null;
+        switch (answer) {
+            case "approve" -> {
+                verdict.put("outcome", partial ? "InsufficientEvidence" : "Approve");
+                if (partial) missing = PARTIAL;
             }
-            if (findings.isEmpty()) {
-                ObjectNode finding = findings.addObject();
-                finding.put("severity", "Major");
-                finding.put("location", "change");
-                finding.put("issue", Json.text(parsed, "summary", "the reviewer did not approve the change"));
-                finding.put("kind", "Correctness");
+            case "revise" -> {
+                if (!substantive.isEmpty()) {
+                    verdict.put("outcome", "Revise");
+                    substantive.forEach(findings::add);
+                    minor.forEach(findings::add);
+                } else if (!minor.isEmpty() && !unplaced) {
+                    // Minor findings only: approved, the findings are notes for the user.
+                    verdict.put("outcome", partial ? "InsufficientEvidence" : "Approve");
+                    if (partial) missing = PARTIAL;
+                } else {
+                    verdict.put("outcome", "InsufficientEvidence");
+                    missing = "the reviewer asked for changes without naming a defect in the change: " + (summary.isBlank() ? "no reason given" : summary);
+                }
+            }
+            default -> {
+                verdict.put("outcome", "InsufficientEvidence");
+                String said = Json.text(parsed, "missing", "").strip();
+                missing = !said.isEmpty() ? said : !summary.isBlank() ? summary : "the reviewer could not verify the change";
             }
         }
-        double confidence = parsed.path("confidence").asDouble(0.7);
-        verdict.put("confidence", Math.max(0, Math.min(1, confidence)));
-        verdict.put("signedBy", "studio:review-pass(" + ref.text() + ")");
-        verdict.put("summary", Json.text(parsed, "summary", ""));
-        // `summary` is for the task's timeline; the core's Verdict has no such field.
-        ObjectNode forCore = verdict.deepCopy();
-        forCore.remove("summary");
-        return forCore;
+        if (missing != null) verdict.put("missingCriterion", missing);
+        ObjectNode notes = Json.obj().put("summary", summary);
+        if (!minor.isEmpty() && !"Revise".equals(Json.text(verdict, "outcome"))) {
+            ArrayNode n = notes.putArray("notes");
+            minor.forEach(n::add);
+        }
+        return new Assessed(verdict, notes, null);
+    }
+
+    /** B6: the cause of a missing verdict — class, error code, HTTP status, message. */
+    static String failure(Throwable e) {
+        Throwable t = e;
+        while ((t instanceof java.util.concurrent.CompletionException || t instanceof java.util.concurrent.ExecutionException) && t.getCause() != null) t = t.getCause();
+        StringBuilder out = new StringBuilder(t.getClass().getSimpleName());
+        if (t instanceof LlmException x) {
+            out.append(" · ").append(x.code());
+            x.httpStatus().ifPresent(s -> out.append(" · http ").append(s));
+            x.providerCode().ifPresent(c -> out.append(" · ").append(c));
+        }
+        if (t.getMessage() != null) out.append(": ").append(cutLine(t.getMessage(), 300));
+        return out.toString();
     }
 
     private static String cut(String diff) {
         return diff.length() > MAX_DIFF_CHARS ? diff.substring(0, MAX_DIFF_CHARS) + "\n… cut at " + MAX_DIFF_CHARS + " characters" : diff;
+    }
+
+    private static String cutLine(String text, int max) {
+        String one = text == null ? "" : text.strip().replaceAll("\\s+", " ");
+        return one.length() > max ? one.substring(0, max) + "…" : one;
     }
 
     /**

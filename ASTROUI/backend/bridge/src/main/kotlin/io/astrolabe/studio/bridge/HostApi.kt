@@ -49,11 +49,16 @@ public data class CampaignRef(
     val stopReason: String?,
     /** How the result is verified (Studio 2 §7.3); null when the bridge could not tell. */
     val verification: VerificationSetup? = null,
+    /** The core's machine-readable reason a stopped campaign waits (D-339): `acceptance_decision` · `review_rejected`. */
+    val stopCode: String? = null,
 )
 
-/** Called once when a campaign's run returns, fails, or its job is cancelled (host shutdown). */
+/**
+ * Called once when a campaign's run returns, fails, or its job is cancelled (host shutdown). [stopCode] is the core's
+ * machine-readable reason a `waiting_for_input` campaign waits (D-339): `acceptance_decision` or `review_rejected`.
+ */
 public fun interface RunListener {
-    public fun onEnded(workId: String, outcome: String?, reason: String?, failure: Throwable?)
+    public fun onEnded(workId: String, outcome: String?, reason: String?, stopCode: String?, failure: Throwable?)
 }
 
 /** Receives every bus record, already serialized; must not block (it runs on the bus dispatcher). */
@@ -63,8 +68,9 @@ public fun interface RecordSink {
 
 /**
  * Human authority as the host implements it (§2.4, §25.8). Requests and replies are the JSON of ASTROLABE's
- * `Question`/`Answer`, `DClassRequest`/`Decision`, `AmendmentProposal`/`Resolution`, `ReviewRequest`/`Verdict`.
- * A `null` answer or verdict means "no answer": the cell ends blocked.
+ * `Question`/`Answer`, `DClassRequest`/`Decision`, `AmendmentProposal`/`Resolution`, `ReviewRequest`/`Verdict` and
+ * `AcceptanceDecisionRequest`/`AcceptanceDecision`. A `null` answer means "no answer": a question ends the cell
+ * blocked, a review is an unverified result, and a missing acceptance decision makes the campaign wait (D-338).
  */
 public interface AuthorityPort {
     public fun ask(workId: String, questionJson: String): CompletableFuture<String?>
@@ -74,6 +80,9 @@ public interface AuthorityPort {
     public fun resolve(workId: String, proposalJson: String): CompletableFuture<String>
 
     public fun review(workId: String, requestJson: String): CompletableFuture<String?>
+
+    /** The acceptance decision (D-338): `accept` or `rework` for what could not be verified, or `null` for none now. */
+    public fun decide(workId: String, requestJson: String): CompletableFuture<String?>
 }
 
 /** Configuration check result (§17.1 validation). */

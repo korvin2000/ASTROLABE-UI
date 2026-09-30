@@ -53,11 +53,12 @@ class FixtureCampaignTest {
                             return CompletableFuture.completedFuture("""{"proposalId":${p["id"]},"contractRevision":${p["contractRevision"]},"outcome":"Accepted","byAuthority":"user:test"}""")
                         }
                         override fun review(workId: String, requestJson: String) = CompletableFuture.completedFuture<String?>(null)
+                        override fun decide(workId: String, requestJson: String) = CompletableFuture.completedFuture<String?>(null)
                     }
                     val ref = host.start(
                         "p1", null, StartSpec(FixtureRepos.DEMO_REQUEST, 400_000), configJson, llm, authority,
                         { _, _, _, _ -> }, AutonomousPolicyOptions(),
-                    ) { _, o, r, f -> outcome = o; reason = r ?: f?.toString(); ended.countDown() }
+                    ) { _, o, r, _, f -> outcome = o; reason = r ?: f?.toString(); ended.countDown() }
                     assertTrue(ended.await(180, TimeUnit.SECONDS), "campaign ended")
                     val journal = ConfigSupport.parse(host.journalAfter("p1", ref.workId, 0, 2000)) as JsonArray
                     journal.forEach { e ->

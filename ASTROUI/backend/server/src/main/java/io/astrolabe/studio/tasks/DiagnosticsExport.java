@@ -114,9 +114,12 @@ public class DiagnosticsExport {
                 });
                 entry(zip, "audit.json", Json.MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(audit));
                 ArrayNode requests = Json.arr();
-                jdbc.query("SELECT at, provider, model, outcome, latency_ms, attempts, input_tokens, output_tokens, warnings FROM llm_request ORDER BY id DESC LIMIT 500", rs -> {
-                    requests.addObject().put("at", rs.getString(1)).put("provider", rs.getString(2)).put("model", rs.getString(3)).put("outcome", rs.getString(4))
-                        .put("latencyMs", rs.getLong(5)).put("attempts", rs.getInt(6)).put("inputTokens", rs.getLong(7)).put("outputTokens", rs.getLong(8)).put("warnings", rs.getString(9));
+                jdbc.query("SELECT at, provider, model, outcome, latency_ms, attempts, input_tokens, output_tokens, warnings, error_code, attempts_detail, tags FROM llm_request ORDER BY id DESC LIMIT 500", rs -> {
+                    ObjectNode r = requests.addObject().put("at", rs.getString(1)).put("provider", rs.getString(2)).put("model", rs.getString(3)).put("outcome", rs.getString(4))
+                        .put("latencyMs", rs.getLong(5)).put("attempts", rs.getInt(6)).put("inputTokens", rs.getLong(7)).put("outputTokens", rs.getLong(8)).put("warnings", rs.getString(9))
+                        .put("errorCode", rs.getString(10)).put("attemptsDetail", rs.getString(11));
+                    // B6: the host's tags say which task and purpose (e.g. the review pass) a call served.
+                    if (rs.getString(12) != null) r.set("tags", Json.parse(rs.getString(12)));
                 });
                 entry(zip, "model-requests.json", Json.MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(requests));
                 List<String> ids = campaigns.taskIds();

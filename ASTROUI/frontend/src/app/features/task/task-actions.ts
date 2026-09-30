@@ -4,11 +4,12 @@ import { Api, errorInfo } from '../../core/api';
 import { Card, Effort, ErrorInfo, Mode, Task } from '../../core/model';
 import { AppStore } from '../../state/app.store';
 import { TaskStore } from '../../state/task.store';
+import { AcceptanceDecision, acceptanceBody } from './acceptance';
 
 export type PanelTab = 'changes' | 'progress' | 'output';
 
 /** What the task view is asked to show: the side panel at a tab, a file or an output, or a dialog. */
-export interface ViewRequest { panel?: PanelTab; file?: string; output?: string; dialog?: 'commit' | 'undo' | 'model'; }
+export interface ViewRequest { panel?: PanelTab; file?: string; output?: string; dialog?: 'commit' | 'undo' | 'model'; compose?: 'rework'; }
 
 /**
  * What the user can do with the open task (sections 7.5 to 7.8, 10). Every action answers with the task as the
@@ -63,6 +64,13 @@ export class TaskActions {
 
   async decide(card: Card, decision: 'allow_once' | 'allow_always' | 'deny' | 'accept' | 'decline', confirm = false): Promise<void> {
     this.took(await this.run(() => this.api.post<Task>(this.path() + '/cards/' + encodeURIComponent(card.id), { decision, confirm })));
+  }
+
+  /** Answers an acceptance card: the task is done, or it needs rework (with the user's words, if any). */
+  async settle(card: Card, decision: AcceptanceDecision, text?: string): Promise<boolean> {
+    const task = await this.run(() => this.api.post<Task>(this.path() + '/cards/' + encodeURIComponent(card.id), acceptanceBody(decision, text)));
+    this.took(task);
+    return !!task;
   }
 
   async allowSkipped(card: Card): Promise<void> {

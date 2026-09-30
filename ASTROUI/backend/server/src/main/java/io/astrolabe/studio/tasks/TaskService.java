@@ -69,6 +69,8 @@ public class TaskService implements DisposableBean {
     private final StatsService stats;
     private final ExecutorService executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("task-", 0).factory());
     private final Map<String, Boolean> stopRequested = new ConcurrentHashMap<>();
+    /** C2: messages sent while a run was opening, delivered once it is live. */
+    private final Map<String, List<String>> queued = new ConcurrentHashMap<>();
 
     public TaskService(JdbcTemplate jdbc, HostService hosts, CampaignService campaigns, ProjectService projects, ProjectSettings projectSettings,
                        SettingsService settings, Preferences preferences, AccountService accounts, ModelService models, DecisionService decisions,
@@ -96,7 +98,7 @@ public class TaskService implements DisposableBean {
 
     private record Run(String workId, String projectId, String taskId, String parentWork, String title, String customTitle, String status, String phase,
                        String outcome, String reason, String modelRef, String effort, String mode, String requestText, JsonNode verification,
-                       JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt) { }
+                       JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt, String stopCode) { }
 
     private List<Run> runs(String taskId) {
         return jdbc.query("SELECT * FROM campaign_index WHERE task_id = ? AND hidden = 0 ORDER BY created_at, rowid", (rs, i) -> new Run(
@@ -105,7 +107,7 @@ public class TaskService implements DisposableBean {
             rs.getString("model_ref"), rs.getString("effort"), rs.getString("task_mode"), rs.getString("request_text"),
             rs.getString("verification_json") == null ? null : Json.parse(rs.getString("verification_json")),
             rs.getString("reason_json") == null ? null : Json.parse(rs.getString("reason_json")),
-            rs.getInt("demo") != 0, rs.getString("created_at"), rs.getString("updated_at"), rs.getString("ended_at")), taskId);
+            rs.getInt("demo") != 0, rs.getString("created_at"), rs.getString("updated_at"), rs.getString("ended_at"), rs.getString("stop_code")), taskId);
     }
 
     private List<Run> require(String taskId) {
@@ -138,7 +140,8 @@ public class TaskService implements DisposableBean {
             state = decisions.pendingCount(work) > 0 ? "needs_you" : "working";
         } else if (r.outcome() != null) {
             switch (r.outcome()) {
-                case "completed" -> state = "done";
+                // A8 (core D-344): an answer to a request that needed no change is done, with nothing to verify.
+                case "completed", "answered" -> state = "done";
                 case "cancelled" -> state = "stopped";
                 case "failed" -> {
                     state = "failed";
@@ -149,9 +152,15 @@ public class TaskService implements DisposableBean {
                     reason = reason(StudioError.LIMIT_REACHED, r.reason());
                 }
                 case "waiting_for_input" -> {
-                    state = "paused";
-                    boolean noChecks = r.reason() != null && r.reason().contains("nothing to accept against");
-                    reason = reason(noChecks ? StudioError.NO_VERIFICATION : StudioError.NEEDS_ANSWER, r.reason());
+                    if ("acceptance_decision".equals(r.stopCode()) || "review_rejected".equals(r.stopCode())) {
+                        // B3: the core waits for the user's word on its result — a decision card, never Continue.
+                        state = "needs_you";
+                        reason = reason("review_rejected".equals(r.stopCode()) ? StudioError.REVIEW_REJECTED : StudioError.ACCEPTANCE_DECISION, r.reason());
+                    } else {
+                        state = "paused";
+                        boolean noChecks = r.reason() != null && r.reason().contains("nothing to accept against");
+                        reason = reason(noChecks ? StudioError.NO_VERIFICATION : StudioError.NEEDS_ANSWER, r.reason());
+                    }
                 }
                 case "waiting_for_process" -> {
                     state = "paused";
@@ -203,9 +212,7 @@ public class TaskService implements DisposableBean {
         o.put("projectId", first.projectId());
         o.put("title", first.customTitle() != null ? first.customTitle() : first.title());
         o.setAll(stateOf(last));
-        String kind = last.verification() == null ? null : Json.text(last.verification(), "kind");
-        boolean done = "completed".equals(last.outcome());
-        o.put("verified", done && kind != null ? kind : "none");
+        o.put("verified", "completed".equals(last.outcome()) ? verifiedLabel(last) : "answered".equals(last.outcome()) ? "answer" : "none");
         if (last.verification() != null) o.set("verification", last.verification());
         ObjectNode model = o.putObject("model");
         model.put("ref", last.modelRef());
@@ -219,6 +226,8 @@ public class TaskService implements DisposableBean {
         o.put("updatedAt", last.updatedAt());
         ArrayNode pending = o.putArray("pending");
         for (Run r : runs) for (JsonNode d : decisions.list("pending", r.workId(), 50)) pending.add(card(d));
+        ObjectNode acceptance = acceptanceCard(last);
+        if (acceptance != null) pending.add(card(acceptance));
         if (!full) return o;
         ArrayNode rs = o.putArray("runs");
         for (Run r : runs) {
@@ -238,6 +247,40 @@ public class TaskService implements DisposableBean {
     }
 
     static ObjectNode card(JsonNode decision) { return DecisionService.cardOf(decision); }
+
+    /** The open acceptance card of [r] while the core waits for the user's word on it (B3); null otherwise. */
+    private ObjectNode acceptanceCard(Run r) {
+        if (!"waiting_for_input".equals(r.outcome()) || r.stopCode() == null || hosts.host().isLive(r.workId())) return null;
+        return decisions.openAcceptance(r.workId());
+    }
+
+    /**
+     * How a completed run was verified (B4), from the core's finish receipt: accepted on the policy's word is
+     * `unverified`, on the user's `user`; otherwise `review` when a reviewer approved an item, `tests` when every item
+     * was tested, `none` when the receipt says nothing.
+     */
+    private String verifiedLabel(Run r) {
+        String receipt = null;
+        try {
+            if (hosts.host().isOpen(r.projectId())) receipt = hosts.host().finishReceipt(r.projectId(), r.workId());
+        } catch (RuntimeException e) {
+            log.debug("finish receipt of {}: {}", r.workId(), e.toString());
+        }
+        if (receipt == null) return "none";
+        JsonNode lines = Json.parse(receipt).path("acceptance");
+        boolean policy = false, user = false, reviewed = false, tested = false;
+        for (JsonNode line : Json.each(lines)) {
+            switch (Json.text(line, "provenance", "")) {
+                case "accepted" -> {
+                    if ("policy".equals(Json.text(line, "decider"))) policy = true; else user = true;
+                }
+                case "reviewed" -> reviewed = true;
+                case "tested" -> tested = true;
+                default -> { }
+            }
+        }
+        return policy ? "unverified" : user ? "user" : reviewed ? "review" : tested ? "tests" : "none";
+    }
 
     static String pattern(JsonNode request) { return DecisionService.patternOf(request); }
 
@@ -283,6 +326,10 @@ public class TaskService implements DisposableBean {
             } catch (RuntimeException e) {
                 complete = false;
             }
+            // B6: the host's review pass is the task's spend too (its calls are tagged with the run).
+            Long review = jdbc.queryForObject("SELECT coalesce(sum(coalesce(input_tokens, 0) + coalesce(output_tokens, 0)), 0) FROM llm_request WHERE tags LIKE ?",
+                Long.class, "%\"astrolabe.work\":\"" + r.workId() + "\"%");
+            tokens += review == null ? 0 : review;
             try {
                 java.time.Instant from = java.time.Instant.parse(r.createdAt());
                 java.time.Instant to = r.endedAt() != null ? java.time.Instant.parse(r.endedAt()) : hosts.host().isLive(r.workId()) ? java.time.Instant.now() : java.time.Instant.parse(r.updatedAt());
@@ -435,6 +482,7 @@ public class TaskService implements DisposableBean {
 
             // 7. Run.
             step(work, "run", "running");
+            deliverQueued(r);
             campaigns.refresh(work);
             Run row = run(work);
             if (row != null) state(row);
@@ -460,6 +508,17 @@ public class TaskService implements DisposableBean {
             if (row != null) state(row);
             notify(r.taskId(), "task.failed");
         }
+    }
+
+    /** C2: the messages sent while [r] was opening reach the agent now, in order; a run that ended already takes them on its next start. */
+    private void deliverQueued(TaskRun r) {
+        List<String> messages = queued.remove(r.workId());
+        if (messages == null || messages.isEmpty()) return;
+        if (!hosts.host().isLive(r.workId())) {
+            queued.computeIfAbsent(r.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).addAll(0, messages);
+            return;
+        }
+        for (String m : messages) hosts.host().amend(r.projectId(), r.workId(), m);
     }
 
     private static final class Stopped extends RuntimeException {
@@ -509,7 +568,8 @@ public class TaskService implements DisposableBean {
 
     // ------------------------------------------------------------------------------------------------ run end
 
-    private void runEnded(String workId, String outcome, String reason, Throwable failure) {
+    private void runEnded(String workId, String outcome, String reason, String stopCode, Throwable failure) {
+        if (!"waiting_for_input".equals(outcome) || stopCode == null) decisions.closeAcceptance(workId, "the run " + (outcome == null ? "stopped" : "ended " + outcome));
         Run r = run(workId);
         if (r == null || r.mode() == null) return;
         if (outcome == null || "failed".equals(outcome)) {
@@ -531,7 +591,7 @@ public class TaskService implements DisposableBean {
         Run fresh = run(workId);
         if (fresh != null) state(fresh);
         if ("completed".equals(outcome) && !preferences.flag(Preferences.FIRST_TASK_DONE)) preferences.set(Preferences.FIRST_TASK_DONE, Json.MAPPER.valueToTree(true));
-        notify(r.taskId(), "completed".equals(outcome) ? "task.done" : outcome == null || "failed".equals(outcome) ? "task.failed" : "task.paused");
+        notify(r.taskId(), "completed".equals(outcome) || "answered".equals(outcome) ? "task.done" : outcome == null || "failed".equals(outcome) ? "task.failed" : stopCode != null ? "task.needs_you" : "task.paused");
     }
 
     /** A notification for the desktop and the tab title; the text comes from the frontend catalog. */
@@ -568,6 +628,20 @@ public class TaskService implements DisposableBean {
             return result.put("effect", "answered");
         }
 
+        // B3: while the core waits for the user's word, a message is "not done — rework" with this text.
+        ObjectNode acceptance = acceptanceCard(last);
+        if (acceptance != null) {
+            pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "answer").put("cardId", Json.text(acceptance, "id")));
+            decideAcceptance(last, acceptance, "rework", body, modelRef, effort, mode);
+            return result.put("effect", "rework");
+        }
+        // C2: a run that is opening gets the message as soon as it is live; it never starts another run.
+        if (campaigns.isOpening(last.workId()) || "opening".equals(last.status())) {
+            pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
+            queued.computeIfAbsent(last.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(body);
+            pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "message_queued"));
+            return result.put("effect", "queued");
+        }
         String state = Json.text(stateOf(last), "state");
         boolean live = hosts.host().isLive(last.workId());
         if (live) {
@@ -619,9 +693,10 @@ public class TaskService implements DisposableBean {
         String nextMode = normalise(mode, List.of("ask", "auto"), last.mode());
         jdbc.update("UPDATE campaign_index SET status = 'opening', model_ref = ?, effort = ?, task_mode = ?, updated_at = ? WHERE work_id = ?", model, nextEffort, nextMode, Json.now(), last.workId());
         if (last.modelRef() != null && !last.modelRef().equals(model)) pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "model_changed").put("model", model));
-        TaskRun run = new TaskRun(last.workId(), last.projectId(), last.taskId(), last.parentWork(), last.title(), last.requestText(), model, nextEffort, nextMode, last.demo());
+        String text = last.requestText() != null ? last.requestText() : lastUserText(last);
+        TaskRun run = new TaskRun(last.workId(), last.projectId(), last.taskId(), last.parentWork(), last.title(), text, model, nextEffort, nextMode, last.demo());
         publish(last.taskId());
-        executor.execute(() -> launch(run, last.requestText(), true));
+        executor.execute(() -> launch(run, text, true));
     }
 
     private String followUp(List<Run> runs, String text, String modelRef, String effort, String mode) {
@@ -652,6 +727,7 @@ public class TaskService implements DisposableBean {
         String result = lastAgentText(last.workId());
         String outcome = switch (String.valueOf(last.outcome())) {
             case "completed" -> "finished and verified";
+            case "answered" -> "answered, nothing changed";
             case "cancelled" -> "stopped by the user before it finished";
             case "failed" -> "did not finish";
             default -> "paused";
@@ -693,6 +769,11 @@ public class TaskService implements DisposableBean {
         List<String> payloads = jdbc.queryForList("SELECT payload FROM event_log WHERE work_id = ? AND kind = 'journal.call' ORDER BY seq DESC LIMIT 5", String.class, workId);
         for (String p : payloads) {
             for (JsonNode part : Json.each(Json.parse(p).path("data").path("payload"))) {
+                // A8: an answer given through the task tool is the run's text.
+                if ("tool_call".equals(Json.text(part, "type")) && "task".equals(Json.text(part, "name"))) {
+                    JsonNode args = Json.parse(Json.text(part, "argsJson", "{}"));
+                    if ("answer".equals(Json.text(args, "op")) && Json.text(args, "text") != null) return Json.text(args, "text");
+                }
                 if (!"message".equals(Json.text(part, "type"))) continue;
                 for (JsonNode piece : Json.each(part.get("parts"))) {
                     String text = Json.text(piece, "text");
@@ -721,7 +802,8 @@ public class TaskService implements DisposableBean {
     public ObjectNode resume(String taskId, String modelRef, String effort, String mode) {
         List<Run> runs = require(taskId);
         Run last = runs.getLast();
-        if (hosts.host().isLive(last.workId())) return task(taskId, false);
+        // C1: a run that is opening or working is not started again; a repeated click changes nothing.
+        if (hosts.host().isLive(last.workId()) || campaigns.isOpening(last.workId()) || "opening".equals(last.status())) return task(taskId, false);
         String state = Json.text(stateOf(last), "state");
         if ("paused".equals(state) && resumable(last)) {
             continueRun(last, null, modelRef, effort, mode);
@@ -744,24 +826,35 @@ public class TaskService implements DisposableBean {
         String nextMode = normalise(mode, List.of("ask", "auto"), last.mode());
         jdbc.update("UPDATE campaign_index SET status = 'opening', reason = NULL, reason_json = NULL, ended_at = NULL, model_ref = ?, effort = ?, task_mode = ?, updated_at = ? WHERE work_id = ?",
             model, nextEffort, nextMode, Json.now(), last.workId());
-        TaskRun run = new TaskRun(last.workId(), last.projectId(), last.taskId(), last.parentWork(), last.title(), last.requestText(), model, nextEffort, nextMode,
+        String text = last.requestText() != null ? last.requestText() : lastUserText(last);
+        TaskRun run = new TaskRun(last.workId(), last.projectId(), last.taskId(), last.parentWork(), last.title(), text, model, nextEffort, nextMode,
             model != null && model.startsWith(FixtureBrain.PROVIDER + "/"));
         pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "retrying"));
         publish(last.taskId());
-        executor.execute(() -> launch(run, last.requestText(), false));
+        executor.execute(() -> launch(run, text, false));
     }
 
     // ------------------------------------------------------------------------------------------------ cards
 
-    /** `POST /tasks/{id}/cards/{cardId}`: `{ decision: answer|allow_once|allow_always|deny|accept|decline, answer?, option? }`. */
+    /**
+     * `POST /tasks/{id}/cards/{cardId}`: `{ decision: answer|allow_once|allow_always|deny|accept|decline|done|rework, answer?, option? }`.
+     * `done` and `rework` answer an acceptance card (B3): the user's word is stored for the core's request and the run
+     * resumes — the core then finishes with no model call, or runs one continuation with the text.
+     */
     public ObjectNode card(String taskId, String cardId, JsonNode body) {
-        require(taskId);
+        List<Run> runs = require(taskId);
         ObjectNode decision = decisions.get(cardId);
         if (!taskId.equals(campaigns.taskOf(Json.text(decision, "workId")))) throw ApiException.notFound("no card " + cardId + " in task " + taskId);
         String choice = Json.text(body, "decision", "");
         String kind = Json.text(decision, "kind", "");
         JsonNode request = decision.get("request");
         switch (choice) {
+            case "done", "rework" -> {
+                if (!kind.equals("acceptance")) throw ApiException.invalid("this card is not an acceptance decision");
+                Run owner = runs.stream().filter(r -> r.workId().equals(Json.text(decision, "workId"))).findFirst().orElse(runs.getLast());
+                String text = Json.text(body, "answer");
+                decideAcceptance(owner, decision, choice.equals("done") ? "accept" : "rework", text == null ? null : text.strip(), null, null, null);
+            }
             case "answer" -> {
                 if (!kind.equals("question")) throw ApiException.invalid("this card is not a question");
                 Integer option = body.hasNonNull("option") ? body.get("option").asInt() : null;
@@ -785,6 +878,18 @@ public class TaskService implements DisposableBean {
         }
         publish(taskId);
         return task(taskId, false);
+    }
+
+    /**
+     * B3: stores the user's acceptance decision for the open card of [run] and resumes the run so the core applies it. A
+     * second answer to the same card, or an answer while the run is already opening or working, changes nothing.
+     */
+    private void decideAcceptance(Run run, JsonNode card, String kind, String text, String modelRef, String effort, String mode) {
+        if (!"open".equals(Json.text(card, "status"))) return;
+        String reason = text != null && !text.isBlank() ? text : kind.equals("accept") ? "the user confirmed the task is done" : "the user says the task is not done; fix what the review or the checks found";
+        boolean fresh = decisions.answerAcceptance((ObjectNode) card, kind, reason, "local");
+        if (!fresh || hosts.host().isLive(run.workId()) || campaigns.isOpening(run.workId()) || "opening".equals(run.status())) return;
+        continueRun(run, null, modelRef, effort, mode);
     }
 
     /** "Allow and continue" on the result card (§7.5): the skipped action becomes always allowed, then a follow-up runs. */

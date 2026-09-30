@@ -67,7 +67,7 @@ public class FixtureBrain @JvmOverloads constructor(
         val userText = messages.filterIsInstance<UserMessage>().joinToString("\n") { it.text() }
         if (System.getProperty("studio.fixture.debug") != null) println("BRAIN role=$role turn=$turn results=${results.map { it.take(600) }}")
         val reply = if (system.startsWith(io.astrolabe.studio.bridge.Verification.REVIEW_MARKER)) {
-            Reply("""{"verdict":"approve","confidence":0.9,"summary":"The change does what was asked.","findings":[]}""", emptyList())
+            review(userText)
         } else when (role) {
             "implementing", "writer", "repair" -> implementing(turn, results, userText + "\n" + system)
             "plan" -> Reply("The request is small and local; one increment covers it.", emptyList())
@@ -86,6 +86,23 @@ public class FixtureBrain @JvmOverloads constructor(
     }
 
     private data class Reply(val text: String, val calls: List<Pair<String, String>>, val reasoning: String? = null)
+
+    /**
+     * The demo reviewer (phase 0 B1): a keyword of the task's request picks the verdict, so each branch of the review
+     * pass can be exercised without a live model — `[review:revise]`, `[review:minor]`, `[review:cannot]`,
+     * `[review:vague]` (revise without a finding), `[review:garbage]` (no verdict); otherwise it approves.
+     */
+    private fun review(request: String): Reply {
+        val json = when {
+            "[review:revise]" in request -> """{"verdict":"revise","summary":"The discount is not clamped.","findings":[{"severity":"major","location":"src/pricing.py:12","issue":"a discount above 100% makes the price negative"}]}"""
+            "[review:minor]" in request -> """{"verdict":"revise","summary":"Fine apart from naming.","findings":[{"severity":"minor","location":"src/pricing.py:3","issue":"the name pct is terse"}]}"""
+            "[review:cannot]" in request -> """{"verdict":"cannot_verify","summary":"The request asks to open a browser.","findings":[],"missing":"whether the page opened in a browser leaves no trace in files"}"""
+            "[review:vague]" in request -> """{"verdict":"revise","summary":"Not sure this is right.","findings":[]}"""
+            "[review:garbage]" in request -> "I think it is probably fine."
+            else -> """{"verdict":"approve","summary":"The change does what was asked.","findings":[]}"""
+        }
+        return Reply(json, emptyList())
+    }
 
     /**
      * The interactive demo (a request asking to be consulted): a question for the human, a D-class approval for a

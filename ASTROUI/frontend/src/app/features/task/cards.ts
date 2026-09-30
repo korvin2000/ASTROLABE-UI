@@ -6,6 +6,7 @@ import { CardItem, ChecksItem, ErrorItem, ResultItem } from '../../timeline/time
 import { sentence } from '../../ui/error-line';
 import { MarkdownPipe } from '../../ui/markdown';
 import { usageText } from '../../ui/units';
+import { AcceptanceDecision, acceptanceChoices, reworkable, verifiedOf } from './acceptance';
 import { ActionId, actionsOf } from './error-actions';
 import { TaskActions } from './task-actions';
 
@@ -50,18 +51,42 @@ import { TaskActions } from './task-actions';
               <button class="btn" [disabled]="actions.busy()" (click)="actions.decide(card(), 'decline')"><kbd>2</kbd>{{ 'action.decline' | t }}</button>
             </div>
           }
+          @case ('acceptance') {
+            @if (card().variant === 'rejected') {
+              <h3>{{ 'card.acceptance_rejected' | t }}</h3>
+              <ul class="findings">
+                @for (f of findings(); track $index) {
+                  <li><span class="sev" [class.bad]="f.severity === 'blocker'">{{ f.label }}</span>@if (f.location) { <code>{{ f.location }}</code> }<span>{{ f.issue }}</span></li>
+                }
+                @empty { @if (reasons()) { <li>{{ reasons() }}</li> } }
+              </ul>
+            } @else {
+              <h3>{{ 'card.acceptance_unverified' | t: { reasons: reasons() } }}</h3>
+            }
+            <div class="row">
+              @for (c of choices(); track c.decision) {
+                <button class="btn" [class.pri]="c.primary" [disabled]="actions.busy() || sent()" (click)="settle(c.decision)"><kbd>{{ $index + 1 }}</kbd>{{ c.label | t }}</button>
+              }
+              @if (card().variant !== 'rejected') { <span class="muted small">{{ 'card.rework_type' | t }}</span> }
+            </div>
+          }
         }
       </section>
     } @else {
       <div class="done">
         <span class="muted">{{ ('card.' + card().kind) | t }}:</span>
-        <span>{{ card().kind === 'approval' ? card().command : card().text }}</span>
+        @if (card().kind !== 'acceptance') { <span>{{ card().kind === 'approval' ? card().command : card().text }}</span> }
         <span class="muted">— {{ outcome() }}</span>
       </div>
     }`,
   styles: [`
     .done { margin: 10px 0; padding-left: 10px; border-left: 2px solid var(--border); font-size: 13px; }
     .done span + span { margin-left: 5px; }
+    .findings { margin: 0 0 12px; padding-left: 18px; font-size: 13px; }
+    .findings li + li { margin-top: 4px; }
+    .findings li > * + * { margin-left: 6px; }
+    .sev { font-weight: 600; color: var(--warn); }
+    .sev.bad { color: var(--bad); }
   `],
 })
 export class AskCard {
@@ -74,12 +99,29 @@ export class AskCard {
   readonly version = input(0);
   readonly card = computed(() => this.item().card);
   readonly armed = signal(false);
+  /** An acceptance card was answered; its buttons stay off until the timeline collapses it. */
+  readonly sent = signal(false);
+
+  readonly choices = computed(() => acceptanceChoices(this.card()));
+  readonly reasons = computed(() => (this.card().items ?? []).map(i => i.reason).filter(Boolean).join('; '));
+  readonly findings = computed(() => {
+    this.i18n.lang();
+    return (this.card().items ?? []).flatMap(i => i.findings ?? []).map(f => {
+      const key = 'card.severity.' + f.severity;
+      return { ...f, label: this.i18n.has(key) ? this.i18n.t(key) : f.severity };
+    });
+  });
 
   readonly outcome = computed(() => {
     this.version();
     const item = this.item();
     if (item.status === 'expired' || item.status === 'superseded') return this.i18n.t('card.expired');
     if (item.card.kind === 'question') return item.answer ?? this.i18n.t('card.no_answer');
+    if (item.card.kind === 'acceptance') {
+      if (item.decision === 'done') return this.i18n.t('card.acceptance_done');
+      if (item.decision !== 'rework') return this.i18n.t('card.expired');
+      return item.answer ? this.i18n.t('card.acceptance_rework_text', { text: item.answer }) : this.i18n.t('card.acceptance_rework');
+    }
     return this.i18n.t('card.' + (item.decision ?? (item.status === 'declined' ? 'denied' : 'allowed')));
   });
 
@@ -97,6 +139,13 @@ export class AskCard {
     void this.actions.decide(this.card(), 'accept', this.armed());
   }
 
+  async settle(decision: AcceptanceDecision): Promise<void> {
+    if (this.sent()) return;
+    this.sent.set(true);
+    // A failed request leaves the card open: the user may answer again.
+    if (!(await this.actions.settle(this.card(), decision))) this.sent.set(false);
+  }
+
   @HostListener('keydown', ['$event'])
   key(ev: KeyboardEvent): void {
     if (this.item().status !== 'pending' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -109,6 +158,9 @@ export class AskCard {
     } else if (card.kind === 'approval') {
       const d = (['allow_once', 'allow_always', 'deny'] as const)[n - 1];
       if (d) { ev.preventDefault(); void this.actions.decide(card, d); }
+    } else if (card.kind === 'acceptance') {
+      const c = this.choices()[n - 1];
+      if (c) { ev.preventDefault(); void this.settle(c.decision); }
     } else if (n === 1) { ev.preventDefault(); this.accept(); }
     else if (n === 2) { ev.preventDefault(); void this.actions.decide(card, 'decline'); }
   }
@@ -256,10 +308,13 @@ export class ErrorCard {
             }
           </div>
         }
-        @if ((changes()?.files ?? 0) > 0) {
+        @if ((changes()?.files ?? 0) > 0 || rework()) {
           <div class="row">
-            <button class="btn pri" (click)="actions.show({ dialog: 'commit' })">{{ 'action.commit' | t }}</button>
-            <button class="btn" (click)="actions.show({ dialog: 'undo' })">{{ 'action.undo_all' | t }}</button>
+            @if ((changes()?.files ?? 0) > 0) {
+              <button class="btn pri" (click)="actions.show({ dialog: 'commit' })">{{ 'action.commit' | t }}</button>
+              <button class="btn" (click)="actions.show({ dialog: 'undo' })">{{ 'action.undo_all' | t }}</button>
+            }
+            @if (rework()) { <button class="btn" (click)="actions.show({ compose: 'rework' })">{{ 'action.not_done_rework' | t }}</button> }
           </div>
         }
       }
@@ -286,6 +341,8 @@ export class ResultCard {
   readonly task = computed(() => this.store.task());
   readonly changes = computed(() => this.task()?.changes ?? null);
   readonly skipped = computed(() => this.task()?.skipped ?? []);
+  /** The message the user sends next starts the follow-up run; the button only prepares the composer. */
+  readonly rework = computed(() => this.task()?.state === 'done' && reworkable(this.task()?.verified));
   readonly used = computed(() => { this.i18n.lang(); return usageText(this.i18n, this.task()?.usage); });
 
   files(n: number): string { return this.i18n.n('count.files', n); }
@@ -301,8 +358,7 @@ export class ResultCard {
       const text = last?.passed !== undefined ? this.i18n.t('checks.passed_n', { n: last.passed }) : this.i18n.t('checks.passed');
       return { ok: true, text, output: true };
     }
-    if (kind === 'review') return { ok: true, text: this.i18n.t('verified.review'), output: false };
-    if (kind === 'build') return { ok: true, text: this.i18n.t('verified.build'), output: true };
-    return { ok: false, text: this.i18n.t('verified.none'), output: false };
+    const v = verifiedOf(kind);
+    return { ok: v.ok, text: this.i18n.t(v.key), output: v.output };
   });
 }

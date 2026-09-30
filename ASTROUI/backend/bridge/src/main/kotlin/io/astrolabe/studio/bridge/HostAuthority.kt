@@ -9,6 +9,8 @@ import io.astrolabe.event.DClassRequest
 import io.astrolabe.event.Decision
 import io.astrolabe.event.Question
 import io.astrolabe.event.Resolution
+import io.astrolabe.verify.AcceptanceDecision
+import io.astrolabe.verify.AcceptanceDecisionRequest
 import io.astrolabe.verify.ReviewRequest
 import io.astrolabe.verify.Verdict
 import kotlinx.coroutines.future.await
@@ -40,6 +42,11 @@ internal class PortAuthority(private val workId: String, private val port: Autho
     override suspend fun review(request: ReviewRequest): Verdict? {
         val reply = port.review(workId, json.encodeToString(ReviewRequest.serializer(), request)).await() ?: return null
         return json.decodeFromString(Verdict.serializer(), reply)
+    }
+
+    override suspend fun decide(request: AcceptanceDecisionRequest): AcceptanceDecision? {
+        val reply = port.decide(workId, json.encodeToString(AcceptanceDecisionRequest.serializer(), request)).await() ?: return null
+        return json.decodeFromString(AcceptanceDecision.serializer(), reply)
     }
 }
 
@@ -74,5 +81,11 @@ internal class RecordingAutonomousAuthority(
         val verdict = delegate.review(request)
         listener.onPolicyDecision(workId, "review", json.encodeToString(ReviewRequest.serializer(), request), verdict?.let { json.encodeToString(Verdict.serializer(), it) })
         return verdict
+    }
+
+    override suspend fun decide(request: AcceptanceDecisionRequest): AcceptanceDecision? {
+        val decision = delegate.decide(request)
+        listener.onPolicyDecision(workId, "acceptance", json.encodeToString(AcceptanceDecisionRequest.serializer(), request), decision?.let { json.encodeToString(AcceptanceDecision.serializer(), it) })
+        return decision
     }
 }

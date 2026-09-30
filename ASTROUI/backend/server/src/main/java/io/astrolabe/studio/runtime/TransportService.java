@@ -53,6 +53,7 @@ public class TransportService implements DisposableBean {
     private final Path dataDir;
     private final FixtureBrain brain;
     private final CredentialStore credentials;
+    private final Path credentialFile;
     private final Telemetry telemetry;
     private final List<Path> roots = new CopyOnWriteArrayList<>();
     /** Project roots of the runs the demo model serves at the moment, by run. */
@@ -72,8 +73,12 @@ public class TransportService implements DisposableBean {
         } catch (java.io.IOException e) {
             throw new IllegalStateException("cannot create the Studio data directory " + dataDir, e);
         }
-        // G-27 interim: the SDK's owner-only file store; the UI states that it is not encrypted.
-        this.credentials = CredentialStore.file(dataDir.resolve("credentials.json"));
+        // G-27 interim: the SDK's owner-only file store; the UI states that it is not encrypted. `STUDIO_CREDENTIALS` names
+        // another store, so a separate test instance can use an existing sign-in without copying it (a copied OAuth
+        // login would rotate its refresh token away from the original).
+        String shared = System.getenv("STUDIO_CREDENTIALS");
+        this.credentialFile = shared != null && !shared.isBlank() ? Path.of(shared) : dataDir.resolve("credentials.json");
+        this.credentials = CredentialStore.file(credentialFile);
     }
 
     /** The current runtime, built lazily. */
@@ -174,7 +179,7 @@ public class TransportService implements DisposableBean {
 
     public Path dataDir() { return dataDir; }
 
-    public String credentialStorage() { return "file (owner-only, not encrypted — G-27): " + dataDir.resolve("credentials.json"); }
+    public String credentialStorage() { return "file (owner-only, not encrypted — G-27): " + credentialFile; }
 
     @Override
     public void destroy() {

@@ -261,29 +261,32 @@ public class StudioHost @JvmOverloads public constructor(
             val policy = CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected)
             val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text)
             var opened = controller.open(p.project, request, policy)
+            val fresh = opened.contract.version == 1
             var verification: VerificationSetup? = null
+            // Phase 0 A9 (core D-345): the Studio's instructions are host notes, never the user's words; structural
+            // changes to the contract are host amendments that append no request.
+            val notes = ArrayList<String>()
             if (spec.verificationSetup) {
                 // Studio 2 §7.3: the core refuses a plan with nothing executable to accept against; supply it and open again.
                 if (opened.state == null) {
                     val setup = Verification.choose(opened.sniffed, spec.savedChecks)
-                    val told = Guidance.told(opened.contract.requests.map { it.text })
-                    opened.contracts.amendByUser(work, Verification.text(setup) + if (told) "" else " " + Guidance.NOTES) { Verification.apply(it, setup) }
-                    opened = controller.open(p.project, request, policy)
+                    opened.contracts.amendByHost(work, "verification setup (${setup.kind})") { Verification.apply(it, setup) }
                     verification = setup
                 } else {
                     verification = verificationOf(opened, spec.savedChecks)
-                    if (opened.contract.version == 1 && !Guidance.told(opened.contract.requests.map { it.text })) {
-                        opened.contracts.amendByUser(work, Guidance.NOTES)
-                        opened = controller.open(p.project, request, policy)
-                    }
                 }
+                notes += Guidance.NOTES
+                notes += Guidance.platform(System.getProperty("os.name"))
+                notes += Verification.text(verification)
             }
             val protectedPaths = spec.protectedPaths
-            if (protectedPaths != null && opened.contract.version == 1 && opened.contract.scope.protectedPaths.toSet() != protectedPaths.toSet()) {
-                opened.contracts.amendByUser(work, protectedRule(protectedPaths)) { c ->
+            if (protectedPaths != null && fresh && opened.contract.scope.protectedPaths.toSet() != protectedPaths.toSet()) {
+                opened.contracts.amendByHost(work, "protected paths") { c ->
                     c.copy(scope = io.astrolabe.contract.Scope(c.scope.writePaths, protectedPaths))
                 }
             }
+            if (protectedPaths != null) notes += protectedRule(protectedPaths)
+            if (notes.isNotEmpty() || opened.state == null) opened = controller.open(p.project, request, policy.copy(hostNotes = notes))
             // The frozen attempt configuration is the truth for this attempt (invariant 12); its main profile is read live.
             val frozen = opened.attempt.config
             val main = config.profiles[frozen.profileRoles.main] ?: frozen.profiles[frozen.profileRoles.main]
@@ -307,16 +310,19 @@ public class StudioHost @JvmOverloads public constructor(
                 reconciliationJson = reconciliationJson(opened.reconciliation),
                 stopReason = opened.stop?.reason,
                 verification = verification,
+                stopCode = opened.stop?.code?.wire,
             )
             campaign.job = scope.launch(CoroutineName("campaign-${work.value}")) {
                 var outcome: String? = null
                 var reason: String? = null
+                var code: String? = null
                 var failure: Throwable? = null
                 try {
                     val run = controller.run(opened, model, authority, maxCells = spec.maxCells.coerceAtLeast(1))
                     campaign.run = run
                     outcome = run.outcome?.wire ?: opened.stop?.outcome?.wire
                     reason = run.state?.reason ?: opened.stop?.reason
+                    code = (run.state?.stopCode ?: opened.stop?.code)?.wire
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     reason = "run job cancelled by the host (resumable)"
                     throw cancelled
@@ -326,7 +332,7 @@ public class StudioHost @JvmOverloads public constructor(
                 } finally {
                     campaign.ended = true
                     try {
-                        listener.onEnded(work.value, outcome, reason, failure)
+                        listener.onEnded(work.value, outcome, reason, code, failure)
                     } catch (t: Throwable) {
                         log.warn("run listener failed for {}: {}", work.value, t.toString())
                     }

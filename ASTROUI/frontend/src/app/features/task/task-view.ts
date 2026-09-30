@@ -77,7 +77,11 @@ export class TaskView {
   readonly model = computed(() => this.actions.next().model ?? this.task()?.model.ref ?? this.app.defaultModel()?.ref ?? null);
   readonly effort = computed<Effort>(() => this.actions.next().effort ?? this.task()?.model.effort ?? 'medium');
   readonly mode = computed<Mode>(() => this.actions.next().mode ?? this.task()?.mode ?? 'ask');
+  /** A placeholder asked for by a card ("What should change?"), until the next message is sent. */
+  readonly hint = signal<string | null>(null);
   readonly placeholder = computed(() => {
+    const hint = this.hint();
+    if (hint) return hint;
     const state = this.store.state();
     if (this.pending()?.card.kind === 'question') return 'composer.answer';
     return state === 'working' || state === 'needs_you' ? 'composer.add' : 'composer.reply';
@@ -96,6 +100,7 @@ export class TaskView {
       const id = this.taskId();
       untracked(() => {
         this.pinned = true;
+        this.hint.set(null);
         this.actions.next.set({});
         this.actions.failure.set(null);
         void this.store.open(id).then(() => this.opened(id));
@@ -114,6 +119,7 @@ export class TaskView {
       untracked(() => {
         this.actions.request.set(null);
         if (r.dialog === 'model') { this.composer()?.open.set('model'); return; }
+        if (r.compose === 'rework') { this.hint.set('composer.rework'); this.composer()?.focus(); return; }
         if (r.dialog) { this.dialog.set({ kind: r.dialog, file: r.file }); return; }
         if (r.panel) this.open(r.panel, { file: r.file, out: r.output });
       });
@@ -216,6 +222,7 @@ export class TaskView {
 
   send(text: string): void {
     this.pinned = true;
+    this.hint.set(null);
     void this.actions.message(text).then(() => this.actions.next.set({}));
   }
 

@@ -3,6 +3,9 @@ import { Card, ErrorInfo, StudioItem, TaskState } from '../core/model';
 import { Text } from '../i18n/translate';
 import { Step, ToolCall, describe, hidden, nodeOf, opOf, statusOf, working } from './steps';
 
+/** Run outcomes that end a task done: verified work, or an answer that changed nothing (core D-344). */
+const DONE_OUTCOMES = ['completed', 'answered'];
+
 // The timeline reducer (Studio 2 FE-6, Appendix A): the recorded events of a task's runs become the items of the
 // conversation. Unknown kinds are kept for the technical view and never break the timeline; errors always surface.
 
@@ -20,7 +23,7 @@ export interface CardItem {
   /** `pending`, then how it ended: answered, declined, expired or superseded. */
   status: string;
   answer?: string;
-  decision?: 'allowed' | 'denied' | 'accepted' | 'declined';
+  decision?: 'allowed' | 'denied' | 'accepted' | 'declined' | 'done' | 'rework';
 }
 export interface ErrorItem { type: 'error'; id: string; at: string; error: ErrorInfo; state: TaskState; workId: string; }
 export interface ResultItem { type: 'result'; id: string; at: string; workId: string; summary: string; }
@@ -205,6 +208,8 @@ export class Timeline {
         const reason = d['reason'] ? (d['reason'] as ErrorInfo) : null;
         this.reason = reason;
         if (state === 'working') return;
+        // A run that no longer waits for the user's word on its result closes its acceptance card.
+        if (state !== 'needs_you') for (const c of this.cards.values()) if (c.card.kind === 'acceptance' && c.status === 'pending') c.status = 'expired';
         this.status = null;
         this.closeGroup();
         if ((state === 'paused' || state === 'failed') && reason) this.error(item, reason, state);
@@ -214,6 +219,8 @@ export class Timeline {
       case 'studio.decision_requested': {
         const card = d['card'] as Card | undefined;
         if (!card) return;
+        // A newer acceptance request of a run replaces the open one: one such card at a time.
+        if (card.kind === 'acceptance') for (const c of this.cards.values()) if (c.card.kind === 'acceptance' && c.status === 'pending') c.status = 'superseded';
         const entry: CardItem = { type: 'card', id: card.id, at: item.at, card, status: 'pending' };
         this.cards.set(card.id, entry);
         this.pushAhead(entry);
@@ -231,6 +238,10 @@ export class Timeline {
           if (!entry.answer && str(reply['text'])) entry.answer = str(reply['text']);
         } else if (entry.card.kind === 'approval') {
           entry.decision = reply['approved'] === true ? 'allowed' : 'denied';
+        } else if (entry.card.kind === 'acceptance') {
+          // The reply's text is the core's reason, not the user's words; those arrive as a `studio.user_message` answer.
+          const said = str(reply['kind']);
+          entry.decision = said === 'accept' ? 'done' : said === 'rework' ? 'rework' : undefined;
         } else {
           entry.decision = str(reply['outcome']) === 'Accepted' ? 'accepted' : 'declined';
         }
@@ -266,7 +277,7 @@ export class Timeline {
         return;
       }
       case 'campaign.finished':
-        this.stage = str(d['outcome']) === 'completed' ? 5 : this.stage;
+        this.stage = DONE_OUTCOMES.includes(str(d['outcome'])) ? 5 : this.stage;
         return;
       case 'cell.started': {
         const role = str(d['role']);
@@ -456,6 +467,8 @@ export class Timeline {
       this.pushAhead({ type: 'notice', id, at: item.at, text: { key: verdict === 'allowed' ? 'notice.auto_allowed' : 'notice.auto_skipped', params: { command: str(card['command']) } } });
     } else if (kind === 'amendment') {
       this.pushAhead({ type: 'notice', id, at: item.at, text: { key: verdict === 'accepted' ? 'notice.suggestion_accepted' : 'notice.suggestion_declined', params: { text: str(card['text']) } } });
+    } else if (kind === 'acceptance' && verdict === 'accepted') {
+      this.pushAhead({ type: 'notice', id, at: item.at, text: { key: 'notice.auto_accepted_unverified' } });
     } else if (kind === 'review') {
       this.stage = Math.max(this.stage, 3);
       const key = verdict === 'approve' ? 'notice.review_passed' : verdict === 'unavailable' ? 'notice.review_unavailable' : 'notice.review_revise';
@@ -482,8 +495,12 @@ export class Timeline {
     this.status = null;
     this.closeGroup();
     for (const step of this.steps.values()) if (step.workId === run.workId && step.status === 'running') step.status = 'unknown';
-    for (const card of this.cards.values()) if (card.card.workId === run.workId && card.status === 'pending') card.status = 'expired';
-    if (outcome === 'completed') {
+    for (const card of this.cards.values()) {
+      // A run that ends waiting for input keeps its acceptance card open: the user's answer resumes it.
+      if (card.card.kind === 'acceptance' && outcome === 'waiting_for_input') continue;
+      if (card.card.workId === run.workId && card.status === 'pending') card.status = 'expired';
+    }
+    if (outcome !== null && DONE_OUTCOMES.includes(outcome)) {
       this.stage = 5;
       let summary = '';
       // The agent's last words are the summary of the result card, not a message of their own.
