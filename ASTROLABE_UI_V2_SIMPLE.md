@@ -4,9 +4,9 @@ UI concept, specification and implementation plan.
 
 | | |
 |---|---|
-| Status | Proposal v2.0, 2026-09-29 |
+| Status | Proposal v2.1, 2026-09-29. v2.1 keeps the live workflow visualisation and redesigns it (section 8.2, Appendix D). |
 | Supersedes | The UI parts (shell, screens, settings, providers) of `ASTROLABE_UI_BEST_MIX.md` and `BEST_CONCEPTS_MIXED.md`. Their protocol parts (ASTRO-WS/1, security, persistence) stay valid as reference. |
-| Visual reference | `ASTROLABE_UI_V2_MOCKUP.html` (static mockup of seven screens with light and dark themes; where it differs from this text, this text wins) |
+| Visual reference | `ASTROLABE_UI_V2_MOCKUP.html` (mockup of nine screens with light and dark themes; screens 4 and 9 contain a working reference of the Flow view; where it differs from this text, this text wins) |
 | Code it applies to | `ASTROUI/frontend` (Angular 22), `ASTROUI/backend/server` (Spring Boot), `ASTROUI/backend/bridge` (Kotlin) |
 | Requirement ids | `P-n` principle · `UX-n` behaviour · `BE-n` backend work · `FE-n` frontend work · `S-n` spike · `E-n` error · `A-n` acceptance scenario |
 
@@ -19,6 +19,7 @@ UI concept, specification and implementation plan.
 - **OAuth ChatGPT Plus/Pro.** SDK его полностью поддерживает, Studio просто ни разу не вызывает `auth().login`.
 - **Удаление gateway.** Провайдеры — фиксированный список из 14 пресетов; единственное действие — «logout», удаления нет вообще.
 - **Новая концепция.** Проект → задача (диалог) → изменения. Три решения до первой задачи: подключить аккаунт, выбрать папку, написать запрос. Один выбор модели вместо цепочки «профиль → валидация → квалификация → роль». Около 19 настроек вместо 102, без JSON. Вся внутренняя терминология (campaign, contract, cell, lease, profile, S0, D-class…) убрана из интерфейса.
+- **Визуализация работы агента сохранена и переделана.** Живой граф из семи узлов (You, Model, Agent, Memory, Explore, Edit & run, Checks) в раскладке и стиле референса: карточки с цветной полосой, светящиеся связи, бегущие по ним сигналы, пульсация портов и активных узлов. Узлы описывают работу, а не устройство движка. Раздел 8.2, приложение D, рабочий образец в макете (экраны 4 и 9).
 - **Главный риск.** Ядро ни разу не запускалось на живой модели в проверочных прогонах (`actual_state.md`: live-гейты `UNMEASURED`). Поэтому план начинается с пяти коротких проверок (spikes), и только потом строится UI.
 
 ---
@@ -62,7 +63,8 @@ Sources: code audit of `ASTROUI/frontend` and `ASTROUI/backend`, a walk through 
 | `frontend/src/app/core/*` | Keep. Add a command timeout, reject pending commands when the socket closes, check `status` in `Api.command`. |
 | `frontend/src/app/ui/*`, `styles.css` tokens | Keep. Raise the base size, remove the density switch (section 11). |
 | `features/thread/*`, `decisions/decision-card.ts`, `changes/changes.ts`, `projects/add-project.ts` | Salvage as starting material for the new task view, cards, Changes panel and folder dialog. |
-| `features/overview`, `plan`, `evidence`, `context`, `knowledge`, `stats`, `activity`, `diagnostics`, `decisions/inbox.ts`, `providers`, `settings`, `campaign/mission-strip.ts`, `shell/inspector.ts`, `shell/palette.ts`, `home`, `composer/new-campaign.ts` | Delete after the new screens replace them. |
+| `features/overview/*` | Replace with the Flow view of section 8.2. The eleven architecture nodes, the particle code and the STATE register panel are dropped. The event wiring is reused through the new flow reducer. |
+| `features/plan`, `evidence`, `context`, `knowledge`, `stats`, `activity`, `diagnostics`, `decisions/inbox.ts`, `providers`, `settings`, `campaign/mission-strip.ts`, `shell/inspector.ts`, `shell/palette.ts`, `home`, `composer/new-campaign.ts` | Delete after the new screens replace them. |
 | Backend REST and socket endpoints | Keep all. The new UI uses a subset plus the additions of section 12. |
 
 `ASTROUI/` is currently untracked in git. Commit it before any change so the present state can be restored (`BE-0`).
@@ -92,6 +94,7 @@ Sources: code audit of `ASTROUI/frontend` and `ASTROUI/backend`, a walk through 
 | Composer controls | 4 (project, model, mode, send) | 9 |
 | Permanent secondary panels | 0 | 1 strip + tab bar |
 | Side panel tabs | 3 | 6 tabs + drawer |
+| Nodes in the Flow view | 7, fixed, named after the work | 11, named after engine parts |
 | Settings visible by default | 20 in 5 sections | 102 in 14 sections |
 | Raw JSON editing | none | 3 places |
 | Internal ids and hashes in default UI | none | many |
@@ -179,7 +182,7 @@ Sources: code audit of `ASTROUI/frontend` and `ASTROUI/backend`, a walk through 
 | `/` | Redirect: last open task, else `/new`, else `/welcome` |
 | `/welcome` | First run (section 5) |
 | `/new` | New task: empty conversation with the composer in the centre |
-| `/t/:taskId` | Task view. Side panel state in the query: `?panel=changes|progress|output&file=…` |
+| `/t/:taskId` | Task view. Side panel state in the query: `?panel=changes|progress|output&file=…`; `&max=1` lets the Flow fill the main area |
 | `/settings/:section?` | Settings (section 9) |
 
 ---
@@ -481,7 +484,9 @@ Every Paused and Failed state carries a reason code from section 10. A state wit
 
 ## 8. Side panel
 
-Closed by default. Opens on "Review changes", on a click on a step, or with the button in the task header. Resizable, 40 % of the width, at least 420 px. Below 1100 px it covers the conversation.
+Opens on "Review changes", on a click on a step, or with the button in the task header. Resizable, 40 % of the width, at least 420 px. Below 1100 px it covers the conversation.
+
+On the user's first task the panel opens on Progress, so the live view is discovered. After that the app remembers whether the panel was open, which tab was shown and how wide it was. This is remembered state, not a setting.
 
 ### 8.1 Changes (UX-23)
 
@@ -494,19 +499,35 @@ Closed by default. Opens on "Review changes", on a click on a step, or with the 
 
 ### 8.2 Progress (UX-24)
 
-This replaces the architecture canvas. It answers "what is the agent doing" without showing how the agent is built.
+The live picture of the agent at work. It keeps the workflow visualisation of the first Studio and redesigns it: seven nodes named after the work instead of eleven named after engine parts, the arrangement and look of the owner's reference picture, and motion that follows real events.
+
+The tab has three parts from top to bottom: the stage rail, the **Flow**, the details.
 
 ```
-  ●──────────●──────────◉──────────○──────────○
-Understand   Plan      Build      Check     Finish
+Progress                                                     ⤢  ✕
+   ●──────────●──────────◉──────────○──────────○
+Understand    Plan      Build      Check     Finish
+
+ ┌▌You ──────────┐               ┌▌Model ─────────┐
+ │ Fix discount… ●───┐       ┌───● Thinking…      │
+ └───────────────┘   │       │   └────────────────┘
+                   ┌─●───────●─┐
+           ┌───────● ▌Agent    ●───┐
+           │       │ Step 2 of 3│  └──●┌▌Memory ───────┐
+           │       └────────●──┘       │ Recalled 2    │
+           │                └──────┐   └───────────────┘
+ ┌▌Explore ●────┐  ┌▌Edit & run ─┐ │  ┌▌Checks ──────┐
+ │ Read 2 files ●──● Edited 1    ●─┴──● Not run yet   │
+ └──────────────┘  └─────────────┘    └──────────────┘
 
 Now     Editing src/shop/pricing.py
 Plan    ✓ 1  Read the pricing logic and its tests
         ◉ 2  Fix apply_discount
         ○ 3  Run the test suite
-Helpers 2 working in parallel
 Used    18.4k tokens · $0.04 · 1 min 12 s          ▁▁▂ 3 % of limit
 ```
+
+#### 8.2.1 Stage rail
 
 | Stage | Event phases |
 |---|---|
@@ -516,7 +537,168 @@ Used    18.4k tokens · $0.04 · 1 min 12 s          ▁▁▂ 3 % of limit
 | Check | `Verify`, `Review` |
 | Finish | Campaign phase `Finishing`, `Ended` |
 
-The current stage pulses gently; a line travels along the rail when the stage changes. With reduced motion the stage is only highlighted. "Helpers" appears only when the agent delegates. The plan section is hidden when the plan has one step.
+The current stage pulses gently and the line fills up to it.
+
+#### 8.2.2 Flow: nodes
+
+Seven fixed nodes. They describe the work, not the engine.
+
+| Id | Name | Subtitle shows | Detail line | Driven by | Colour | Icon |
+|---|---|---|---|---|---|---|
+| `you` | You | The request; "Needs your answer"; "Done · 2 files changed" | Messages sent | Requests, answers, approvals, the final result | Teal `#2dd4bf` | Person |
+| `model` | Model | Model and effort; "Thinking…" | Calls and tokens | Model requests and responses | Violet `#a78bfa` | Spark |
+| `agent` | Agent | The current activity; "Waiting for your answer"; "Finishing" | "Step 2 of 3" | The controller and the working cell | Blue `#60a5fa` | Branch |
+| `memory` | Memory | "Recalled 2 notes"; "Saved 1 note" | Notes used and saved | Knowledge base, context rebuilds | Green `#34d3b4` | Database |
+| `explore` | Explore | "Read `pricing.py`"; "Searched …" | Files read, searches | `look.*` tools | Purple `#b794f6` | Magnifier |
+| `edit` | Edit & run | "Edited `pricing.py` +12 −3"; "Running `npm install`" | Files changed, commands run | `edit.*`, `run.*` | Amber `#fbbf24` | Gear |
+| `checks` | Checks | "Running `pytest`…"; "26 passed"; "2 failed" | How the result was verified | `verify.*`, `check.*`, review | Blue `#5b9cf5`; green when passed, red when failed | Chart |
+
+- Names are short on purpose: they must fit a node 130 px wide. The accessible name of Memory is "Project memory".
+- Helpers (delegated work) are not nodes. They appear as up to three small squares in the top right corner of the Agent node, pulsing while they work, with "+n" beyond three.
+- No node is ever added for an engine part. The forbidden vocabulary of section 3 applies to every text in the Flow.
+
+#### 8.2.3 Flow: layout
+
+Fixed positions in the arrangement of the reference picture. No dragging, no zoom, no minimap: the picture is the same every time, so the user learns it once.
+
+Design space 940 × 860. Node centres:
+
+| Node | cx | cy |
+|---|---|---|
+| You | 181 | 148 |
+| Model | 677 | 146 |
+| Agent | 442 | 391 |
+| Memory | 784 | 466 |
+| Explore | 160 | 689 |
+| Edit & run | 483 | 750 |
+| Checks | 808 | 750 |
+
+- The canvas fills its container. Centres scale with it: x by width ÷ 940, y by height ÷ 860. Node sizes do not scale, so text stays 12–13 px.
+- Regular size, canvas at least 760 px wide: nodes 27 % of the width up to 250 px, 108 px high, with the detail line.
+- Compact size, below 760 px: nodes 27 % of the width between 130 and 172 px, 80 px high. The subtitle takes the full width under the icon and name; the detail line is hidden.
+- Nodes stay 8 px inside the canvas.
+- Minimum canvas 440 × 440. The side panel uses a canvas 470 px high.
+
+#### 8.2.4 Flow: connections
+
+| Id | Drawn from → to | Forward message | Backward message | Route |
+|---|---|---|---|---|
+| `you-agent` | You, right → Agent, top at 42 % | Request, answer, approval | Question, approval request, final result | Right, then down |
+| `model-agent` | Model, left → Agent, top at 58 % | Response | Request | Left, then down |
+| `agent-memory` | Agent, right → Memory, left | Look-up; note saved | Notes recalled | S-curve |
+| `agent-explore` | Agent, left at 62 % → Explore, top at 60 % | A work round starts | — | Left, then down |
+| `explore-edit` | Explore, right → Edit & run, left | Findings lead to changes | — | S-curve |
+| `edit-checks` | Edit & run, right → Checks, left | Changes go to checking | — | Straight |
+| `agent-checks` | Agent, bottom at 78 % → Checks, left | — | Check results return to the agent | Down, right, down between Edit & run and Checks, into the port of `edit-checks` |
+
+- Lines are orthogonal with rounded corners: radius 18 px regular, 12 px compact, reduced where a segment is shorter than twice the radius.
+- A line is painted with a gradient from the colour of its start node to the colour of its end node. Width 2 px.
+- Each end has a port: a filled circle of radius 5 px (4 px compact) on the node's edge, in the node's colour, with a soft glow.
+- Lines are drawn above the nodes so the ports sit on the node borders.
+
+#### 8.2.5 Node anatomy and states
+
+```
+┌▌ ┌────┐  Name                   ▪▪ ┐      ▌   accent bar, 3 px, node colour
+│  │icon│  Subtitle                  │      ▪▪  helpers (Agent only)
+│  └────┘                            │
+│  Detail line                       │
+│  ● ● ●                          ✓  │      ●   activity dots;  ✓ ! state mark
+└────────────────────────────────────┘
+```
+
+Card radius 12 px. Icon tile 34 px (26 px compact), tinted with 16 % of the node colour.
+
+| State | When | Look |
+|---|---|---|
+| Idle | Not used yet in this task | 78 % opacity, dots dim |
+| Warm | Used, not active now | 93 % opacity, first dot lit |
+| Active | An operation is running, and for at least 900 ms after its last event | Full opacity, border and glow in the node colour, raised 1 px, dots pulse one after another |
+| Thinking | Model while a request is open | Active, plus a light sweeping along the bottom edge |
+| Waiting | You while a question, approval or suggestion is pending | Amber, slow pulse of the glow |
+| Paused | Agent while it waits for the user, the task is paused or the limit is reached | Amber border, no motion |
+| Passed | Checks after a green result | Green, mark ✓ |
+| Failed | Checks after a red result; any node where an error occurred | Red, mark ! |
+| Done | Every used node when the task finishes | Own colour, all dots lit, mark ✓ |
+
+State is never shown by colour alone: every state has a mark or a text.
+
+#### 8.2.6 Motion
+
+| Element | Motion | Timing |
+|---|---|---|
+| Message on a line | A bright segment of 56 px with a round head travels the line in the direction of the message | 620 px/s, at least 420 ms, `cubic-bezier(.45,.05,.3,1)` |
+| Line in use | The full-colour line with glow fades in; fine dashes drift in the direction of travel | Fade 350 ms; dashes 1 s per cycle; off 1.9 s after the last message |
+| Port on arrival | The port grows to 1.9×; a ring expands to 3.4× and fades | 600–700 ms |
+| Node activation | Border, glow, lift | 350 ms |
+| Subtitle change | The new text fades in from 3 px below | 220 ms |
+| Activity dots | Pulse in sequence, 160 ms apart | 1.1 s cycle |
+| Thinking sweep | A light crosses the bottom edge of the Model node | 1.3 s cycle |
+| First appearance | Nodes fade in and rise 70 ms apart; lines draw themselves from start to end | 500 ms per node, 900 ms per line |
+| Completion | Messages travel Checks → Agent → You in green; every used node goes to Done | About 2 s |
+| Background | The dot grid is still. One soft light behind the Agent drifts slowly | 14 s, alternating |
+
+Rules:
+
+- **Coalesce.** At most one travelling segment per line per 400 ms. A burst of events keeps the line "in use" and sends no further segments.
+- **Ceiling.** At most 8 travelling segments on the canvas at once.
+- **Work rounds.** For an event of Explore, Edit & run or Checks: if the last active work node is earlier in the chain Explore → Edit & run → Checks, the message travels along the chain from that node. Otherwise a new round starts at the Agent, through `agent-explore` and along the chain to the target.
+- **Truth.** Motion is caused only by events. There is no decorative traffic while nothing happens; an idle task shows a still picture.
+- **Rest.** Motion stops while the panel is closed, the browser tab is hidden or the task is not working.
+- **Reduced motion.** No travelling segments, dashes, pulses or drifting light. States change by colour, border and mark only.
+
+#### 8.2.7 Interaction
+
+| Action | Result |
+|---|---|
+| Hover or focus a node | Popover with its last five activities and their times |
+| Click You | The conversation scrolls to the pending card, else to the last message |
+| Click Model | Popover: model, effort, calls, tokens, cost |
+| Click Agent | Popover: the plan with progress, helpers |
+| Click Memory | Popover: notes recalled and saved in this task |
+| Click Explore | Popover: files read and searches |
+| Click Edit & run | The Changes tab opens |
+| Click Checks | The Output tab opens at the last check |
+| ⤢ in the tab header | The Flow fills the main area. The sidebar stays. "Back to conversation" returns. |
+
+While the Flow fills the main area, a pending question, approval or suggestion is shown as its card docked at the bottom of the canvas, so the user can answer without leaving.
+
+#### 8.2.8 Themes
+
+The canvas follows the app theme. Dark is the reference look.
+
+| Token | Dark | Light |
+|---|---|---|
+| Canvas | Radial `#111726` → `#090c15` | Radial `#f8f9fd` → `#eceef6` |
+| Dot grid, 22 px | White 5.5 % | Navy 10 % |
+| Card | `rgba(24,29,43,.90)`; border white 8.5 %; shadow `0 10px 30px` black 45 % | White 94 %; border navy 11 %; shadow `0 6px 18px` navy 8 % |
+| Text, muted, faint | `#e9ecf5`, `#9aa3b8`, `#66708a` | `#1d2233`, `#5d657b`, `#8e95a9` |
+| Glow of an active node | 30 % of the node colour | 20 % |
+| Idle line opacity | 30 % | 38 % |
+| Travelling segment | Node colour mixed with 45 % white | Node colour |
+| Light behind the Agent | Blue 17 % | Blue 10 % |
+
+#### 8.2.9 Details below the Flow
+
+- **Now** repeats the status line of the conversation.
+- **Plan** lists the steps with their state. Hidden when the plan has one step.
+- **Used** shows tokens, cost when known, elapsed time and the share of the task limit.
+
+#### 8.2.10 Performance and accessibility
+
+- Only `transform`, `opacity` and `stroke-dashoffset` are animated.
+- Layout and routes are recomputed only when the canvas size changes.
+- Budget: 60 frames per second on a mid-range laptop with the panel open; under 2 % CPU while the task is idle or the panel is closed.
+- The canvas has a text alternative that follows the task: "Agent: step 2 of 3, editing src/shop/pricing.py. Checks: not run yet."
+- Nodes are focusable in reading order and announce name, state and subtitle.
+
+#### 8.2.11 Implementation notes
+
+- Nodes are HTML elements positioned over one SVG layer that holds lines, ports and travelling segments.
+- `flow-layout.ts` (canvas size → node rectangles) and `flow-route.ts` (rectangles → path strings and port points) are pure functions with unit tests.
+- `flow-model.ts` reduces task events to node states, counters and a queue of messages (Appendix D). It is tested with the recorded event logs.
+- A travelling segment is a copy of the line's path with `stroke-dasharray: segment, length + segment`, whose `stroke-dashoffset` is animated from `segment` to `−length`, or the other way for a backward message.
+- The mockup contains a working reference of layout, routing, states and motion in about 150 lines of script. Port it; do not take a graph library for seven fixed nodes.
 
 ### 8.3 Output (UX-25)
 
@@ -616,6 +798,7 @@ Rules (UX-26):
 | Density | One density. The density switch is removed. |
 | Themes | Light and dark through the existing tokens; follows the system by default. |
 | Not used | Rows of chips, gauges, upper-case section bars, ids, more than one accent. |
+| Flow view | The one place with its own palette: seven node colours, glow and motion (section 8.2). Its colours are used nowhere else in the app. |
 | Accessibility | Contrast 4.5:1 for text. Every action reachable by keyboard. Cards announce themselves to screen readers. Focus moves to a new question or approval card. |
 
 Shortcuts: Ctrl+N new task · Ctrl+Shift+D toggle Changes · Esc close panel or dialog · 1–9 choose an option on a focused card.
@@ -740,6 +923,7 @@ src/app/
     accounts/  connect dialog, sign-in flow, model picker
     task/      task view, composer, cards, activity group, status line
     panel/     changes, progress, output
+      flow/    flow-stage (component), flow-layout, flow-route, flow-model, flow-motion
     settings/  one page
 ```
 
@@ -752,7 +936,8 @@ src/app/
 | FE-5 | Composer |
 | FE-6 | Timeline reducer and items (Appendix A). Unknown event kinds are kept for the technical view and never break the timeline. Errors are always surfaced. |
 | FE-7 | Cards: question, approval, suggestion, checks, error, result |
-| FE-8 | Side panel: Changes, Progress, Output |
+| FE-8 | Side panel: Changes, Progress (rail and details), Output |
+| FE-15 | Flow view (section 8.2): layout, routes, node states, motion, popovers, fill-the-main-area mode, reduced motion, text alternative |
 | FE-9 | Settings |
 | FE-10 | Commit and Undo dialogs |
 | FE-11 | Message catalog in one file per language; English first, Russian next |
@@ -773,7 +958,7 @@ Tests: timeline reducer replays of recorded event logs (the existing recording p
 | 0 | BE-0. Spikes S-1 to S-7. | S-1, S-2, S-3 pass. Results recorded in `ASTROUI/docs/decisions.md`. |
 | 1 | BE-1 to BE-9, BE-15. | With `curl` only: connect an account, list usable models, start a task in an empty repository, watch it work, read a normalised error for a wrong key. |
 | 2 | FE-1 to FE-7, FE-11, FE-12. | A-1, A-2, A-4, A-6, A-7 pass in the browser. The old screens are no longer linked. |
-| 3 | FE-8 to FE-10, BE-10 to BE-14. | A-3, A-5, A-8, A-9, A-12, A-13 pass. |
+| 3 | FE-8 to FE-10, FE-15, BE-10 to BE-14. | A-3, A-5, A-8, A-9, A-12, A-13, A-16, A-17 pass. |
 | 4 | FE-13, FE-14, BE-16, accessibility, Russian catalog, documentation. | All scenarios pass. The complexity budget of section 2 holds. No forbidden term in default UI. |
 
 ---
@@ -799,6 +984,8 @@ Each starts from an empty data folder unless stated otherwise.
 | A-13 | Stop and undo | Stop keeps the changes. "Undo all" restores the files. A file edited by the user afterwards is skipped and named. |
 | A-14 | Sign-in with a busy port | With port 1455 occupied, sign-in offers the code path and completes. |
 | A-15 | No silent failure | With the network disconnected during a task, an error card appears within 60 seconds. |
+| A-16 | Flow follows the task | During a real task every model call, file read, edit, command and check appears in the Flow within 300 ms: the right node becomes active and a message travels the right line in the right direction. A pending question turns You amber. A finished task leaves every used node Done and Checks green. An idle task shows no motion. |
+| A-17 | Flow quality | The arrangement matches section 8.2.3 at panel width and when it fills the main area. No node overlaps another and no line crosses a node at 440 × 440 and above. Dark and light themes both pass the contrast rule. With reduced motion nothing moves. 60 frames per second during a working task. |
 
 ---
 
@@ -832,6 +1019,7 @@ Use this section as the prompt for the implementing agent.
 > 5. Every user-visible string goes into the message catalog. Every error uses a code from section 10.
 > 6. Verify each phase with its exit condition from section 14 and each scenario of section 15 in the running application, not only with unit tests. Report what passed, what failed and what was not checked.
 > 7. Use `ASTROLABE_UI_V2_MOCKUP.html` for layout, spacing and tone. Where it differs from this document, this document wins.
+> 8. Build the Flow view from section 8.2 and Appendix D. Port the reference script of the mockup (`Flow`: `layout`, `send`, `set`) to Angular; drive it from task events instead of the scripted `play`. Do not add nodes and do not use engine names in it.
 
 ---
 
@@ -867,7 +1055,7 @@ Use this section as the prompt for the implementing agent.
 | `blocked` | State Paused with the reason, or a card if a question id is present |
 | `budget.exhausted` | E-17 |
 | `budget.reserved`, `budget.reconciled` | Usage numbers |
-| `delegation.dispatched` | Step "Started *n* helpers"; "Helpers" in Progress |
+| `delegation.dispatched` | Step "Started *n* helpers"; helper squares on the Agent node of the Flow |
 | `delegation.collected` | Step "Collected the helpers' results" |
 | `delegation.rejected` | Hidden |
 | `recovery.classified`, `recovery.repaired` | Status line "Recovering from a problem…" |
@@ -925,3 +1113,40 @@ Use this section as the prompt for the implementing agent.
 | Credentials are stored in a file that is not encrypted | Stated in Advanced › Data folder; vault is later work |
 | macOS is not supported by the core's process layer | Stated on the download page and at start |
 | Follow-up runs lose detail of earlier runs | Recap by the host (BE-7); checked by S-5 and A-12 |
+| The Flow grows back into an architecture diagram | Seven fixed nodes are part of the complexity budget (section 2); the vocabulary test covers the Flow's texts |
+
+## Appendix D — Event to Flow mapping
+
+Node states and messages of section 8.2. "→" is a message travelling from the first node to the second.
+
+| Event | Node | Message |
+|---|---|---|
+| The user's first message, `contract.amended` by the user | You: Active with the request, then Warm | You → Agent |
+| `campaign.opened`, `campaign.shape_selected` | Agent: Active "Understanding the task" | — |
+| `campaign.increment_selected` | Agent: "Step *n* of *m*" and the step title | — |
+| `campaign.increment_closed` | Agent: step counter | — |
+| `routing.decided` | Model: subtitle with model and effort | — |
+| `cell.model_requested` | Model: Thinking | Agent → Model |
+| `cell.model_progress` | Model: Thinking, elapsed time | The line stays in use |
+| `cell.model_responded` | Model: Warm; calls and tokens updated. With an error: Failed | Model → Agent |
+| Tool `look.tree`, `outline`, `catalog`, `read`, `find`, `def`, `refs`, `importers`, `impact` | Explore: Active with the step text; counters | Work-round rule to Explore |
+| Tool `look.recall`, `look.bmap`, `kb.search`, `kb.get`, `kb.skill` | Memory: Active "Looking up notes…", then "Recalled *n* notes" | Agent → Memory, then Memory → Agent |
+| `kb.proposed`, `kb.admitted`, tool `kb.propose` | Memory: "Saved *n* notes" | Agent → Memory |
+| `cell.rebuilt` | Memory: short pulse | — |
+| `edit.applied`, `edit.transformed`, `edit.reverted`; tools `edit.*` | Edit & run: Active with the step text; files changed | Work-round rule to Edit & run |
+| `run.started` that is not a check | Edit & run: Active "Running `cmd`" | Work-round rule to Edit & run |
+| `run.finished` | Edit & run: Warm; with a non-zero exit the mark ! for that step | — |
+| `check.scheduled`, `check.started`, tools `verify.*` | Checks: Active "Running checks…" or the command | Work-round rule to Checks |
+| `check.finished`, passed | Checks: Passed with the count | Checks → Agent, green |
+| `check.finished`, failed | Checks: Failed with the count | Checks → Agent, red |
+| Review pass started and finished (`verify.review`, review cell) | Checks: Active "Reviewing the result…", then Passed or Failed | As for checks |
+| `ask.question`, approval request, `contract.amendment_proposed` | You: Waiting. Agent: Paused "Waiting for your answer" | Agent → You |
+| `ask.answered`, decision reply, `contract.amendment_resolved` | You: Active with the answer, then Warm. Agent: Active | You → Agent |
+| `delegation.dispatched` | Agent: helper squares appear | — |
+| `delegation.collected` | Agent: helper squares disappear | — |
+| `recovery.classified`, `recovery.repaired` | Agent: Active "Recovering from a problem…" | — |
+| `recovery.escalated`, `studio.error` | The node that was active: Failed. Agent: Failed | The line last used flashes red |
+| `budget.exhausted`, `blocked` without a question | Agent: Paused with the reason | — |
+| `campaign.finished` with outcome completed | Agent: Done. Every used node: Done. You: "Done · *n* files changed" | Agent → Memory if a note was saved; Agent → You, green |
+| Run ended as stopped | Agent: Paused "Stopped". Motion ends | — |
+| `span.*`, `journal.*`, `cell.register_patched`, `cell.workset_changed`, `cell.gate_fired`, `budget.reserved`, `budget.reconciled`, `warning`, unknown kinds | None | None |

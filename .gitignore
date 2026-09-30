@@ -157,3 +157,5 @@ reports/
 /llm-transport-sdk/
 devtools/
 ASTROUI/.idea/
+diags/
+ideas/
