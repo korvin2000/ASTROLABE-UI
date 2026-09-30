@@ -1,4 +1,16 @@
-import { Envelope } from './model';
+/** The header of a tool result as the agent renders it. */
+export interface Envelope {
+  alias: string | null;
+  tool: string | null;
+  cls: string | null;
+  versions: Record<string, string>;
+  stamp: string | null;
+  truncated: boolean;
+  effects: string | null;
+  status: string | null;
+  flags: string[];
+  raw: string;
+}
 
 // Parsers for ASTROLABE's rendered lines (§2.7): result envelope headers and gauge lines. Parsed once at the boundary;
 // unknown fields are kept as flags, never guessed.

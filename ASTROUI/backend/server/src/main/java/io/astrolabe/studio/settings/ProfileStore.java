@@ -7,6 +7,7 @@ import java.util.Map;
 import io.astrolabe.provider.Profile;
 import io.astrolabe.studio.bridge.ConfigSupport;
 import io.astrolabe.studio.bridge.fixture.FixtureBrain;
+import io.astrolabe.studio.runtime.TransportService;
 import io.astrolabe.studio.support.ApiException;
 import io.astrolabe.studio.support.Json;
 
@@ -25,8 +26,15 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class ProfileStore {
     private final JdbcTemplate jdbc;
+    private final TransportService transport;
 
-    public ProfileStore(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public ProfileStore(JdbcTemplate jdbc, TransportService transport) {
+        this.jdbc = jdbc;
+        this.transport = transport;
+    }
+
+    /** The demo profiles exist only in demo mode (Studio 2 BE-9). */
+    private List<Profile> demoProfiles() { return transport.demoMode() ? FixtureBrain.profiles() : List.of(); }
 
     public record Stored(String id, String json, String state, boolean demo, String qualificationJson, String updatedAt) { }
 
@@ -38,13 +46,13 @@ public class ProfileStore {
     /** Every runnable profile by id: demo first, then stored (a stored id overrides a demo id). */
     public Map<String, String> profilesJson() {
         Map<String, String> out = new LinkedHashMap<>();
-        for (Profile p : FixtureBrain.profiles()) out.put(p.getId(), ConfigSupport.profileJson(p));
+        for (Profile p : demoProfiles()) out.put(p.getId(), ConfigSupport.profileJson(p));
         for (Stored s : stored()) out.put(s.id(), s.json());
         return out;
     }
 
     public boolean isDemo(String id) {
-        return FixtureBrain.profiles().stream().anyMatch(p -> p.getId().equals(id)) && stored().stream().noneMatch(s -> s.id().equals(id));
+        return demoProfiles().stream().anyMatch(p -> p.getId().equals(id)) && stored().stream().noneMatch(s -> s.id().equals(id));
     }
 
     public void save(String id, String profileJson, String state, String qualificationJson) {
@@ -62,12 +70,17 @@ public class ProfileStore {
 
     public void delete(String id) { jdbc.update("DELETE FROM profile WHERE id = ?", id); }
 
+    /** Removes the automatic profiles of [providerId] (`auto.<provider>.<model>`), when its account is removed. */
+    public int deleteAutomatic(String providerId) { return jdbc.update("DELETE FROM profile WHERE id LIKE ?", "auto." + providerId + ".%"); }
+
+    public boolean exists(String id) { return stored().stream().anyMatch(s -> s.id().equals(id)); }
+
     /** Profile DTOs (§29 `ProfileDto`). */
     public ArrayNode list() {
         ArrayNode a = Json.arr();
         Map<String, Stored> stored = new LinkedHashMap<>();
         for (Stored s : stored()) stored.put(s.id(), s);
-        for (Profile p : FixtureBrain.profiles()) {
+        for (Profile p : demoProfiles()) {
             if (stored.containsKey(p.getId())) continue;
             ObjectNode o = a.addObject();
             o.put("id", p.getId());

@@ -1,0 +1,309 @@
+<div class="set">
+  <nav [attr.aria-label]="'settings.title' | t">
+    <input class="input search" type="search" [(ngModel)]="search" (ngModelChange)="query.set($event)" [placeholder]="'settings.search' | t" [attr.aria-label]="'settings.search' | t">
+    @for (s of sections; track s) {
+      <button [class.on]="s === current() && !matches()" (click)="go(s)">{{ ('settings.section.' + s) | t }}</button>
+    }
+  </nav>
+
+  <section class="body">
+    <div class="w">
+      @if (failure(); as f) { <as-error-line [error]="f" /> }
+      @if (matches()?.size === 0) { <p class="muted">{{ 'settings.no_match' | t }}</p> }
+
+      <!-- General -->
+      @if (visible('general') && prefs(); as p) {
+        <h2>{{ 'settings.section.general' | t }}</h2>
+        @if (show('theme')) {
+          <div class="opt-row">
+            <div><b>{{ 'settings.theme' | t }}</b><small>{{ 'settings.theme.help' | t }}</small></div>
+            <div class="v seg" role="radiogroup" [attr.aria-label]="'settings.theme' | t">
+              @for (v of ['system', 'light', 'dark']; track v) { <button role="radio" [class.on]="p.theme === v" [attr.aria-checked]="p.theme === v" (click)="set('theme', $any(v))">{{ ('theme.' + v) | t }}</button> }
+            </div>
+          </div>
+        }
+        @if (show('notify')) {
+          <div class="opt-row">
+            <div><b>{{ 'settings.notify' | t }}</b><small>{{ 'settings.notify.help' | t }}</small></div>
+            <div class="v"><button class="switch" role="switch" [attr.aria-checked]="p.notify === true" [attr.aria-label]="'settings.notify' | t" (click)="notify(p.notify !== true)"></button></div>
+          </div>
+        }
+        @if (show('send_with')) {
+          <div class="opt-row">
+            <div><b>{{ 'settings.send_with' | t }}</b><small>{{ 'settings.send_with.help' | t }}</small></div>
+            <div class="v seg" role="radiogroup" [attr.aria-label]="'settings.send_with' | t">
+              <button role="radio" [class.on]="p.sendWith === 'enter'" [attr.aria-checked]="p.sendWith === 'enter'" (click)="set('sendWith', 'enter')">Enter</button>
+              <button role="radio" [class.on]="p.sendWith === 'ctrl-enter'" [attr.aria-checked]="p.sendWith === 'ctrl-enter'" (click)="set('sendWith', 'ctrl-enter')">Ctrl+Enter</button>
+            </div>
+          </div>
+        }
+      }
+
+      <!-- Models & accounts -->
+      @if (visible('models') && prefs(); as p) {
+        <h2>{{ 'settings.section.models' | t }}</h2>
+        @if (show('accounts')) {
+          <h3>{{ 'settings.accounts' | t }}</h3>
+          @for (a of app.accounts(); track a.id) {
+            <div class="acct">
+              <div class="av" aria-hidden="true">{{ initials(a) }}</div>
+              <div class="grow">
+                <b>{{ a.name }}</b>
+                <small [class.warn]="a.state === 'expired'">{{ describe(a) }}</small>
+              </div>
+              <div class="row">
+                @switch (a.kind) {
+                  @case ('oauth') {
+                    @if (a.state === 'expired') { <button class="btn pri" (click)="connecting.set({ provider: a.provider })">{{ 'action.sign_in_again' | t }}</button> }
+                    <button class="btn" (click)="askRemove(a)">{{ 'action.sign_out' | t }}</button>
+                  }
+                  @case ('key') {
+                    <button class="btn" (click)="connecting.set({ provider: a.provider, method: 'key' })">{{ 'action.replace_key' | t }}</button>
+                    <button class="btn ghost" (click)="askRemove(a)">{{ 'action.remove' | t }}</button>
+                  }
+                  @case ('env') {
+                    <label class="sw"><span>{{ 'account.use_key' | t }}</span>
+                      <button class="switch" role="switch" [attr.aria-checked]="a.enabled" [attr.aria-label]="'account.use_key' | t" [disabled]="busy() === 'account'" (click)="use(a, !a.enabled)"></button></label>
+                  }
+                  @case ('local') {
+                    @if (a.enabled) { <button class="btn ghost" [disabled]="busy() === 'account'" (click)="use(a, false)">{{ 'action.hide' | t }}</button> }
+                    @else { <button class="btn" [disabled]="busy() === 'account'" (click)="use(a, true)">{{ 'action.use_it' | t }}</button> }
+                  }
+                  @case ('custom') {
+                    <button class="btn" (click)="connecting.set({ provider: 'custom' })">{{ 'action.edit' | t }}</button>
+                    <button class="btn ghost" (click)="askRemove(a)">{{ 'action.remove' | t }}</button>
+                  }
+                  @case ('demo') { <button class="btn ghost" (click)="set('demoMode', false)">{{ 'action.turn_off' | t }}</button> }
+                }
+              </div>
+            </div>
+          } @empty { <p class="muted empty">{{ 'empty.accounts' | t }}</p> }
+          <button class="btn" (click)="connecting.set({ provider: null })">+ {{ 'action.add_account' | t }}</button>
+        }
+        @if (show('default_model') || show('default_effort')) { <h3>{{ 'settings.defaults' | t }}</h3> }
+        @if (show('default_model')) {
+          <div class="opt-row">
+            <div><b>{{ 'settings.default_model' | t }}</b><small>{{ 'settings.default_model.help' | t }}</small></div>
+            <div class="v ctl">
+              <button class="sel-box" [disabled]="!app.models().length" (click)="$event.stopPropagation(); picking.set(!picking())" [attr.aria-expanded]="picking()">
+                <span class="d">◆</span> {{ app.defaultModel()?.name ?? ('composer.no_model' | t) }} <span class="faint">▾</span>
+              </button>
+              @if (picking()) { <as-model-picker class="picker" [model]="app.defaultModel()?.ref ?? null" [effort]="p.defaultEffort" (modelChange)="pickModel($event)" (effortChange)="effort($event)" (closed)="picking.set(false)" /> }
+            </div>
+          </div>
+        }
+        @if (show('default_effort')) {
+          <div class="opt-row">
+            <div><b>{{ 'settings.default_effort' | t }}</b><small>{{ 'settings.default_effort.help' | t }}</small></div>
+            <div class="v seg" role="radiogroup" [attr.aria-label]="'settings.default_effort' | t">
+              @for (e of ['low', 'medium', 'high']; track e) { <button role="radio" [class.on]="p.defaultEffort === e" [attr.aria-checked]="p.defaultEffort === e" (click)="effort($any(e))">{{ ('effort.' + e) | t }}</button> }
+            </div>
+          </div>
+        }
+      }
+
+      <!-- Permissions -->
+      @if (visible('permissions') && prefs(); as p) {
+        <h2>{{ 'settings.section.permissions' | t }}</h2>
+        @if (show('default_mode')) {
+          <div class="opt-row">
+            <div><b>{{ 'settings.default_mode' | t }}</b><small>{{ ('mode.' + p.defaultMode + '_help') | t }}</small></div>
+            <div class="v seg" role="radiogroup" [attr.aria-label]="'settings.default_mode' | t">
+              <button role="radio" [class.on]="p.defaultMode === 'ask'" [attr.aria-checked]="p.defaultMode === 'ask'" (click)="mode('ask')">{{ 'mode.ask' | t }}</button>
+              <button role="radio" [class.on]="p.defaultMode === 'auto'" [attr.aria-checked]="p.defaultMode === 'auto'" (click)="mode('auto')">{{ 'mode.auto' | t }}</button>
+            </div>
+          </div>
+        }
+        @if (show('allowed') || show('protected')) { <ng-container *ngTemplateOutlet="chooser" /> }
+        @if (project(); as ps) {
+          @if (show('allowed')) {
+            <div class="block">
+              <b>{{ 'settings.allowed' | t }}</b><small>{{ 'settings.allowed.help' | t }}</small>
+              <ul class="list">
+                @for (a of ps.allowed; track a) { <li><code class="grow ellipsis">{{ a }}</code><button class="lnk" (click)="disallow(a)">{{ 'action.remove' | t }}</button></li> }
+                @empty { <li class="muted">{{ 'settings.allowed.empty' | t }}</li> }
+              </ul>
+              <form class="addrow" (ngSubmit)="allow()">
+                <input class="input mono" name="allowNew" [(ngModel)]="allowNew" placeholder="npm install" [attr.aria-label]="'settings.allowed.add' | t" spellcheck="false">
+                <button class="btn" type="submit" [disabled]="!allowNew.trim()">{{ 'action.add' | t }}</button>
+              </form>
+            </div>
+          }
+          @if (show('protected')) {
+            <div class="block">
+              <b>{{ 'settings.protected' | t }}</b><small>{{ 'settings.protected.help' | t }}</small>
+              <ul class="list">
+                @for (f of ps.protectedFiles; track f) { <li><code class="grow ellipsis">{{ f }}</code><button class="lnk" (click)="unprotect(f)">{{ 'action.remove' | t }}</button></li> }
+              </ul>
+              <form class="addrow" (ngSubmit)="protect()">
+                <input class="input mono" name="protectNew" [(ngModel)]="protectNew" placeholder="config/" [attr.aria-label]="'settings.protected.add' | t" spellcheck="false">
+                <button class="btn" type="submit" [disabled]="!protectNew.trim()">{{ 'action.add' | t }}</button>
+                @if (!ps.protectedDefault) { <button class="btn ghost" type="button" (click)="protectDefault()">{{ 'settings.protected.default' | t }}</button> }
+              </form>
+            </div>
+          }
+        }
+      }
+
+      <!-- Project -->
+      @if (visible('project')) {
+        <h2>{{ 'settings.section.project' | t }}</h2>
+        <ng-container *ngTemplateOutlet="chooser" />
+        @if (project(); as ps) {
+          @if (show('checks')) {
+            <div class="block">
+              <b>{{ 'settings.checks' | t }}</b><small>{{ 'settings.checks.help' | t }}</small>
+              <form (ngSubmit)="saveChecks()">
+                @for (k of checkKinds; track k) {
+                  <label class="check">
+                    <span>{{ ('settings.checks.' + k) | t }}</span>
+                    <input class="input mono" [name]="k" [(ngModel)]="checks[k]" spellcheck="false" [placeholder]="'settings.checks.none' | t">
+                    <small>
+                      @switch (ps.checks[k].source) {
+                        @case ('detected') { {{ 'settings.checks.detected' | t: { file: ps.manifest ?? '' } }} }
+                        @case ('saved') { {{ 'settings.checks.saved' | t }} }
+                        @default { {{ 'settings.checks.not_found' | t }} }
+                      }
+                    </small>
+                  </label>
+                }
+                <button class="btn pri" type="submit" [disabled]="!checksChanged() || busy() === 'project'">{{ 'action.save' | t }}</button>
+              </form>
+            </div>
+          }
+          @if (show('instructions')) {
+            <div class="opt-row">
+              <div>
+                <b>{{ (ps.instructions.file ? 'settings.instructions' : 'settings.instructions_none') | t: { file: ps.instructions.file ?? '' } }}</b>
+                <small>{{ 'settings.instructions.help' | t }}</small>
+              </div>
+              <div class="v"><button class="switch" role="switch" [disabled]="!ps.instructions.file" [attr.aria-checked]="ps.instructions.use" [attr.aria-label]="'settings.instructions' | t: { file: ps.instructions.file ?? '' }" (click)="instructions(!ps.instructions.use)"></button></div>
+            </div>
+          }
+          @if (show('remove_project') && projectOf(projectId()); as pr) {
+            <div class="opt-row">
+              <div><b>{{ 'settings.remove_project' | t }}</b><small>{{ 'settings.remove_project.help' | t }}</small></div>
+              <div class="v"><button class="btn danger" (click)="confirm.set({ kind: 'remove-project', project: pr })">{{ 'action.remove' | t }}</button></div>
+            </div>
+          }
+        } @else if (!app.projects().length) {
+          <p class="muted empty">{{ 'sidebar.no_projects' | t }}</p>
+          <button class="btn" (click)="choosing.set(true)">{{ 'action.open_folder' | t }}</button>
+        }
+      }
+
+      <!-- Advanced -->
+      @if (visible('advanced') && prefs(); as p) {
+        <h2>
+          <button class="fold" (click)="advancedOpen.set(!advancedOpen())" [attr.aria-expanded]="advancedOpen() || !!matches()">
+            <span class="caret">{{ advancedOpen() || matches() ? '▾' : '▸' }}</span>{{ 'settings.section.advanced' | t }}
+          </button>
+        </h2>
+        @if (advancedOpen() || matches()) {
+          <p class="muted small">{{ 'settings.advanced.note' | t }}</p>
+          @if (show('limit')) {
+            <div class="opt-row">
+              <div><b>{{ 'settings.limit' | t }}</b><small>{{ 'settings.limit.help' | t }}</small></div>
+              <div class="v col">
+                <span class="seg" role="radiogroup" [attr.aria-label]="'settings.limit' | t">
+                  @for (k of ['auto', 'tokens', 'money']; track k) { <button role="radio" [class.on]="p.limit.kind === k" [attr.aria-checked]="p.limit.kind === k" (click)="limit($any(k))">{{ ('settings.limit.' + k) | t }}</button> }
+                </span>
+                @if (p.limit.kind !== 'auto') {
+                  <form class="addrow" (ngSubmit)="saveLimit()">
+                    <input class="input num" name="limitValue" [(ngModel)]="limitValue" inputmode="decimal" [attr.aria-label]="('settings.limit.' + p.limit.kind) | t">
+                    <span class="muted small">{{ (p.limit.kind === 'tokens' ? 'settings.limit.unit_tokens' : 'settings.limit.unit_money') | t }}</span>
+                    <button class="btn sm" type="submit" [disabled]="limitValue === (p.limit.value ?? '')">{{ 'action.save' | t }}</button>
+                  </form>
+                }
+              </div>
+            </div>
+          }
+          @if (show('max_tasks')) {
+            <div class="opt-row">
+              <div><b>{{ 'settings.max_tasks' | t }}</b><small>{{ 'settings.max_tasks.help' | t }}</small></div>
+              <div class="v seg" role="radiogroup" [attr.aria-label]="'settings.max_tasks' | t">
+                @for (n of [1, 2, 3, 4, 5]; track n) { <button role="radio" [class.on]="p.maxTasks === n" [attr.aria-checked]="p.maxTasks === n" (click)="set('maxTasks', n)">{{ n }}</button> }
+              </div>
+            </div>
+          }
+          @if (show('demo')) {
+            <div class="opt-row">
+              <div><b>{{ 'settings.demo' | t }}</b><small>{{ 'settings.demo.help' | t }}</small></div>
+              <div class="v"><button class="switch" role="switch" [attr.aria-checked]="p.demoMode" [attr.aria-label]="'settings.demo' | t" (click)="set('demoMode', !p.demoMode)"></button></div>
+            </div>
+          }
+          @if (show('calibrate')) {
+            <div class="opt-row">
+              <div>
+                <b>{{ 'settings.calibrate' | t }}</b><small>{{ 'settings.calibrate.help' | t }}</small>
+                @if (calibration(); as c) { <small [class.ok]="c.qualified" [class.warn]="!c.qualified">{{ (c.qualified ? 'settings.calibrate.passed' : 'settings.calibrate.failed') | t }} {{ c.problems.join('; ') }}</small> }
+              </div>
+              <div class="v"><button class="btn" [disabled]="!app.defaultModel() || app.defaultModel()?.demo || busy() === 'confirm'" (click)="confirm.set({ kind: 'calibrate' })">{{ 'action.calibrate' | t }}</button></div>
+            </div>
+          }
+          @if (show('data_folder')) {
+            <div class="opt-row">
+              <div class="grow"><b>{{ 'settings.data_folder' | t }}</b><small>{{ 'settings.data_folder.help' | t }}</small><code class="path">{{ app.host()?.dataDir }}</code></div>
+              <div class="v"><button class="btn" (click)="copyPath()">{{ (copied() ? 'action.copied' : 'action.copy_path') | t }}</button></div>
+            </div>
+          }
+          @if (show('diagnostics')) {
+            <div class="opt-row">
+              <div class="grow">
+                <b>{{ 'settings.diagnostics' | t }}</b><small>{{ 'settings.diagnostics.help' | t }}</small>
+                @if (exported(); as e) { <small class="ok">{{ 'settings.diagnostics.done' | t }} <a [href]="download(e.name)" download>{{ e.name }}</a></small> }
+              </div>
+              <div class="v"><button class="btn" [disabled]="busy() === 'export'" (click)="export()">{{ 'action.export' | t }}</button></div>
+            </div>
+          }
+          @if (show('reset')) {
+            <div class="opt-row">
+              <div><b>{{ 'settings.reset' | t }}</b><small>{{ 'settings.reset.help' | t }}</small></div>
+              <div class="v"><button class="btn danger" (click)="confirm.set({ kind: 'reset' })">{{ 'action.reset' | t }}</button></div>
+            </div>
+          }
+          <p class="faint small ver">ASTROLABE {{ app.host()?.version }}</p>
+        }
+      }
+    </div>
+  </section>
+</div>
+
+<ng-template #chooser>
+  @if (app.projects().length) {
+    <label class="chooser">
+      <span class="muted">{{ 'settings.for_project' | t }}</span>
+      <select class="input" [ngModel]="projectId()" (ngModelChange)="chosenProject.set($event)" [attr.aria-label]="'settings.for_project' | t">
+        @for (p of app.projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+      </select>
+    </label>
+  }
+</ng-template>
+
+@if (connecting(); as c) { <as-connect-dialog [provider]="c.provider" [method]="c.method ?? null" (closed)="closeConnect()" (connected)="connected()" /> }
+@if (choosing()) { <as-folder-dialog (closed)="choosing.set(false)" (opened)="opened($event)" /> }
+
+@if (confirm(); as c) {
+  <as-dialog [label]="('confirm.' + c.kind + '.title') | t" (closed)="confirm.set(null)">
+    <h3>{{ ('confirm.' + c.kind + '.title') | t }}</h3>
+    @switch (c.kind) {
+      @case ('remove-account') {
+        <p>{{ 'confirm.remove-account.text' | t: { account: c.account.name } }}</p>
+        @if (c.impact; as i) {
+          <p>{{ 'confirm.remove-account.models' | t: { n: i.models } }} @if (i.defaultModelAffected) { {{ 'confirm.remove-account.default' | t }} }</p>
+        }
+      }
+      @case ('remove-project') { <p>{{ 'dialog.remove_project.text' | t: { name: c.project.name } }}</p> }
+      @case ('calibrate') { <p>{{ 'confirm.calibrate.text' | t: { model: app.defaultModel()?.name ?? '' } }}</p> }
+      @case ('reset') { <p>{{ 'confirm.reset.text' | t }}</p> }
+    }
+    @if (failure(); as f) { <as-error-line [error]="f" /> }
+    <div class="actions">
+      <button class="btn ghost" (click)="confirm.set(null)">{{ 'action.cancel' | t }}</button>
+      <button class="btn pri" [disabled]="busy() === 'confirm'" (click)="confirmed()">
+        @if (busy() === 'confirm') { <span class="spin sm"></span> }
+        {{ ('confirm.' + c.kind + '.action') | t }}
+      </button>
+    </div>
+  </as-dialog>
+}

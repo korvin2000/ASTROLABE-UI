@@ -1,0 +1,826 @@
+package io.astrolabe.studio.tasks;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import io.astrolabe.studio.accounts.AccountService;
+import io.astrolabe.studio.bridge.CampaignRef;
+import io.astrolabe.studio.bridge.StartSpec;
+import io.astrolabe.studio.bridge.fixture.FixtureBrain;
+import io.astrolabe.studio.campaigns.CampaignService;
+import io.astrolabe.studio.campaigns.CampaignService.TaskRun;
+import io.astrolabe.studio.changes.ChangesService;
+import io.astrolabe.studio.decisions.DecisionService;
+import io.astrolabe.studio.live.EventPipeline;
+import io.astrolabe.studio.live.TopicBroker;
+import io.astrolabe.studio.models.ModelService;
+import io.astrolabe.studio.projects.ProjectService;
+import io.astrolabe.studio.runtime.HostService;
+import io.astrolabe.studio.settings.Preferences;
+import io.astrolabe.studio.settings.SettingsService;
+import io.astrolabe.studio.stats.StatsService;
+import io.astrolabe.studio.support.ApiException;
+import io.astrolabe.studio.support.Git;
+import io.astrolabe.studio.support.Json;
+import io.astrolabe.studio.support.StudioError;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
+
+/**
+ * Tasks (Studio 2 §7, BE-5, BE-7, BE-8): a task is a first run and its follow-ups. Starting returns at once and runs
+ * the preflight on the server; a message means what the situation makes it mean; every paused or failed state
+ * carries a reason code. The user's message is recorded before anything can fail.
+ */
+@Service
+public class TaskService implements DisposableBean {
+    private static final Logger log = LoggerFactory.getLogger(TaskService.class);
+    private static final int RECAP_LIMIT = 1_500;
+    private static final List<String> STEPS = List.of("account", "model", "project", "busy", "lock", "open", "run");
+
+    private final JdbcTemplate jdbc;
+    private final HostService hosts;
+    private final CampaignService campaigns;
+    private final ProjectService projects;
+    private final ProjectSettings projectSettings;
+    private final SettingsService settings;
+    private final Preferences preferences;
+    private final AccountService accounts;
+    private final ModelService models;
+    private final DecisionService decisions;
+    private final EventPipeline pipeline;
+    private final TopicBroker broker;
+    private final ChangesService changes;
+    private final StatsService stats;
+    private final ExecutorService executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("task-", 0).factory());
+    private final Map<String, Boolean> stopRequested = new ConcurrentHashMap<>();
+
+    public TaskService(JdbcTemplate jdbc, HostService hosts, CampaignService campaigns, ProjectService projects, ProjectSettings projectSettings,
+                       SettingsService settings, Preferences preferences, AccountService accounts, ModelService models, DecisionService decisions,
+                       @Lazy EventPipeline pipeline, TopicBroker broker, ChangesService changes, StatsService stats, ReviewPass reviewPass) {
+        this.jdbc = jdbc;
+        this.hosts = hosts;
+        this.campaigns = campaigns;
+        this.projects = projects;
+        this.projectSettings = projectSettings;
+        this.settings = settings;
+        this.preferences = preferences;
+        this.accounts = accounts;
+        this.models = models;
+        this.decisions = decisions;
+        this.pipeline = pipeline;
+        this.broker = broker;
+        this.changes = changes;
+        this.stats = stats;
+        decisions.policy(this::policyOf, reviewPass::review);
+        campaigns.onRunEnded(this::runEnded);
+        decisions.onWaitingChanged(work -> { String task = campaigns.taskOf(work); if (task != null) publish(task); });
+    }
+
+    // ------------------------------------------------------------------------------------------------ rows
+
+    private record Run(String workId, String projectId, String taskId, String parentWork, String title, String customTitle, String status, String phase,
+                       String outcome, String reason, String modelRef, String effort, String mode, String requestText, JsonNode verification,
+                       JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt) { }
+
+    private List<Run> runs(String taskId) {
+        return jdbc.query("SELECT * FROM campaign_index WHERE task_id = ? AND hidden = 0 ORDER BY created_at, rowid", (rs, i) -> new Run(
+            rs.getString("work_id"), rs.getString("project_id"), rs.getString("task_id"), rs.getString("parent_work"), rs.getString("title"),
+            rs.getString("custom_title"), rs.getString("status"), rs.getString("phase"), rs.getString("outcome"), rs.getString("reason"),
+            rs.getString("model_ref"), rs.getString("effort"), rs.getString("task_mode"), rs.getString("request_text"),
+            rs.getString("verification_json") == null ? null : Json.parse(rs.getString("verification_json")),
+            rs.getString("reason_json") == null ? null : Json.parse(rs.getString("reason_json")),
+            rs.getInt("demo") != 0, rs.getString("created_at"), rs.getString("updated_at"), rs.getString("ended_at")), taskId);
+    }
+
+    private List<Run> require(String taskId) {
+        List<Run> runs = runs(taskId);
+        if (runs.isEmpty()) throw ApiException.notFound("no task " + taskId);
+        return runs;
+    }
+
+    private DecisionService.HostPolicy policyOf(String workId) {
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT project_id, task_mode FROM campaign_index WHERE work_id = ?", workId);
+        if (rows.isEmpty() || rows.getFirst().get("task_mode") == null) return null;
+        return new DecisionService.HostPolicy((String) rows.getFirst().get("task_mode"), projectSettings.allowed((String) rows.getFirst().get("project_id")));
+    }
+
+    // ------------------------------------------------------------------------------------------------ state
+
+    /** Task state and reason (§7.7) of one run. */
+    private ObjectNode stateOf(Run r) {
+        ObjectNode o = Json.obj();
+        String work = r.workId();
+        boolean live = hosts.host().isLive(work);
+        String state;
+        ObjectNode reason = null;
+        if (campaigns.isOpening(work) || "opening".equals(r.status())) {
+            state = "working";
+        } else if ("open_failed".equals(r.status())) {
+            state = "failed";
+            reason = r.reasonCode() instanceof ObjectNode n ? n : reason(StudioError.AGENT_ERROR, r.reason());
+        } else if (live) {
+            state = decisions.pendingCount(work) > 0 ? "needs_you" : "working";
+        } else if (r.outcome() != null) {
+            switch (r.outcome()) {
+                case "completed" -> state = "done";
+                case "cancelled" -> state = "stopped";
+                case "failed" -> {
+                    state = "failed";
+                    reason = r.reasonCode() instanceof ObjectNode n ? n : reason(failureCode(r.reason()), r.reason());
+                }
+                case "budget_exhausted" -> {
+                    state = "paused";
+                    reason = reason(StudioError.LIMIT_REACHED, r.reason());
+                }
+                case "waiting_for_input" -> {
+                    state = "paused";
+                    boolean noChecks = r.reason() != null && r.reason().contains("nothing to accept against");
+                    reason = reason(noChecks ? StudioError.NO_VERIFICATION : StudioError.NEEDS_ANSWER, r.reason());
+                }
+                case "waiting_for_process" -> {
+                    state = "paused";
+                    reason = reason(StudioError.WAITING_FOR_PROCESS, r.reason());
+                }
+                default -> {
+                    state = "paused";
+                    reason = reason(StudioError.BLOCKED, r.reason());
+                }
+            }
+        } else if (r.reasonCode() instanceof ObjectNode n) {
+            state = "failed";
+            reason = n;
+        } else {
+            // The run has no outcome and no live handle: the backend stopped while it worked (§7.6 Continue).
+            state = "paused";
+            reason = reason(StudioError.INTERRUPTED, "the task was interrupted by a restart");
+        }
+        o.put("state", state);
+        if (reason != null) o.set("reason", reason);
+        return o;
+    }
+
+    /** A failed run whose checks did not pass is "not verified", not an agent error. */
+    private static String failureCode(String reason) {
+        if (reason == null) return StudioError.AGENT_ERROR;
+        String r = reason.toLowerCase(Locale.ROOT);
+        if (r.contains("completionstalled") || r.contains("gaps this cell cannot close") || r.contains("acceptance") || r.contains("no assessment recorded")) return StudioError.CHECKS_FAILED;
+        return StudioError.codeOf(reason);
+    }
+
+    private static ObjectNode reason(String code, String detail) {
+        ObjectNode o = Json.obj();
+        o.put("code", code);
+        o.putObject("params");
+        if (detail != null) o.put("detail", detail);
+        return o;
+    }
+
+    // ------------------------------------------------------------------------------------------------ task object
+
+    /** The task object of §12.3; [full] adds runs, cards, changes and usage. */
+    public ObjectNode task(String taskId, boolean full) {
+        List<Run> runs = require(taskId);
+        Run first = runs.getFirst();
+        Run last = runs.getLast();
+        ObjectNode o = Json.obj();
+        o.put("id", taskId);
+        o.put("projectId", first.projectId());
+        o.put("title", first.customTitle() != null ? first.customTitle() : first.title());
+        o.setAll(stateOf(last));
+        String kind = last.verification() == null ? null : Json.text(last.verification(), "kind");
+        boolean done = "completed".equals(last.outcome());
+        o.put("verified", done && kind != null ? kind : "none");
+        if (last.verification() != null) o.set("verification", last.verification());
+        ObjectNode model = o.putObject("model");
+        model.put("ref", last.modelRef());
+        ModelService.Ref ref = ModelService.Ref.parse(last.modelRef());
+        model.put("name", ref == null ? null : ref.model());
+        model.put("effort", last.effort());
+        o.put("mode", last.mode() == null ? "ask" : last.mode());
+        o.put("demo", last.demo());
+        o.put("lastRun", last.workId());
+        o.put("createdAt", first.createdAt());
+        o.put("updatedAt", last.updatedAt());
+        ArrayNode pending = o.putArray("pending");
+        for (Run r : runs) for (JsonNode d : decisions.list("pending", r.workId(), 50)) pending.add(card(d));
+        if (!full) return o;
+        ArrayNode rs = o.putArray("runs");
+        for (Run r : runs) {
+            ObjectNode run = rs.addObject();
+            run.put("workId", r.workId());
+            run.put("startedAt", r.createdAt());
+            if (r.endedAt() != null) run.put("endedAt", r.endedAt());
+            run.put("outcome", r.outcome());
+            run.put("request", r.requestText());
+            run.setAll(stateOf(r));
+        }
+        o.set("changes", changeSummary(first.projectId(), runs));
+        o.set("usage", usage(first.projectId(), runs));
+        ArrayNode skipped = o.putArray("skipped");
+        for (JsonNode d : decisions.skipped(last.workId())) skipped.add(card(d));
+        return o;
+    }
+
+    static ObjectNode card(JsonNode decision) { return DecisionService.cardOf(decision); }
+
+    static String pattern(JsonNode request) { return DecisionService.patternOf(request); }
+
+    private ObjectNode changeSummary(String projectId, List<Run> runs) {
+        ObjectNode o = Json.obj();
+        int files = 0, added = 0, removed = 0;
+        try {
+            if (hosts.host().isOpen(projectId)) {
+                JsonNode c = changes.taskChanges(projectId, runs.stream().map(Run::workId).toList(), false);
+                for (JsonNode f : Json.each(c.get("files"))) {
+                    files++;
+                    added += f.path("added").asInt(0);
+                    removed += f.path("removed").asInt(0);
+                }
+            }
+        } catch (RuntimeException e) {
+            log.debug("changes of {}: {}", runs.getFirst().taskId(), e.toString());
+        }
+        o.put("files", files);
+        o.put("added", added);
+        o.put("removed", removed);
+        return o;
+    }
+
+    private ObjectNode usage(String projectId, List<Run> runs) {
+        ObjectNode o = Json.obj();
+        long tokens = 0;
+        java.math.BigDecimal money = java.math.BigDecimal.ZERO;
+        String currency = null;
+        boolean complete = true;
+        long elapsed = 0;
+        for (Run r : runs) {
+            try {
+                if (hosts.host().isOpen(projectId)) {
+                    JsonNode totals = stats.campaign(projectId, r.workId()).path("totals");
+                    tokens += totals.path("totalTokens").asLong(0);
+                    complete &= totals.path("moneyComplete").asBoolean(false);
+                    for (JsonNode m : Json.each(totals.get("money"))) {
+                        currency = Json.text(m, "currency");
+                        money = money.add(new java.math.BigDecimal(Json.text(m, "amount", "0")));
+                    }
+                }
+            } catch (RuntimeException e) {
+                complete = false;
+            }
+            try {
+                java.time.Instant from = java.time.Instant.parse(r.createdAt());
+                java.time.Instant to = r.endedAt() != null ? java.time.Instant.parse(r.endedAt()) : hosts.host().isLive(r.workId()) ? java.time.Instant.now() : java.time.Instant.parse(r.updatedAt());
+                elapsed += Math.max(0, java.time.Duration.between(from, to).toMillis());
+            } catch (RuntimeException e) {
+                // A malformed timestamp leaves the elapsed time short; it is a display value only.
+            }
+        }
+        o.put("tokens", tokens);
+        if (currency != null && complete) o.putObject("cost").put("amount", money.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()).put("currency", currency);
+        o.put("elapsedMs", elapsed);
+        return o;
+    }
+
+    public ArrayNode tasks() {
+        ArrayNode a = Json.arr();
+        for (String id : campaigns.taskIds()) {
+            try {
+                a.add(task(id, false));
+            } catch (RuntimeException e) {
+                log.debug("task {} not listed: {}", id, e.toString());
+            }
+        }
+        return a;
+    }
+
+    private void publish(String taskId) {
+        try {
+            broker.publishApp("task.updated", task(taskId, false));
+        } catch (RuntimeException e) {
+            log.debug("task {} not published: {}", taskId, e.toString());
+        }
+    }
+
+    private void state(Run r) {
+        pipeline.studioItem(r.workId(), "studio.task_state", stateOf(r));
+        publish(r.taskId());
+    }
+
+    private Run run(String workId) {
+        String task = campaigns.taskOf(workId);
+        if (task == null) return null;
+        return runs(task).stream().filter(r -> r.workId().equals(workId)).findFirst().orElse(null);
+    }
+
+    // ------------------------------------------------------------------------------------------------ start
+
+    /** `POST /tasks` (§7.2): returns the task id at once; the preflight and the run follow on the server. */
+    public ObjectNode start(String projectId, String text, String modelRef, String effort, String mode) {
+        if (text == null || text.isBlank()) throw ApiException.invalid("a task needs a request");
+        var project = projects.row(projectId).orElseThrow(() -> StudioError.of(StudioError.PROJECT_NOT_FOUND, Json.obj().put("path", String.valueOf(projectId)), "no project " + projectId));
+        String model = modelRef != null && !modelRef.isBlank() ? modelRef : models.ensureDefault(accounts.usable());
+        String chosenEffort = models.fitEffort(model, normalise(effort, List.of("low", "medium", "high"), preferences.text(Preferences.DEFAULT_EFFORT)));
+        String chosenMode = normalise(mode, List.of("ask", "auto"), preferences.text(Preferences.DEFAULT_MODE));
+        String workId = hosts.host().newWorkId();
+        TaskRun run = new TaskRun(workId, projectId, workId, null, text, text.strip(), model, chosenEffort, chosenMode, model != null && model.startsWith(FixtureBrain.PROVIDER + "/"));
+        campaigns.register(run);
+        pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text.strip()).put("role", "request"));
+        preferences.set(Preferences.LAST_PROJECT, Json.MAPPER.valueToTree(project.id()));
+        if (modelRef != null && !modelRef.isBlank()) remember(modelRef, chosenEffort, chosenMode);
+        publish(workId);
+        executor.execute(() -> launch(run, text.strip(), false));
+        return Json.obj().put("taskId", workId).put("workId", workId);
+    }
+
+    private void remember(String modelRef, String effort, String mode) {
+        preferences.set(Preferences.DEFAULT_MODEL, Json.MAPPER.valueToTree(modelRef));
+        preferences.set(Preferences.DEFAULT_EFFORT, Json.MAPPER.valueToTree(effort));
+        preferences.set(Preferences.DEFAULT_MODE, Json.MAPPER.valueToTree(mode));
+    }
+
+    private static String normalise(String value, List<String> allowed, String fallback) {
+        String v = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        return allowed.contains(v) ? v : fallback != null && allowed.contains(fallback) ? fallback : allowed.getFirst();
+    }
+
+    private void step(String workId, String step, String status) {
+        pipeline.studioItem(workId, "studio.preflight", Json.obj().put("step", step).put("status", status));
+    }
+
+    /** The start sequence of §7.2. Any failure becomes `studio.error`, a Failed state with its reason, and a notification. */
+    private void launch(TaskRun r, String requestText, boolean resume) {
+        String work = r.workId();
+        String current = STEPS.getFirst();
+        ObjectNode params = Json.obj();
+        try {
+            // 1. Account usable.
+            step(work, current = "account", "running");
+            ModelService.Ref ref = ModelService.Ref.parse(r.modelRef());
+            if (ref == null) throw StudioError.of(StudioError.ACCOUNT_MISSING, "no model is connected");
+            String accountName = accounts.accountName(ref.provider());
+            params.put("account", accountName).put("model", ref.model());
+            JsonNode account = null;
+            for (JsonNode a : accounts.list()) if (ref.provider().equals(Json.text(a, "provider"))) account = a;
+            if (account == null) throw StudioError.of(StudioError.ACCOUNT_MISSING, params, "the account of " + r.modelRef() + " is not connected");
+            if ("expired".equals(Json.text(account, "state"))) throw StudioError.of(StudioError.AUTH_EXPIRED, params, "the session of " + accountName + " expired");
+            if (!account.path("usable").asBoolean(false)) throw StudioError.of(StudioError.ACCOUNT_MISSING, params, accountName + " is not in use");
+            step(work, current, "passed");
+
+            // 2. Model ready.
+            step(work, current = "model", "running");
+            ModelService.Bound bound = models.bind(r.modelRef());
+            step(work, current, "passed");
+
+            // 3. Project usable.
+            step(work, current = "project", "running");
+            Path root = Path.of(projects.require(r.projectId()).path());
+            params.put("path", root.toString());
+            if (!Files.isDirectory(root)) throw StudioError.of(StudioError.PROJECT_NOT_FOUND, params, "the folder is gone: " + root);
+            if (!Git.run(root, 10, "rev-parse", "--show-toplevel").ok()) throw StudioError.of(StudioError.NOT_A_GIT_REPO, params, "not a git repository: " + root);
+            projects.open(r.projectId());
+            step(work, current, "passed");
+
+            // 4. No other task running in the project; not more tasks at once than setting 14 allows.
+            step(work, current = "busy", "running");
+            String running = hosts.host().runningWork(r.projectId());
+            if (running != null && !running.equals(work)) {
+                params.put("taskId", campaigns.taskOf(running));
+                throw StudioError.of(StudioError.PROJECT_BUSY, params, "task " + running + " is running in this project");
+            }
+            int max = preferences.get(Preferences.MAX_TASKS).asInt(3);
+            if (hosts.host().liveWorks().size() >= max) throw StudioError.of(StudioError.TOO_MANY_TASKS, params.put("limit", max), max + " tasks are running");
+            step(work, current, "passed");
+
+            // 5. No stale lock.
+            step(work, current = "lock", "running");
+            List<String> released = hosts.host().releaseStaleLeases(r.projectId());
+            if (!released.isEmpty()) pipeline.studioItem(work, "studio.notice", Json.obj().put("code", "lock_released"));
+            step(work, current, "passed");
+
+            // 6. Open the run, with the verification setup.
+            step(work, current = "open", "running");
+            ObjectNode instructions = projectSettings.instructions(r.projectId());
+            String configJson = config(r, bound, instructions);
+            StartSpec spec = spec(r, requestText, bound);
+            if (Boolean.TRUE.equals(stopRequested.remove(work))) throw new Stopped();
+            CampaignRef ref2 = campaigns.open(r, configJson, spec, resume);
+            step(work, current, "passed");
+            if (!resume) {
+                var v = ref2.getVerification();
+                if (v != null) {
+                    ObjectNode data = Json.obj().put("kind", v.getKind()).put("source", v.getSource());
+                    if (v.getCommandText() != null) data.put("command", v.getCommandText());
+                    pipeline.studioItem(work, "studio.verification", data);
+                }
+                if (instructions != null) pipeline.studioItem(work, "studio.notice", Json.obj().put("code", "instructions").put("file", Json.text(instructions, "path")));
+                if (bound.estimated()) pipeline.studioItem(work, "studio.notice", Json.obj().put("code", "model_limits_estimated").put("model", bound.model()));
+                noteUncommitted(work, root);
+            }
+
+            // 7. Run.
+            step(work, "run", "running");
+            campaigns.refresh(work);
+            Run row = run(work);
+            if (row != null) state(row);
+            if (Boolean.TRUE.equals(stopRequested.remove(work)) && hosts.host().isLive(work)) campaigns.cancel(work, "stopped by the user");
+        } catch (Stopped s) {
+            campaigns.notOpening(work);
+            jdbc.update("UPDATE campaign_index SET status = 'stored', outcome = 'cancelled', reason = 'stopped by the user', reason_json = NULL, ended_at = ? WHERE work_id = ?", Json.now(), work);
+            Run row = run(work);
+            if (row != null) state(row);
+        } catch (Throwable t) {
+            StudioError e = StudioError.from(t, params);
+            log.info("task {} did not start at step {}: {} ({})", work, current, e.code(), e.detail());
+            step(work, current, "failed");
+            if (resume) {
+                // A run that could not continue keeps its earlier state; only the reason changes.
+                campaigns.setReason(work, e.body());
+                jdbc.update("UPDATE campaign_index SET status = 'open_failed', ended_at = ? WHERE work_id = ?", Json.now(), work);
+            } else {
+                campaigns.markOpenFailed(work, e.body());
+            }
+            pipeline.studioItem(work, "studio.error", e.body());
+            Run row = run(work);
+            if (row != null) state(row);
+            notify(r.taskId(), "task.failed");
+        }
+    }
+
+    private static final class Stopped extends RuntimeException {
+        Stopped() { super("stopped by the user", null, false, false); }
+    }
+
+    /** "You have uncommitted changes. They stay separate from mine in Changes." — a notice, not an error (§7.2). */
+    private void noteUncommitted(String work, Path root) {
+        Git.Result status = Git.run(root, 20, "status", "--porcelain", "--untracked-files=normal");
+        if (status.ok() && !status.out().isBlank()) {
+            pipeline.studioItem(work, "studio.notice", Json.obj().put("code", "uncommitted_changes").put("files", (int) status.out().lines().filter(l -> !l.isBlank()).count()));
+        }
+    }
+
+    /** One model serves every function (§6.5); mode, reconciliation and instructions as Appendix B lists them. */
+    private String config(TaskRun r, ModelService.Bound bound, ObjectNode instructions) {
+        ObjectNode config = (ObjectNode) Json.parse(settings.taskConfigJson(r.projectId(), null, List.of(bound.profileId())));
+        ObjectNode roles = config.putObject("profileRoles");
+        roles.put("main", bound.profileId());
+        roles.putNull("helper");
+        roles.putNull("escalation");
+        config.set("tierTable", settings.libraryDefaults().get("tierTable"));
+        config.put("mode", "auto".equals(r.mode()) ? "Autonomous" : "Interactive");
+        config.put("dClass", "Ask");
+        config.put("unknownOutcomeReconciliation", "Automatic");
+        if (instructions != null) config.set("rulesFile", instructions); else config.putNull("rulesFile");
+        return Json.write(config);
+    }
+
+    private StartSpec spec(TaskRun r, String requestText, ModelService.Bound bound) {
+        JsonNode limit = preferences.get(Preferences.LIMIT);
+        String kind = Json.text(limit, "kind", "auto");
+        long automatic = bound.contextTokens() * 12;
+        long tokens = kind.equals("tokens") ? new java.math.BigDecimal(Json.text(limit, "value", "0")).longValue() : automatic;
+        String cost = kind.equals("money") ? Json.text(limit, "value") : null;
+        ObjectNode runtime = settings.runtime(r.projectId());
+        String effort = switch (r.effort() == null ? "medium" : r.effort()) {
+            case "low" -> "Low";
+            case "high" -> "High";
+            default -> "Medium";
+        };
+        return new StartSpec(requestText, Math.max(tokens, 1), cost == null ? null : "USD", cost, false,
+            runtime.path("maxCells").asInt(12), runtime.path("leaseMinutes").asLong(480), effort,
+            runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null,
+            true, projectSettings.savedChecks(r.projectId()), true, projectSettings.protectedOverride(r.projectId()));
+    }
+
+    // ------------------------------------------------------------------------------------------------ run end
+
+    private void runEnded(String workId, String outcome, String reason, Throwable failure) {
+        Run r = run(workId);
+        if (r == null || r.mode() == null) return;
+        if (outcome == null || "failed".equals(outcome)) {
+            String detail = failure != null ? failure.getClass().getSimpleName() + (failure.getMessage() == null ? "" : ": " + failure.getMessage()) : reason;
+            String code = failure != null ? StudioError.from(failure, null).code() : failureCode(reason);
+            if (outcome == null && failure == null && reason != null && reason.contains("cancelled by the host")) {
+                // The backend is stopping: the run stays resumable and shows as Paused after the restart.
+                return;
+            }
+            ModelService.Ref ref = ModelService.Ref.parse(r.modelRef());
+            ObjectNode params = Json.obj();
+            if (ref != null) params.put("account", accounts.accountName(ref.provider())).put("model", ref.model());
+            StudioError e = StudioError.of(code, params, detail);
+            campaigns.setReason(workId, e.body());
+            pipeline.studioItem(workId, "studio.error", e.body());
+        } else if ("budget_exhausted".equals(outcome)) {
+            pipeline.studioItem(workId, "studio.error", StudioError.of(StudioError.LIMIT_REACHED, Json.obj(), reason).body());
+        }
+        Run fresh = run(workId);
+        if (fresh != null) state(fresh);
+        if ("completed".equals(outcome) && !preferences.flag(Preferences.FIRST_TASK_DONE)) preferences.set(Preferences.FIRST_TASK_DONE, Json.MAPPER.valueToTree(true));
+        notify(r.taskId(), "completed".equals(outcome) ? "task.done" : outcome == null || "failed".equals(outcome) ? "task.failed" : "task.paused");
+    }
+
+    /** A notification for the desktop and the tab title; the text comes from the frontend catalog. */
+    private void notify(String taskId, String kind) {
+        try {
+            ObjectNode t = task(taskId, false);
+            if (kind.equals("task.paused") && ("stopped".equals(Json.text(t, "state")))) return;
+            broker.publishApp("notification", Json.obj().put("kind", kind).put("taskId", taskId).put("projectId", Json.text(t, "projectId")).put("title", Json.text(t, "title")));
+        } catch (RuntimeException e) {
+            log.debug("notification for {}: {}", taskId, e.toString());
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------ messages
+
+    /** `POST /tasks/{id}/messages` (§7.6): one action in the composer; the situation decides what the message does. */
+    public ObjectNode message(String taskId, String text, String questionId, String modelRef, String effort, String mode) {
+        if (text == null || text.isBlank()) throw ApiException.invalid("a message needs text");
+        List<Run> runs = require(taskId);
+        Run last = runs.getLast();
+        String body = text.strip();
+        ObjectNode result = Json.obj().put("taskId", taskId);
+
+        // A question is pending: the message answers it.
+        JsonNode question = null;
+        for (JsonNode d : decisions.list("pending", last.workId(), 50)) {
+            if ("question".equals(Json.text(d, "kind")) && (questionId == null || questionId.equals(Json.text(d, "id")))) {
+                question = d;
+                break;
+            }
+        }
+        if (question != null) {
+            answer(question, body, null);
+            return result.put("effect", "answered");
+        }
+
+        String state = Json.text(stateOf(last), "state");
+        boolean live = hosts.host().isLive(last.workId());
+        if (live) {
+            // The task is working: the agent sees the message at its next step.
+            pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
+            hosts.host().amend(last.projectId(), last.workId(), body);
+            pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "message_queued"));
+            campaigns.refresh(last.workId());
+            return result.put("effect", "queued");
+        }
+        if ("paused".equals(state) && resumable(last)) {
+            pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
+            continueRun(last, body, modelRef, effort, mode);
+            return result.put("effect", "continued");
+        }
+        // Done, stopped, failed, or paused on something a continue cannot lift: a follow-up run in the same task.
+        String follow = followUp(runs, body, modelRef, effort, mode);
+        return result.put("effect", "follow_up").put("workId", follow);
+    }
+
+    private boolean resumable(Run r) {
+        if (r.outcome() == null) return !"open_failed".equals(r.status());
+        return List.of("waiting_for_input", "waiting_for_process", "blocked_external").contains(r.outcome());
+    }
+
+    private void answer(JsonNode decision, String text, Integer option) {
+        ObjectNode reply = Json.obj().put("text", text);
+        if (option != null) reply.put("chosenOption", option);
+        pipeline.studioItem(Json.text(decision, "workId"), "studio.user_message", Json.obj().put("text", text).put("role", "answer").put("cardId", Json.text(decision, "id")));
+        decisions.reply(Json.text(decision, "id"), reply, null, "local");
+        publish(campaigns.taskOf(Json.text(decision, "workId")));
+    }
+
+    /** The model of the next run: the one chosen now, else the one of the last run while its account is in use, else the default. */
+    private String modelFor(String chosen, Run last) {
+        if (chosen != null && !chosen.isBlank()) return chosen;
+        ModelService.Ref ref = ModelService.Ref.parse(last.modelRef());
+        List<ModelService.Account> usable = accounts.usable();
+        if (ref != null && usable.stream().anyMatch(a -> a.provider().equals(ref.provider()))) return last.modelRef();
+        String fallback = models.ensureDefault(usable);
+        return fallback != null ? fallback : last.modelRef();
+    }
+
+    private void continueRun(Run last, String amendment, String modelRef, String effort, String mode) {
+        projects.open(last.projectId());
+        if (amendment != null) hosts.host().amend(last.projectId(), last.workId(), amendment);
+        String model = modelFor(modelRef, last);
+        String nextEffort = models.fitEffort(model, normalise(effort, List.of("low", "medium", "high"), last.effort()));
+        String nextMode = normalise(mode, List.of("ask", "auto"), last.mode());
+        jdbc.update("UPDATE campaign_index SET status = 'opening', model_ref = ?, effort = ?, task_mode = ?, updated_at = ? WHERE work_id = ?", model, nextEffort, nextMode, Json.now(), last.workId());
+        if (last.modelRef() != null && !last.modelRef().equals(model)) pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "model_changed").put("model", model));
+        TaskRun run = new TaskRun(last.workId(), last.projectId(), last.taskId(), last.parentWork(), last.title(), last.requestText(), model, nextEffort, nextMode, last.demo());
+        publish(last.taskId());
+        executor.execute(() -> launch(run, last.requestText(), true));
+    }
+
+    private String followUp(List<Run> runs, String text, String modelRef, String effort, String mode) {
+        Run first = runs.getFirst();
+        Run last = runs.getLast();
+        String model = modelFor(modelRef, last);
+        String nextEffort = models.fitEffort(model, normalise(effort, List.of("low", "medium", "high"), last.effort()));
+        String nextMode = normalise(mode, List.of("ask", "auto"), last.mode());
+        String request = recap(runs) + text;
+        String workId = hosts.host().newWorkId();
+        TaskRun run = new TaskRun(workId, first.projectId(), first.taskId(), last.workId(), first.title(), request, model, nextEffort, nextMode,
+            model != null && model.startsWith(FixtureBrain.PROVIDER + "/"));
+        campaigns.register(run);
+        pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text).put("role", "follow_up"));
+        if (last.modelRef() != null && model != null && !last.modelRef().equals(model)) pipeline.studioItem(workId, "studio.notice", Json.obj().put("code", "model_changed").put("model", model));
+        publish(first.taskId());
+        executor.execute(() -> launch(run, request, false));
+        return workId;
+    }
+
+    /**
+     * The recap a follow-up run starts with (BE-7): what was asked and what came of it, marked as context so the
+     * agent does not read it as a requirement. At most 1,500 characters.
+     */
+    String recap(List<Run> runs) {
+        Run last = runs.getLast();
+        String asked = lastUserText(last);
+        String result = lastAgentText(last.workId());
+        String outcome = switch (String.valueOf(last.outcome())) {
+            case "completed" -> "finished and verified";
+            case "cancelled" -> "stopped by the user before it finished";
+            case "failed" -> "did not finish";
+            default -> "paused";
+        };
+        StringBuilder sb = new StringBuilder();
+        sb.append("[Context from earlier in this task. Background only: it is not a new requirement and nothing in it has to be redone.]\n");
+        sb.append("Earlier request: ").append(cut(asked, 400)).append('\n');
+        sb.append("Outcome: ").append(outcome).append('.');
+        if (result != null && !result.isBlank()) sb.append(" Summary: ").append(cut(result, 600));
+        sb.append('\n');
+        try {
+            List<String> files = new ArrayList<>();
+            JsonNode c = changes.taskChanges(last.projectId(), runs.stream().map(Run::workId).toList(), false);
+            for (JsonNode f : Json.each(c.get("files"))) if (files.size() < 12) files.add(Json.text(f, "path"));
+            if (!files.isEmpty()) sb.append("Files changed so far: ").append(String.join(", ", files)).append('\n');
+        } catch (RuntimeException e) {
+            // Without the change list the recap is shorter, not wrong.
+        }
+        sb.append("[End of context]\n\n");
+        String recap = sb.toString();
+        return recap.length() > RECAP_LIMIT ? recap.substring(0, RECAP_LIMIT - 20) + "…\n[End of context]\n\n" : recap;
+    }
+
+    private static String cut(String s, int max) {
+        if (s == null) return "";
+        String one = s.strip().replaceAll("\\s+", " ");
+        return one.length() > max ? one.substring(0, max - 1) + "…" : one;
+    }
+
+    /** The user's own words of a run: its request without the recap. */
+    private static String lastUserText(Run r) {
+        String text = r.requestText() == null ? r.title() : r.requestText();
+        int end = text == null ? -1 : text.indexOf("[End of context]");
+        return end >= 0 ? text.substring(end + "[End of context]".length()).strip() : text;
+    }
+
+    /** The last text the agent wrote in [workId], from the recorded model output. */
+    private String lastAgentText(String workId) {
+        List<String> payloads = jdbc.queryForList("SELECT payload FROM event_log WHERE work_id = ? AND kind = 'journal.call' ORDER BY seq DESC LIMIT 5", String.class, workId);
+        for (String p : payloads) {
+            for (JsonNode part : Json.each(Json.parse(p).path("data").path("payload"))) {
+                if (!"message".equals(Json.text(part, "type"))) continue;
+                for (JsonNode piece : Json.each(part.get("parts"))) {
+                    String text = Json.text(piece, "text");
+                    if (text != null && !text.isBlank()) return text;
+                }
+            }
+        }
+        return null;
+    }
+
+    // ------------------------------------------------------------------------------------------------ stop, continue, retry
+
+    /** `POST /tasks/{id}/stop`: ends the current run; changes made so far stay (§7.6). */
+    public ObjectNode stop(String taskId) {
+        Run last = require(taskId).getLast();
+        if (hosts.host().isLive(last.workId())) {
+            campaigns.cancel(last.workId(), "stopped by the user");
+        } else if (campaigns.isOpening(last.workId()) || "opening".equals(last.status())) {
+            stopRequested.put(last.workId(), true);
+        }
+        publish(taskId);
+        return task(taskId, false);
+    }
+
+    /** `POST /tasks/{id}/continue`: paused tasks and tasks interrupted by a restart (§7.6). */
+    public ObjectNode resume(String taskId, String modelRef, String effort, String mode) {
+        List<Run> runs = require(taskId);
+        Run last = runs.getLast();
+        if (hosts.host().isLive(last.workId())) return task(taskId, false);
+        String state = Json.text(stateOf(last), "state");
+        if ("paused".equals(state) && resumable(last)) {
+            continueRun(last, null, modelRef, effort, mode);
+        } else {
+            // A reached limit or a failed start cannot continue in place: the same request runs again as a follow-up.
+            String text = "limit_reached".equals(stateOf(last).path("reason").path("code").asString("")) ? "Continue the task from where it stopped." : lastUserText(last);
+            if ("open_failed".equals(last.status()) && runs.size() == 1) {
+                retryStart(last, modelRef, effort, mode);
+            } else {
+                followUp(runs, text, modelRef, effort, mode);
+            }
+        }
+        return task(taskId, false);
+    }
+
+    /** A first run that never opened is started again under the same task id. */
+    private void retryStart(Run last, String modelRef, String effort, String mode) {
+        String model = modelFor(modelRef, last);
+        String nextEffort = normalise(effort, List.of("low", "medium", "high"), last.effort());
+        String nextMode = normalise(mode, List.of("ask", "auto"), last.mode());
+        jdbc.update("UPDATE campaign_index SET status = 'opening', reason = NULL, reason_json = NULL, ended_at = NULL, model_ref = ?, effort = ?, task_mode = ?, updated_at = ? WHERE work_id = ?",
+            model, nextEffort, nextMode, Json.now(), last.workId());
+        TaskRun run = new TaskRun(last.workId(), last.projectId(), last.taskId(), last.parentWork(), last.title(), last.requestText(), model, nextEffort, nextMode,
+            model != null && model.startsWith(FixtureBrain.PROVIDER + "/"));
+        pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "retrying"));
+        publish(last.taskId());
+        executor.execute(() -> launch(run, last.requestText(), false));
+    }
+
+    // ------------------------------------------------------------------------------------------------ cards
+
+    /** `POST /tasks/{id}/cards/{cardId}`: `{ decision: answer|allow_once|allow_always|deny|accept|decline, answer?, option? }`. */
+    public ObjectNode card(String taskId, String cardId, JsonNode body) {
+        require(taskId);
+        ObjectNode decision = decisions.get(cardId);
+        if (!taskId.equals(campaigns.taskOf(Json.text(decision, "workId")))) throw ApiException.notFound("no card " + cardId + " in task " + taskId);
+        String choice = Json.text(body, "decision", "");
+        String kind = Json.text(decision, "kind", "");
+        JsonNode request = decision.get("request");
+        switch (choice) {
+            case "answer" -> {
+                if (!kind.equals("question")) throw ApiException.invalid("this card is not a question");
+                Integer option = body.hasNonNull("option") ? body.get("option").asInt() : null;
+                String text = Json.text(body, "answer");
+                if ((text == null || text.isBlank()) && option != null && request.path("options").has(option)) text = request.path("options").get(option).asString();
+                if (text == null || text.isBlank()) throw ApiException.invalid("an answer needs text");
+                answer(decision, text.strip(), option);
+            }
+            case "allow_once", "allow_always", "deny" -> {
+                if (!(kind.equals("effect") || kind.equals("publication"))) throw ApiException.invalid("this card is not an approval");
+                boolean approved = !choice.equals("deny");
+                if (choice.equals("allow_always")) projectSettings.allow(Json.text(decision, "projectId"), pattern(request), "local");
+                decisions.reply(cardId, Json.obj().put("approved", approved).put("reason", approved ? choice.equals("allow_always") ? "always allowed in this project" : "allowed once" : "denied by the user"), null, "local");
+            }
+            case "accept", "decline" -> {
+                if (kind.equals("question") || kind.equals("effect") || kind.equals("publication")) throw ApiException.invalid("this card is not a suggestion");
+                boolean accept = choice.equals("accept");
+                decisions.reply(cardId, Json.obj().put("outcome", accept ? "Accepted" : "Rejected").put("confirmWeakening", accept && Json.bool(body, "confirm", false)), null, "local");
+            }
+            default -> throw ApiException.invalid("unknown decision " + choice);
+        }
+        publish(taskId);
+        return task(taskId, false);
+    }
+
+    /** "Allow and continue" on the result card (§7.5): the skipped action becomes always allowed, then a follow-up runs. */
+    public ObjectNode allowSkipped(String taskId, String decisionId) {
+        List<Run> runs = require(taskId);
+        ObjectNode decision = decisions.get(decisionId);
+        if (!taskId.equals(campaigns.taskOf(Json.text(decision, "workId")))) throw ApiException.notFound("no skipped action " + decisionId + " in task " + taskId);
+        String pattern = pattern(decision.get("request"));
+        projectSettings.allow(Json.text(decision, "projectId"), pattern, "local");
+        followUp(runs, "You may now run `" + DecisionService.commandOf(decision.get("request")) + "`. Continue with what was skipped.", null, null, null);
+        return task(taskId, false);
+    }
+
+    // ------------------------------------------------------------------------------------------------ rename, delete
+
+    public ObjectNode rename(String taskId, String title) {
+        Run first = require(taskId).getFirst();
+        jdbc.update("UPDATE campaign_index SET custom_title = ? WHERE work_id = ?", title == null || title.isBlank() ? null : title.strip(), first.workId());
+        publish(taskId);
+        return task(taskId, false);
+    }
+
+    /** Removes the task from the list; the agent's records of it stay in the project's state folder. */
+    public ObjectNode delete(String taskId) {
+        List<Run> runs = require(taskId);
+        for (Run r : runs) if (hosts.host().isLive(r.workId())) throw StudioError.of(StudioError.PROJECT_BUSY, Json.obj().put("taskId", taskId), "the task is working; stop it first");
+        campaigns.hideTask(taskId);
+        broker.publishApp("task.deleted", Json.obj().put("id", taskId).put("projectId", runs.getFirst().projectId()));
+        return Json.obj().put("deleted", taskId);
+    }
+
+    /** The work ids of a task, oldest first. */
+    public List<String> works(String taskId) { return require(taskId).stream().map(Run::workId).toList(); }
+
+    public String projectOf(String taskId) { return require(taskId).getFirst().projectId(); }
+
+    @Override
+    public void destroy() { executor.shutdownNow(); }
+}

@@ -139,6 +139,132 @@ public class ChangesService {
         return o;
     }
 
+    // ------------------------------------------------------------------------------------------------ tasks (Studio 2 §8.1)
+
+    /** The first snapshot of the first run and the latest snapshot of the last run that has one. */
+    public record Range(Snapshot from, Snapshot to, String firstWork, String lastWork) { }
+
+    public Range range(String projectId, java.util.List<String> works) {
+        Path repo = hosts.host().repoRoot(projectId);
+        Snapshot from = null, to = null;
+        String first = null, last = null;
+        for (String work : works) {
+            java.util.List<Snapshot> snaps = snapshots(repo, work);
+            if (snaps.isEmpty()) continue;
+            if (from == null) {
+                from = snaps.getFirst();
+                first = work;
+            }
+            to = snaps.getLast();
+            last = work;
+        }
+        return from == null ? null : new Range(from, to, first, last);
+    }
+
+    /**
+     * What a task changed: from the state before its first run to its latest snapshot. Files the user had already
+     * changed before the task are listed apart, for the "Show my earlier changes" switch.
+     */
+    public ObjectNode taskChanges(String projectId, java.util.List<String> works, boolean includeUser) {
+        ObjectNode o = Json.obj();
+        Range range = range(projectId, works);
+        ArrayNode files = o.putArray("files");
+        ArrayNode mine = o.putArray("earlier");
+        if (range == null) {
+            o.put("available", false);
+            return o;
+        }
+        o.put("available", true);
+        Path repo = hosts.host().repoRoot(projectId);
+        Git.Result base = Git.run(repo, "rev-parse", "HEAD");
+        if (base.ok()) {
+            Git.Result pre = Git.run(repo, "diff", "--numstat", "--ignore-cr-at-eol", base.out().trim(), range.from().commit());
+            if (pre.ok()) {
+                for (String line : pre.out().split("\n")) {
+                    String[] p = line.split("\t");
+                    if (p.length < 3) continue;
+                    ObjectNode f = mine.addObject();
+                    f.put("path", numstatPath(p[p.length - 1]));
+                    if (!p[0].equals("-")) {
+                        f.put("added", Integer.parseInt(p[0]));
+                        f.put("removed", Integer.parseInt(p[1]));
+                    }
+                }
+            }
+            o.put("base", base.out().trim());
+        }
+        Map<String, ObjectNode> byPath = new LinkedHashMap<>();
+        Git.Result names = Git.run(repo, "diff", "--name-status", "--find-renames", range.from().commit(), range.to().commit());
+        if (names.ok()) {
+            for (String line : names.out().split("\n")) {
+                if (line.isBlank()) continue;
+                String[] p = line.split("\t");
+                ObjectNode f = Json.obj();
+                String path = p[p.length - 1];
+                f.put("path", path);
+                String kind = p[0].substring(0, 1);
+                f.put("kind", kind.equals("R") ? "M" : kind);
+                if (p.length == 3) f.put("renamedFrom", p[1]);
+                byPath.put(path, f);
+            }
+        }
+        Git.Result counts = Git.run(repo, "diff", "--numstat", "--find-renames", "--ignore-cr-at-eol", range.from().commit(), range.to().commit());
+        if (counts.ok()) {
+            for (String line : counts.out().split("\n")) {
+                String[] p = line.split("\t");
+                if (p.length < 3) continue;
+                ObjectNode f = byPath.get(numstatPath(p[p.length - 1]));
+                if (f == null) continue;
+                if (p[0].equals("-")) f.put("binary", true);
+                else {
+                    f.put("added", Integer.parseInt(p[0]));
+                    f.put("removed", Integer.parseInt(p[1]));
+                }
+            }
+        }
+        for (ObjectNode f : byPath.values()) {
+            // A difference of line endings only is not a change to review (finding F-2).
+            boolean eolOnly = !f.path("binary").asBoolean(false) && "M".equals(Json.text(f, "kind")) && f.path("added").asInt(0) == 0 && f.path("removed").asInt(0) == 0;
+            if (eolOnly) continue;
+            files.add(f);
+        }
+        o.put("from", range.from().commit());
+        o.put("to", range.to().commit());
+        return o;
+    }
+
+    /** The unified diff of one file of a task, line endings ignored; [earlier] shows the change made before the task. */
+    public ObjectNode taskDiff(String projectId, java.util.List<String> works, String path, boolean earlier) {
+        Range range = range(projectId, works);
+        ObjectNode o = Json.obj();
+        if (path != null) o.put("path", path);
+        if (range == null) {
+            o.put("diff", "");
+            return o;
+        }
+        Path repo = hosts.host().repoRoot(projectId);
+        String from = range.from().commit();
+        String to = range.to().commit();
+        if (earlier) {
+            Git.Result base = Git.run(repo, "rev-parse", "HEAD");
+            if (!base.ok()) {
+                o.put("diff", "");
+                return o;
+            }
+            to = from;
+            from = base.out().trim();
+        }
+        java.util.List<String> args = new java.util.ArrayList<>(java.util.List.of("diff", "--find-renames", "-U3", "--ignore-cr-at-eol", from, to));
+        if (path != null) {
+            args.add("--");
+            args.add(path);
+        }
+        Git.Result diff = Git.run(repo, args.toArray(String[]::new));
+        o.put("diff", diff.ok() ? diff.out() : "");
+        o.put("truncated", diff.truncated());
+        return o;
+    }
+
     private static String numstatPath(String path) {
         return path.contains(" => ") ? path.replaceAll(".*=> ?", "").replace("}", "") : path;
     }

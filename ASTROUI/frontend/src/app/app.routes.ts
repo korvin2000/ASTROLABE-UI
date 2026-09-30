@@ -1,21 +1,41 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { CanActivateFn, Router, Routes } from '@angular/router';
+import { AppStore } from './state/app.store';
 
-// §4.1 routes. Campaign tabs share one component; every page is lazy-loaded.
+/** The last task the user had open, remembered in the browser (section 4.3). */
+export const LAST_TASK = 'studio.lastTask';
+
+function ready(app: AppStore): boolean {
+  return app.hasModel() && app.projects().length > 0;
+}
+
+/** `/`: the last open task, else a new task, else the first run. */
+const home: CanActivateFn = async () => {
+  const app = inject(AppStore);
+  const router = inject(Router);
+  await app.init();
+  if (!ready(app)) return router.parseUrl('/welcome');
+  let last: string | null = null;
+  try { last = localStorage.getItem(LAST_TASK); } catch { /* storage may be unavailable */ }
+  if (last && app.task(last)) return router.createUrlTree(['/t', last]);
+  return router.parseUrl('/new');
+};
+
+/** A new task needs a model and a project; without them the first run explains what is missing. */
+const needsSetup: CanActivateFn = async () => {
+  const app = inject(AppStore);
+  const router = inject(Router);
+  await app.init();
+  return ready(app) ? true : router.parseUrl('/welcome');
+};
+
+// Five routes (the complexity budget of section 2).
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', loadComponent: () => import('./features/home/home').then(m => m.Home) },
-  { path: 'new', loadComponent: () => import('./features/composer/new-campaign').then(m => m.NewCampaignPage) },
-  { path: 'p/:projectId', loadComponent: () => import('./features/projects/project-home').then(m => m.ProjectHome) },
-  { path: 'p/:projectId/knowledge', loadComponent: () => import('./features/knowledge/knowledge').then(m => m.KnowledgePage) },
-  { path: 'p/:projectId/c/:workId', loadComponent: () => import('./features/campaign/campaign-view').then(m => m.CampaignView) },
-  { path: 'p/:projectId/c/:workId/:tab', loadComponent: () => import('./features/campaign/campaign-view').then(m => m.CampaignView) },
-  { path: 'inbox', loadComponent: () => import('./features/decisions/inbox').then(m => m.InboxPage) },
-  { path: 'activity', loadComponent: () => import('./features/activity/activity').then(m => m.ActivityPage) },
-  { path: 'stats', loadComponent: () => import('./features/stats/stats').then(m => m.StatsPage) },
-  { path: 'settings', loadComponent: () => import('./features/settings/settings').then(m => m.SettingsPage) },
-  { path: 'settings/:section', loadComponent: () => import('./features/settings/settings').then(m => m.SettingsPage) },
-  { path: 'providers', loadComponent: () => import('./features/providers/providers').then(m => m.ProvidersPage) },
-  { path: 'providers/:providerId', loadComponent: () => import('./features/providers/providers').then(m => m.ProvidersPage) },
-  { path: 'knowledge', loadComponent: () => import('./features/knowledge/knowledge').then(m => m.KnowledgePage) },
-  { path: 'diagnostics', loadComponent: () => import('./features/diagnostics/diagnostics').then(m => m.DiagnosticsPage) },
+  { path: '', pathMatch: 'full', canActivate: [home], children: [] },
+  { path: 'welcome', loadComponent: () => import('./features/welcome/welcome').then(m => m.Welcome) },
+  { path: 'new', canActivate: [needsSetup], loadComponent: () => import('./features/task/new-task').then(m => m.NewTask) },
+  { path: 't/:taskId', loadComponent: () => import('./features/task/task-view').then(m => m.TaskView) },
+  { path: 'settings', redirectTo: 'settings/general', pathMatch: 'full' },
+  { path: 'settings/:section', loadComponent: () => import('./features/settings/settings').then(m => m.Settings) },
   { path: '**', redirectTo: '' },
 ];

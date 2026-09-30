@@ -27,7 +27,7 @@ spring:
 
 studio:
   data-dir: ${STUDIO_DATA_DIR:}
-  fixtures: ${STUDIO_FIXTURES:true}
+  fixtures: ${STUDIO_FIXTURES:false}
   fixture-latency-millis: ${STUDIO_FIXTURE_LATENCY:700}
   security: ${STUDIO_SECURITY:true}
   open-browser: ${STUDIO_OPEN_BROWSER:false}

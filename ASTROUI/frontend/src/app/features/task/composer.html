@@ -1,0 +1,61 @@
+<div class="composer" [class.up]="up()">
+  <textarea #area class="ta" rows="1" [(ngModel)]="text" (ngModelChange)="changed()" (keydown)="key($event)"
+    [placeholder]="placeholder() | t" [attr.aria-label]="placeholder() | t"></textarea>
+  <div class="bar">
+    <div class="ctl">
+      <button class="pill" [class.open]="open() === 'project'" [disabled]="projectFixed()" (click)="toggle('project', $event)"
+        [attr.aria-label]="'composer.project' | t" [attr.aria-expanded]="open() === 'project'" [title]="project()?.path ?? ''">
+        <as-icon name="folder" [size]="14" /><b class="ellipsis">{{ project()?.name ?? ('composer.no_project' | t) }}</b>
+      </button>
+      @if (open() === 'project') {
+        <div class="menu" role="menu" (click)="$event.stopPropagation()">
+          @for (p of app.projects(); track p.id) {
+            <button role="menuitem" [class.sel]="p.id === projectId()" (click)="pickProject(p)" [title]="p.path">
+              <as-icon name="folder" [size]="14" /><span class="ellipsis grow">{{ p.name }}</span>
+              @if (p.demo) { <span class="tag">{{ 'demo.tag' | t }}</span> }
+            </button>
+          }
+          <hr>
+          <button role="menuitem" (click)="folder()">{{ 'action.open_folder' | t }}</button>
+        </div>
+      }
+    </div>
+
+    <div class="ctl">
+      <button class="pill" [class.open]="open() === 'model'" (click)="toggle('model', $event)" [attr.aria-label]="'composer.model' | t" [attr.aria-expanded]="open() === 'model'">
+        <span class="d">◆</span>
+        @if (chosen(); as m) {
+          <b class="ellipsis">{{ m.name }}</b>
+          @if (fitted(); as e) { <span>· {{ ('effort.' + e) | t }}</span> }
+        } @else { <b>{{ 'composer.no_model' | t }}</b> }
+      </button>
+      @if (open() === 'model') {
+        <as-model-picker class="picker" [model]="model()" [effort]="fitted() ?? effort()" [running]="working()"
+          (modelChange)="pickModel($event)" (effortChange)="effortChange.emit($event)" (closed)="close()" />
+      }
+    </div>
+
+    <div class="ctl">
+      <button class="pill" [class.open]="open() === 'mode'" (click)="toggle('mode', $event)" [attr.aria-label]="'composer.mode' | t" [attr.aria-expanded]="open() === 'mode'">
+        {{ ('mode.' + mode()) | t }} <span class="faint">▾</span>
+      </button>
+      @if (open() === 'mode') {
+        <div class="menu modes" role="menu" (click)="$event.stopPropagation()">
+          <button role="menuitemradio" [class.sel]="mode() === 'ask'" [attr.aria-checked]="mode() === 'ask'" (click)="pickMode('ask')">
+            <span><b>{{ 'mode.ask' | t }}</b><small>{{ 'mode.ask_help' | t }}</small></span>
+          </button>
+          <button role="menuitemradio" [class.sel]="mode() === 'auto'" [attr.aria-checked]="mode() === 'auto'" (click)="pickMode('auto')">
+            <span><b>{{ 'mode.auto' | t }}</b><small>{{ 'mode.auto_help' | t }}</small></span>
+          </button>
+        </div>
+      }
+    </div>
+
+    <span class="grow"></span>
+    @if (working() && !canSend()) {
+      <button class="send stop" (click)="stop.emit()" [attr.aria-label]="'action.stop' | t" [title]="'action.stop' | t"><span class="sq"></span></button>
+    } @else {
+      <button class="send" [disabled]="!canSend() || busy()" (click)="submit()" [attr.aria-label]="'action.send' | t" [title]="'action.send' | t">↑</button>
+    }
+  </div>
+</div>

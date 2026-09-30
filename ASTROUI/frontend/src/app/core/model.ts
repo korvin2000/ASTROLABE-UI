@@ -1,9 +1,9 @@
-// Wire types of the Studio protocol (spec §29). ASTROLABE's own JSON is passed through verbatim (`any`-shaped
-// mirrors are narrowed where the UI reads them). Unknown enum values must never crash the client (§3.4).
+// Wire types of Studio 2 (spec section 12.3). The agent's own JSON is passed through as recorded; unknown values
+// must never crash the client.
 
 export interface Ids { work: string; attempt?: string; candidate?: string | null; context?: string | null; }
 
-/** One item of a campaign stream (§3.5): bus event, journal row, derived or Studio item. */
+/** One item of a run's stream: an event of the agent, a row of its journal, or an item the Studio added. */
 export interface StudioItem {
   seq?: number;
   at: string;
@@ -13,116 +13,210 @@ export interface StudioItem {
   cell?: string;
   turn?: number;
   phase?: string;
-  span?: string;
-  parent?: string;
   busSeq?: number;
   ephemeral?: boolean;
   reconstructed?: boolean;
-  data: any;
+  data: Record<string, unknown>;
 }
 
-export interface AppItem { seq: number; at: string; kind: string; data: any; }
+export interface AppItem { seq: number; at: string; kind: string; data: Record<string, unknown>; }
 
-export interface Action { name: string; enabled: boolean; reason?: string; }
+/** `{ code, params, detail, retryable }` (section 10); the sentence lives in the message catalog. */
+export interface ErrorInfo {
+  code: string;
+  params?: Record<string, unknown>;
+  detail?: string;
+  retryable?: boolean;
+  message?: string;
+}
 
-export type DisplayStatus =
-  | 'opening' | 'open_failed' | 'running' | 'needs_you' | 'finishing' | 'cancelling' | 'completed'
-  | 'waiting_for_input' | 'waiting_for_process' | 'blocked_external' | 'budget_exhausted' | 'cancelled'
-  | 'failed' | 'interrupted' | 'unknown' | string;
+export type ApiError = ErrorInfo & { message: string };
 
-export interface CampaignSummary {
+export type TaskState = 'working' | 'needs_you' | 'paused' | 'done' | 'stopped' | 'failed';
+export type Mode = 'ask' | 'auto';
+export type Effort = 'low' | 'medium' | 'high';
+
+export interface Card {
+  id: string;
   workId: string;
-  projectId: string;
-  title: string | null;
-  phase: string | null;
+  kind: 'question' | 'approval' | 'suggestion';
+  status: string;
+  createdAt: string;
+  text?: string;
+  options?: string[];
+  command?: string;
+  effect?: string;
+  why?: string;
+  detail?: string;
+  pattern?: string;
+  relaxes?: boolean;
+}
+
+export interface TaskRun {
+  workId: string;
+  startedAt: string;
+  endedAt?: string;
   outcome: string | null;
-  reason: string | null;
-  shape: string | null;
-  mode: string | null;
-  fingerprint: string | null;
+  request: string | null;
+  state: TaskState;
+  reason?: ErrorInfo;
+}
+
+export interface Verification { kind: 'tests' | 'review' | string; source: string; command?: string | null; }
+
+export interface Task {
+  id: string;
+  projectId: string;
+  title: string;
+  state: TaskState;
+  reason?: ErrorInfo;
+  verified: 'tests' | 'build' | 'review' | 'none';
+  verification?: Verification;
+  model: { ref: string | null; name: string | null; effort: Effort | null };
+  mode: Mode;
   demo: boolean;
+  lastRun: string;
   createdAt: string;
   updatedAt: string;
-  pinned: boolean;
-  archived: boolean;
-  parentWork: string | null;
-  displayStatus: DisplayStatus;
-  live: boolean;
-  attached: boolean;
-  attemptId: string;
-  pendingDecisions: number;
-  resumable: boolean;
-  contractVersion?: number;
-  leaseExpiresAt?: string;
-  allowedActions: Action[];
+  pending: Card[];
+  runs?: TaskRun[];
+  changes?: { files: number; added: number; removed: number };
+  usage?: { tokens: number; cost?: { amount: string; currency: string }; elapsedMs: number };
+  skipped?: Card[];
 }
 
 export interface Project {
-  id: string; name: string; path: string; demo: boolean; pinned: boolean; addedAt: string; openedAt?: string;
-  open: boolean; stateRoot?: string; runningWork?: string; branch?: string; exists: boolean;
-}
-
-export interface DecisionDto {
   id: string;
-  kind: 'question' | 'effect' | 'publication' | 'plan_acceptance' | 'amendment' | 'kb_admission' | 'review' | string;
-  projectId: string | null;
-  workId: string | null;
-  cellId: string | null;
-  contractRevision?: number;
-  request: any;
-  status: 'pending' | 'answered' | 'declined' | 'superseded' | 'expired' | 'policy' | string;
-  reply?: any;
-  byAuthority?: string | null;
-  reason?: string | null;
-  createdAt: string;
-  answeredAt?: string | null;
-  leaseExpiresAt?: string | null;
+  name: string;
+  path: string;
+  demo: boolean;
+  branch?: string;
+  exists: boolean;
+  open: boolean;
 }
 
-export interface Provider {
-  id: string; name: string; preset: string; baseUrl: string; demo: boolean; apis: string[]; apiKeyUrl?: string;
-  keyless: boolean; authMethods: string[]; auth: { state: string; type?: string; source?: string; expiresAt?: string; account?: string; error?: string };
-  models: number; lastTest?: any; fields?: FieldDescriptor[];
+export interface Account {
+  id: string;
+  provider: string;
+  name: string;
+  kind: 'oauth' | 'key' | 'env' | 'local' | 'custom' | 'demo';
+  enabled: boolean;
+  usable: boolean;
+  state?: 'ok' | 'expired';
+  account?: string;
+  variable?: string;
+  baseUrl?: string;
+  model?: string;
+  models?: number;
+  reachable?: boolean;
+  signedIn?: boolean;
 }
 
-export interface FieldDescriptor { key: string; label: string; kind: string; required: boolean; defaultValue?: string; help?: string; group?: string; choices?: string[]; min?: number; max?: number; unit?: string; }
-
-export interface ProfileDto { id: string; profile: any; state: string; demo: boolean; updatedAt?: string; qualification?: any; }
-
-export interface HostInfo {
-  studioVersion: string; astrolabeVersion: string; schemaVersion: number; aiGateVersion: string; jdk: string; os: string;
-  platformSupported: boolean; dataDir: string; credentialStorage: string; security: boolean; epoch: string; fixtures: boolean;
-  counters: Record<string, number>;
+export interface Preset {
+  provider: string;
+  name: string;
+  methods: ('signin' | 'key' | 'local' | 'custom')[];
+  keyUrl?: string;
+  code?: boolean;
+  baseUrl?: string;
 }
 
-export interface Bootstrap {
-  host: HostInfo;
+export interface UsableModel {
+  ref: string;
+  id: string;
+  name: string;
+  provider: string;
+  account: string;
+  recommended: boolean;
+  price?: 'included' | 'free' | '$' | '$$' | '$$$';
+  context?: number;
+  efforts: Effort[];
+  demo: boolean;
+}
+
+export interface Preferences {
+  theme: 'system' | 'light' | 'dark';
+  notify: boolean | null;
+  sendWith: 'enter' | 'ctrl-enter';
+  language: 'en' | 'ru';
+  defaultModel: string | null;
+  defaultEffort: Effort;
+  defaultMode: Mode;
+  limit: { kind: 'auto' | 'tokens' | 'money'; value?: string };
+  maxTasks: number;
+  demoMode: boolean;
+  lastProject: string | null;
+  firstTaskDone: boolean;
+}
+
+export interface Host {
+  version: string;
+  agentVersion: string;
+  dataDir: string;
+  demoMode: boolean;
+  platformSupported: boolean;
+  security: boolean;
+}
+
+export interface AppSnapshot {
+  accounts: Account[];
+  defaultModel: UsableModel | null;
+  preferences: Preferences;
   projects: Project[];
-  campaigns: CampaignSummary[];
-  decisions: DecisionDto[];
-  providers: Provider[];
-  profiles: ProfileDto[];
-  runtime: any;
-  config: { profileRoles: { main: string; helper: string | null; escalation: string | null }; mode: string; ceiling: string; dClass: string;
-    executionMode: string; unknownOutcomeReconciliation: string; campaignCells: number; turnsPerCell: number; alpha: number; registerCapTokens: number };
-  settingsRevision: number;
+  tasks: Task[];
+  needsYou: number;
+  host: Host;
   appSeq: number;
 }
 
-export interface ApiError { code: string; message: string; requestId?: string; retryable?: boolean; fieldErrors?: { path: string; message: string }[]; currentRevision?: number; gap?: string; details?: any; }
-
-/** A parsed result envelope header `⟦result #n tool=… class=… v={…} … status=…⟧` (§2.7). */
-export interface Envelope {
-  alias: string | null;
-  tool: string | null;
-  cls: string | null;
-  versions: Record<string, string>;
-  stamp: string | null;
-  truncated: boolean;
-  effects: string | null;
-  status: string | null;
-  flags: string[];
-  raw: string;
+export interface LoginSession {
+  loginId: string;
+  provider: string;
+  name: string;
+  method: 'browser' | 'code';
+  state: 'starting' | 'waiting_for_browser' | 'waiting_for_code' | 'finishing' | 'connected' | 'cancelled' | 'timed_out' | 'failed';
+  url?: string;
+  userCode?: string;
+  verificationUri?: string;
+  expiresAt?: string;
+  fallback?: string;
+  error?: ErrorInfo;
+  result?: { provider: string; name: string; model?: UsableModel | null; warning?: ErrorInfo };
 }
 
-export interface StoredRow<T = any> { table: string; key: string; identities: Ids; schemaVersion: number; createdAt: string; body: T; }
+export interface ChangedFile { path: string; kind: string; added?: number; removed?: number; binary?: boolean; renamedFrom?: string; }
+
+export interface TaskChanges { available: boolean; files: ChangedFile[]; earlier: ChangedFile[]; }
+
+export interface OutputEntry { id: string; workId: string; command: string; check: boolean; at: string; status: string; durationMs?: number; output?: number; }
+
+export interface PlanStep { n: number; text: string; state: 'done' | 'now' | 'todo' | 'skipped'; }
+
+export interface CheckResult { at: string; outcome: string; command: string; acceptance: boolean; passed?: number; failed?: number; skipped?: number; }
+
+export interface Progress { available: boolean; plan: PlanStep[]; checks: CheckResult[]; }
+
+export interface ProjectSettingsDto {
+  projectId: string;
+  checks: Record<'test' | 'build' | 'lint', { value: string; source: 'saved' | 'detected' | 'none'; detected?: string }>;
+  manifest?: string;
+  instructions: { file?: string; use: boolean };
+  allowed: string[];
+  protectedFiles: string[];
+  protectedDefault: boolean;
+}
+
+export interface FolderListing {
+  roots: string[];
+  home: string;
+  path: string;
+  name: string;
+  git: boolean;
+  insideGit: boolean;
+  parent?: string;
+  breadcrumb: { name: string; path: string }[];
+  folders: { name: string; path: string; git: boolean }[];
+  more: boolean;
+  unreadable?: boolean;
+  recent: { name: string; path: string }[];
+}

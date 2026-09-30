@@ -52,6 +52,15 @@ public class CampaignService {
     private final Set<String> opening = ConcurrentHashMap.newKeySet();
     private final Set<String> cancelling = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> lastChanged = new ConcurrentHashMap<>();
+    private volatile RunEnded runEnded = (w, o, r, f) -> { };
+
+    /** Told once per run after its end was recorded (Studio 2 BE-8). */
+    @FunctionalInterface
+    public interface RunEnded {
+        void ended(String workId, String outcome, String reason, Throwable failure);
+    }
+
+    public void onRunEnded(RunEnded listener) { this.runEnded = listener; }
 
     public CampaignService(JdbcTemplate jdbc, HostService hosts, TransportService transport, SettingsService settings, ProjectService projects,
                            DecisionService decisions, TopicBroker broker, @Lazy EventPipeline pipeline) {
@@ -175,6 +184,17 @@ public class CampaignService {
             o.put("pinned", rs.getInt("pinned") != 0);
             o.put("archived", rs.getInt("archived") != 0);
             o.put("parentWork", rs.getString("parent_work"));
+            o.put("taskId", rs.getString("task_id"));
+            o.put("modelRef", rs.getString("model_ref"));
+            o.put("effort", rs.getString("effort"));
+            o.put("taskMode", rs.getString("task_mode"));
+            o.put("requestText", rs.getString("request_text"));
+            o.put("endedAt", rs.getString("ended_at"));
+            o.put("hidden", rs.getInt("hidden") != 0);
+            String verification = rs.getString("verification_json");
+            if (verification != null) o.set("verification", Json.parse(verification));
+            String reasonJson = rs.getString("reason_json");
+            if (reasonJson != null) o.set("reasonCode", Json.parse(reasonJson));
             o.put("indexStatus", rs.getString("status"));
             return o;
         }, workId);
@@ -294,6 +314,89 @@ public class CampaignService {
         }
     }
 
+    // ------------------------------------------------------------------------------------------------ task runs (Studio 2)
+
+    /** One run of a task: the first run, a follow-up, or the same run continued. */
+    public record TaskRun(String workId, String projectId, String taskId, String parentWork, String title, String requestText,
+                          String modelRef, String effort, String mode, boolean demo) { }
+
+    /** Records the run before anything can fail, so the user's message is never lost (§7.2). */
+    public void register(TaskRun r) {
+        String now = Json.now();
+        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, mode, demo, parent_work, task_id, model_ref, effort, task_mode, request_text, created_at, updated_at) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            r.workId(), r.projectId(), firstLine(r.title()), "opening", "auto".equals(r.mode()) ? "Autonomous" : "Interactive", r.demo() ? 1 : 0,
+            r.parentWork(), r.taskId(), r.modelRef(), r.effort(), r.mode(), r.requestText(), now, now);
+        opening.add(r.workId());
+        pipeline.expect(r.workId(), r.projectId());
+        changed(r.workId(), true);
+    }
+
+    /** Opens and starts a registered run; the caller turns a failure into a normalised error. */
+    public CampaignRef open(TaskRun r, String configJson, StartSpec spec, boolean resume) {
+        opening.add(r.workId());
+        pipeline.expect(r.workId(), r.projectId());
+        if (r.demo()) transport.demoStarted(r.workId(), projects.root(r.projectId()));
+        try {
+            AutonomousPolicyOptions policy = new AutonomousPolicyOptions(false, null);
+            CampaignRef ref = resume
+                ? host().resume(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, failure) -> onRunEnded(w, outcome, reason, failure))
+                : host().start(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, failure) -> onRunEnded(w, outcome, reason, failure));
+            var v = ref.getVerification();
+            String verification = v == null ? null : Json.write(Json.obj().put("kind", v.getKind()).put("source", v.getSource()).put("command", v.getCommandText()));
+            jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ?, verification_json = coalesce(?, verification_json), reason_json = NULL, outcome = NULL, ended_at = NULL WHERE work_id = ?",
+                ref.getShape(), ref.getFingerprint(), verification, r.workId());
+            ObjectNode data = opened(ref, spec, r.demo());
+            if (resume) data.put("resumed", true);
+            pipeline.studioItem(r.workId(), "studio.opened", data);
+            return ref;
+        } catch (RuntimeException e) {
+            transport.demoEnded(r.workId());
+            throw e;
+        } finally {
+            opening.remove(r.workId());
+        }
+    }
+
+    public void markOpenFailed(String workId, ObjectNode reason) {
+        opening.remove(workId);
+        jdbc.update("UPDATE campaign_index SET status = 'open_failed', reason = ?, reason_json = ?, ended_at = ?, updated_at = ? WHERE work_id = ?",
+            Json.text(reason, "detail"), Json.write(reason), Json.now(), Json.now(), workId);
+    }
+
+    public void setReason(String workId, ObjectNode reason) {
+        jdbc.update("UPDATE campaign_index SET reason_json = ? WHERE work_id = ?", reason == null ? null : Json.write(reason), workId);
+    }
+
+    public void markEnded(String workId) {
+        jdbc.update("UPDATE campaign_index SET ended_at = coalesce(ended_at, ?) WHERE work_id = ?", Json.now(), workId);
+    }
+
+    public boolean isOpening(String workId) { return opening.contains(workId); }
+
+    public void notOpening(String workId) { opening.remove(workId); }
+
+    public boolean isCancelling(String workId) { return cancelling.contains(workId); }
+
+    /** The runs of a task, oldest first. */
+    public List<String> runsOf(String taskId) {
+        return jdbc.queryForList("SELECT work_id FROM campaign_index WHERE task_id = ? ORDER BY created_at, rowid", String.class, taskId);
+    }
+
+    public String taskOf(String workId) {
+        List<String> r = jdbc.queryForList("SELECT coalesce(task_id, work_id) FROM campaign_index WHERE work_id = ?", String.class, workId);
+        return r.isEmpty() ? null : r.getFirst();
+    }
+
+    /** Task ids, newest activity first; hidden (deleted) tasks are left out. */
+    public List<String> taskIds() {
+        return jdbc.queryForList("SELECT task_id FROM campaign_index WHERE task_id IS NOT NULL GROUP BY task_id HAVING max(hidden) = 0 ORDER BY max(updated_at) DESC", String.class);
+    }
+
+    public void hideTask(String taskId) {
+        jdbc.update("UPDATE campaign_index SET hidden = 1 WHERE task_id = ?", taskId);
+    }
+
     private static ObjectNode opened(CampaignRef ref, StartSpec spec, boolean demo) {
         ObjectNode o = Json.obj();
         o.put("workId", ref.getWorkId());
@@ -312,6 +415,7 @@ public class CampaignService {
     }
 
     private void onRunEnded(String workId, String outcome, String reason, Throwable failure) {
+        transport.demoEnded(workId);
         cancelling.remove(workId);
         String why = outcome == null ? "campaign run stopped: " + (reason == null ? "unknown" : reason) : "campaign ended " + outcome;
         decisions.expireForWork(workId, why);
@@ -320,8 +424,14 @@ public class CampaignService {
         data.put("reason", reason);
         if (failure != null) data.put("failure", failure.getClass().getSimpleName() + (failure.getMessage() == null ? "" : ": " + failure.getMessage()));
         pipeline.runEnded(workId, data);
+        markEnded(workId);
         refresh(workId);
-        if (outcome != null) {
+        try {
+            runEnded.ended(workId, outcome, reason, failure);
+        } catch (RuntimeException e) {
+            log.warn("run-end listener failed for {}: {}", workId, e.toString());
+        }
+        if (outcome != null && Json.text(summary(workId), "taskMode") == null) {
             ObjectNode note = summary(workId);
             broker.publishApp("notification", Json.obj().put("kind", "campaign.finished").put("workId", workId)
                 .put("projectId", Json.text(note, "projectId")).put("title", "Campaign " + outcome.replace('_', ' ')).put("body", Json.text(note, "title")));

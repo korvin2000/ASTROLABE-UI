@@ -60,8 +60,9 @@ public class ProviderService {
 
     private List<Provider> providers() {
         List<Provider> list = new ArrayList<>();
-        list.add(transport.brain().provider());
+        if (transport.demoMode()) list.add(transport.brain().provider());
         list.addAll(Providers.presets());
+        for (TransportService.Custom c : transport.customEndpoints()) list.add(TransportService.customProvider(c));
         return list;
     }
 

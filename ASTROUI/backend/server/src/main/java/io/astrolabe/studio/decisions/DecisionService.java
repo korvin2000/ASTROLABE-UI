@@ -38,7 +38,42 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     private final HostService hosts;
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
     private volatile BiConsumer<String, ObjectNode> campaignItems = (w, i) -> { };
+    private volatile java.util.function.Consumer<String> waitingChanged = w -> { };
     private volatile java.util.function.Function<String, String> projectOf = w -> null;
+    private volatile java.util.function.Function<String, HostPolicy> policyOf = w -> null;
+    private volatile Reviewer reviewer = (w, r) -> CompletableFuture.completedFuture(null);
+
+    /**
+     * How the host answers for a task (Studio 2 §7.5, BE-14): in `ask` mode the user decides, except what the project
+     * always allows; in `auto` mode nothing interrupts. Null for runs that were not started as tasks.
+     */
+    public record HostPolicy(String mode, List<String> allowed) {
+        public boolean auto() { return "auto".equals(mode); }
+
+        /** A command is allowed when it is a listed pattern or starts with one followed by a space. */
+        public boolean allows(String command) {
+            if (command == null) return false;
+            String c = command.strip();
+            for (String pattern : allowed) {
+                String p = pattern.strip();
+                if (!p.isEmpty() && (c.equals(p) || c.startsWith(p + " "))) return true;
+            }
+            return false;
+        }
+    }
+
+    /** The review pass of the host for a `check:` item (finding F-5): a verdict JSON, or null when none can be given. */
+    @FunctionalInterface
+    public interface Reviewer {
+        CompletableFuture<String> review(String workId, JsonNode request);
+    }
+
+    public static final String ASSUME = "Use the most reasonable assumption and list your assumptions in the summary.";
+
+    public void policy(java.util.function.Function<String, HostPolicy> policyOf, Reviewer reviewer) {
+        this.policyOf = policyOf;
+        this.reviewer = reviewer;
+    }
 
     private record Pending(String id, String kind, String workId, CompletableFuture<String> future) { }
 
@@ -50,6 +85,9 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         if (expired > 0) log.info("{} pending decision(s) from the previous run expired (§13.9)", expired);
     }
 
+    /** Called with the run whose waiting decisions changed: a task that waits for the user says so at once. */
+    public void onWaitingChanged(java.util.function.Consumer<String> listener) { this.waitingChanged = listener; }
+
     /** Wiring from the live pipeline: places decision items in the campaign stream; resolves a work's project. */
     public void wire(BiConsumer<String, ObjectNode> campaignItems, java.util.function.Function<String, String> projectOf) {
         this.campaignItems = campaignItems;
@@ -60,6 +98,17 @@ public class DecisionService implements AuthorityPort, PolicyListener {
 
     @Override
     public CompletableFuture<String> ask(String workId, String questionJson) {
+        HostPolicy policy = policyOf.apply(workId);
+        if (policy != null && policy.auto()) {
+            JsonNode q = Json.parse(questionJson);
+            ObjectNode answer = Json.obj();
+            answer.put("questionId", Json.text(q, "id"));
+            answer.put("contractRevision", q.path("contractRevision").asInt());
+            answer.put("text", ASSUME);
+            answer.putNull("chosenOption");
+            answer.put("changesRequirements", false);
+            return byPolicy("question", workId, questionJson, answer, "answered");
+        }
         return raise("question", workId, questionJson);
     }
 
@@ -67,7 +116,31 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     public CompletableFuture<String> approve(String workId, String requestJson) {
         JsonNode request = Json.parse(requestJson);
         String action = Json.text(request, "action", "");
-        return raise(action.startsWith("publish.") ? "publication" : "effect", workId, requestJson);
+        String kind = action.startsWith("publish.") ? "publication" : "effect";
+        HostPolicy policy = policyOf.apply(workId);
+        if (policy != null && kind.equals("effect")) {
+            boolean allowed = request.path("contractAllowlisted").asBoolean(false) || policy.allows(commandOf(request));
+            if (allowed || policy.auto()) {
+                ObjectNode decision = Json.obj();
+                decision.put("requestId", Json.text(request, "id"));
+                decision.put("contractRevision", request.path("contractRevision").asInt());
+                decision.put("approved", allowed);
+                decision.put("reason", allowed ? "always allowed in this project" : "auto mode: this action needs your approval");
+                return byPolicy(kind, workId, requestJson, decision, allowed ? "allowed" : "skipped");
+            }
+        }
+        return raise(kind, workId, requestJson);
+    }
+
+    /** The command of an approval request as the allow list names it: its argv joined by spaces. */
+    public static String commandOf(JsonNode request) {
+        JsonNode argv = request.get("argv");
+        if (argv != null && argv.isArray() && !argv.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode a : argv) sb.append(sb.isEmpty() ? "" : " ").append(a.asString());
+            return sb.toString();
+        }
+        return Json.text(request, "action", "");
     }
 
     @Override
@@ -76,12 +149,66 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         String reason = Json.text(proposal, "reason", "").toLowerCase();
         // G-21: only the reason text distinguishes the kinds; the conservative default is a contract amendment.
         String kind = reason.startsWith("plan proposal") ? "plan_acceptance" : reason.equals("knowledge admission") ? "kb_admission" : "amendment";
+        HostPolicy policy = policyOf.apply(workId);
+        if (policy != null) {
+            boolean weakening = proposal.path("weakening").asBoolean(false);
+            // A check the agent adds to its own plan only strengthens the task; knowledge stays queued. Neither is a card.
+            String outcome = kind.equals("kb_admission") ? "Pending"
+                : kind.equals("plan_acceptance") ? (weakening ? "Rejected" : "Accepted")
+                : policy.auto() ? (weakening ? "Rejected" : "Accepted")
+                : null;
+            if (outcome != null) {
+                ObjectNode resolution = Json.obj();
+                resolution.put("proposalId", Json.text(proposal, "id"));
+                resolution.put("contractRevision", proposal.path("contractRevision").asInt());
+                resolution.put("outcome", outcome);
+                resolution.put("byAuthority", "policy:studio");
+                resolution.put("reason", weakening ? "a change that makes the task easier to pass needs the user" : "host policy");
+                return byPolicy(kind, workId, proposalJson, resolution, outcome.toLowerCase());
+            }
+        }
         return raise(kind, workId, proposalJson);
     }
 
     @Override
     public CompletableFuture<String> review(String workId, String requestJson) {
+        if (policyOf.apply(workId) != null) {
+            return reviewer.review(workId, Json.parse(requestJson)).exceptionally(e -> {
+                log.warn("review pass for {} failed: {}", workId, e.toString());
+                return null;
+            });
+        }
         return raise("review", workId, requestJson);
+    }
+
+    /** A reply the host policy gave: recorded like a decision and shown in the task as a policy line. */
+    private CompletableFuture<String> byPolicy(String kind, String workId, String requestJson, ObjectNode reply, String verdict) {
+        String id = "p-" + UUID.randomUUID().toString().substring(0, 8);
+        JsonNode request = Json.parse(requestJson);
+        Integer revision = request.hasNonNull("contractRevision") ? request.get("contractRevision").asInt() : null;
+        String cell = request.has("ids") ? Json.text(request.get("ids"), "context") : null;
+        jdbc.update("INSERT INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, reply_json, by_authority, reason, created_at, answered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            id, kind, projectOf.apply(workId), workId, cell, revision, requestJson, "policy", Json.write(reply), "policy:studio", verdict, Json.now(), Json.now());
+        ObjectNode dto = get(id);
+        campaignItems.accept(workId, studioItem("studio.policy_decision", dto));
+        return CompletableFuture.completedFuture(Json.write(reply));
+    }
+
+    /** Actions the policy skipped in auto mode because they needed the user (§7.5 "Skipped, needed your approval"). */
+    public ArrayNode skipped(String workId) {
+        ArrayNode a = Json.arr();
+        jdbc.query("SELECT * FROM decision WHERE work_id = ? AND status = 'policy' AND reason = 'skipped' ORDER BY created_at", rs -> { a.add(row(rs)); }, workId);
+        return a;
+    }
+
+    /** Records the review pass of the host as a policy line of the task. */
+    public void recordReview(String workId, JsonNode request, JsonNode verdict) {
+        String id = "p-" + UUID.randomUUID().toString().substring(0, 8);
+        String outcome = verdict == null ? "unavailable" : Json.text(verdict, "outcome", "unavailable").toLowerCase();
+        jdbc.update("INSERT INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, reply_json, by_authority, reason, created_at, answered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            id, "review", projectOf.apply(workId), workId, null, request.path("contractRevision").asInt(), Json.write(request), "policy",
+            verdict == null ? null : Json.write(verdict), "policy:studio", outcome, Json.now(), Json.now());
+        campaignItems.accept(workId, studioItem("studio.policy_decision", get(id)));
     }
 
     private CompletableFuture<String> raise(String kind, String workId, String requestJson) {
@@ -98,6 +225,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         ObjectNode dto = get(id);
         broker.publishApp("decision.requested", dto);
         campaignItems.accept(workId, studioItem("studio.decision_requested", dto));
+        waitingChanged.accept(workId);
         log.info("decision {} ({}) raised for {}", id, kind, workId);
         return future;
     }
@@ -235,6 +363,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         ObjectNode dto = get(decisionId);
         broker.publishApp("decision.resolved", dto);
         campaignItems.accept(p.workId(), studioItem("studio.decision_resolved", dto));
+        waitingChanged.accept(p.workId());
         // Never complete the harness future on the bus dispatcher (R-BE-03): this runs on a command thread.
         p.future().complete(payload == null ? null : Json.write(payload));
         return dto;
@@ -248,6 +377,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         broker.publishApp("decision.resolved", dto);
         if (p != null) {
             campaignItems.accept(p.workId(), studioItem("studio.decision_resolved", dto));
+            waitingChanged.accept(p.workId());
             // The harness asked under an older revision: an honest "no answer" (blocked / denied / pending).
             String kind = p.kind();
             JsonNode request = dto.get("request");
@@ -270,6 +400,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
             ObjectNode dto = get(p.id());
             broker.publishApp("decision.resolved", dto);
             campaignItems.accept(workId, studioItem("studio.decision_resolved", dto));
+            waitingChanged.accept(workId);
             p.future().cancel(false);
         }
     }
@@ -325,6 +456,63 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return o;
     }
 
+    /** A pending question, approval or suggestion as the UI shows it (§7.5). */
+    public static ObjectNode cardOf(JsonNode decision) {
+        ObjectNode o = Json.obj();
+        JsonNode request = decision.path("request");
+        String kind = Json.text(decision, "kind", "");
+        o.put("id", Json.text(decision, "id"));
+        o.put("workId", Json.text(decision, "workId"));
+        o.put("createdAt", Json.text(decision, "createdAt"));
+        o.put("status", Json.text(decision, "status"));
+        switch (kind) {
+            case "question" -> {
+                o.put("kind", "question");
+                o.put("text", Json.text(request, "text"));
+                ArrayNode options = o.putArray("options");
+                for (JsonNode op : Json.each(request.get("options"))) options.add(op.asString());
+            }
+            case "effect", "publication" -> {
+                o.put("kind", "approval");
+                String command = commandOf(request);
+                o.put("command", command);
+                String effect = Json.text(request, "expectedEffect", "");
+                o.put("effect", effectOf(effect + " " + Json.text(request, "action", "")));
+                o.put("why", Json.text(request, "reason", ""));
+                o.put("detail", effect);
+                o.put("pattern", patternOf(request));
+            }
+            default -> {
+                o.put("kind", "suggestion");
+                o.put("text", Json.text(request, "change"));
+                o.put("why", Json.text(request, "reason", ""));
+                o.put("relaxes", request.path("weakening").asBoolean(false));
+            }
+        }
+        return o;
+    }
+
+    /** The effect of a risky action as a catalog key (§7.5 table). */
+    public static String effectOf(String text) {
+        String t = text.toLowerCase(java.util.Locale.ROOT);
+        if (t.contains("package installation")) return "install";
+        if (t.contains("git refs") || t.contains("git-refs") || t.contains("git ref")) return "git";
+        if (t.contains("outside the workspace")) return "outside";
+        if (t.contains("protected path")) return "protected";
+        if (t.contains("destructive delete")) return "delete";
+        if (t.contains("network")) return "network";
+        return "other";
+    }
+
+    /** What "Always allow in this project" stores: the program and its sub-command, without arguments. */
+    public static String patternOf(JsonNode request) {
+        List<String> argv = new java.util.ArrayList<>();
+        for (JsonNode a : Json.each(request.get("argv"))) argv.add(a.asString());
+        if (argv.isEmpty()) return Json.text(request, "action", "");
+        if (argv.size() > 1 && !argv.get(1).startsWith("-") && argv.get(1).matches("[A-Za-z][A-Za-z0-9:_-]*")) return argv.get(0) + " " + argv.get(1);
+        return argv.get(0);
+    }
+
     private static ObjectNode studioItem(String kind, ObjectNode decision) {
         ObjectNode item = Json.obj();
         item.put("at", Json.now());
@@ -336,7 +524,9 @@ public class DecisionService implements AuthorityPort, PolicyListener {
             ids.put("context", Json.text(decision, "cellId"));
             item.put("cell", Json.text(decision, "cellId"));
         }
-        item.set("data", decision);
+        ObjectNode data = decision.deepCopy();
+        data.set("card", cardOf(decision));
+        item.set("data", data);
         return item;
     }
 }

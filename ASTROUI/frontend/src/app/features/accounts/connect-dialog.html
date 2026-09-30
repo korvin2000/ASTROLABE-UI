@@ -1,0 +1,137 @@
+<as-dialog [label]="'connect.title' | t" (closed)="close()">
+  @switch (view()) {
+    @case ('list') {
+      <h3>{{ 'connect.title' | t }}</h3>
+      <p>{{ 'connect.choose' | t }}</p>
+      <div class="presets">
+        @for (p of presets(); track p.provider) {
+          <button class="preset" (click)="choose(p)">
+            <b>{{ p.provider === 'custom' ? ('connect.custom' | t) : p.name }}</b>
+            <small>{{ ('connect.how.' + (has(p, 'signin') && has(p, 'key') ? 'signin_or_key' : has(p, 'signin') ? 'signin' : has(p, 'local') ? 'local' : has(p, 'custom') ? 'custom' : 'key')) | t }}</small>
+          </button>
+        }
+      </div>
+      @if (failure(); as f) { <as-error-line [error]="f" /> }
+      <div class="actions"><button class="btn ghost" (click)="close()">{{ 'action.cancel' | t }}</button></div>
+    }
+
+    @case ('local') {
+      <h3>{{ 'connect.local_title' | t }}</h3>
+      <p>{{ 'connect.local_choose' | t }}</p>
+      <div class="presets one">
+        @for (p of locals(); track p.provider) {
+          <button class="preset" [disabled]="busy()" (click)="tryLocal(p)"><b>{{ p.name }}</b><small class="mono">{{ p.baseUrl }}</small></button>
+        }
+        <button class="preset" (click)="custom_()"><b>{{ 'connect.local_other' | t }}</b><small>{{ 'connect.how.custom' | t }}</small></button>
+      </div>
+      @if (failure(); as f) { <as-error-line [error]="f" /> }
+      <div class="actions"><button class="btn ghost" (click)="close()">{{ 'action.cancel' | t }}</button></div>
+    }
+
+    @case ('form') {
+      @if (chosen(); as p) {
+        <h3>{{ p.provider === 'custom' ? ('connect.custom' | t) : ('connect.connect_to' | t: { name: p.name }) }}</h3>
+
+        @if (has(p, 'signin')) {
+          @if (p.provider === 'openai-codex') { <p>{{ 'connect.chatgpt_note' | t }}</p> }
+          <div class="row block">
+            <button class="btn pri" [disabled]="busy()" (click)="signIn('browser')">
+              @if (busy()) { <span class="spin sm"></span> }
+              {{ 'connect.sign_in_browser' | t }}
+            </button>
+            @if (p.code) { <button class="btn" [disabled]="busy()" (click)="signIn('code')">{{ 'connect.use_code' | t }}</button> }
+          </div>
+        }
+
+        @if (has(p, 'key')) {
+          @if (has(p, 'signin')) { <div class="or"><span>{{ 'connect.or_key' | t }}</span></div> }
+          <form (ngSubmit)="withKey()">
+            <label class="field">
+              <span>{{ 'connect.api_key' | t }}
+                @if (p.keyUrl) { · <a [href]="p.keyUrl" target="_blank" rel="noopener noreferrer">{{ 'connect.get_key' | t }}</a> }
+              </span>
+              <input class="input mono" type="password" name="apiKey" [(ngModel)]="apiKey" autocomplete="off" spellcheck="false" [attr.autofocus]="has(p, 'signin') ? null : ''">
+            </label>
+            <p class="small">{{ 'connect.key_note' | t }}</p>
+            <button class="btn" [class.pri]="!has(p, 'signin')" type="submit" [disabled]="busy() || !apiKey.trim()">
+              @if (busy()) { <span class="spin sm"></span> }
+              {{ 'action.connect' | t }}
+            </button>
+          </form>
+        }
+
+        @if (has(p, 'local')) {
+          <p>{{ 'connect.local_note' | t: { name: p.name, address: p.baseUrl } }}</p>
+          <button class="btn pri" [disabled]="busy()" (click)="tryLocal()">
+            @if (busy()) { <span class="spin sm"></span> }
+            {{ 'action.connect' | t }}
+          </button>
+        }
+
+        @if (has(p, 'custom')) {
+          <form (ngSubmit)="custom()">
+            <label class="field"><span>{{ 'connect.custom_name' | t }}</span><input class="input" name="name" [(ngModel)]="name" autofocus></label>
+            <label class="field"><span>{{ 'connect.custom_address' | t }}</span><input class="input mono" name="baseUrl" [(ngModel)]="baseUrl" placeholder="http://127.0.0.1:8000/v1" spellcheck="false"></label>
+            <label class="field"><span>{{ 'connect.custom_key' | t }}</span><input class="input mono" type="password" name="apiKey" [(ngModel)]="apiKey" autocomplete="off"></label>
+            <label class="field"><span>{{ 'connect.custom_model' | t }}</span><input class="input mono" name="model" [(ngModel)]="model" spellcheck="false"></label>
+            <button class="btn pri" type="submit" [disabled]="busy() || !name.trim() || !baseUrl.trim()">
+              @if (busy()) { <span class="spin sm"></span> }
+              {{ 'action.connect' | t }}
+            </button>
+          </form>
+        }
+
+        @if (failure(); as f) {
+          <as-error-line [error]="f" />
+          @if (f.code === 'login_port_busy' && p.code) { <button class="btn sm fix" (click)="signIn('code')">{{ 'connect.use_code' | t }}</button> }
+        }
+        <div class="actions">
+          <button class="btn ghost" (click)="back()">{{ (provider() ? 'action.cancel' : 'action.back') | t }}</button>
+        </div>
+      }
+    }
+
+    @case ('signin') {
+      @if (session(); as s) {
+        <h3>{{ 'connect.connect_to' | t: { name: s.name } }}</h3>
+        @switch (s.state) {
+          @case ('starting') { <div class="row wait"><span class="spin"></span><span>{{ 'signin.starting' | t }}</span></div> }
+          @case ('waiting_for_browser') {
+            <p>{{ 'signin.browser' | t }}</p>
+            <div class="row wait"><span class="spin"></span><span>{{ 'signin.waiting' | t }}</span></div>
+            <div class="row">
+              <button class="lnk" (click)="openAgain()">{{ 'signin.open_again' | t }}</button>
+              <span class="faint">·</span>
+              <button class="lnk" (click)="copy(s.url)">{{ (copied() ? 'action.copied' : 'signin.copy_link') | t }}</button>
+            </div>
+          }
+          @case ('waiting_for_code') {
+            @if (s.fallback === 'login_port_busy') { <p class="warn">{{ 'error.login_port_busy' | t }}</p> }
+            <p>{{ 'signin.code' | t }}</p>
+            <div class="code" aria-live="polite">{{ s.userCode }}</div>
+            <div class="row">
+              <button class="btn sm" (click)="copy(s.userCode)">{{ (copied() ? 'action.copied' : 'action.copy') | t }}</button>
+              <a class="btn sm" [href]="s.verificationUri" target="_blank" rel="noopener noreferrer">{{ 'signin.open_page' | t }}</a>
+              <span class="muted small">{{ 'signin.time_left' | t: { time: clock(secondsLeft()) } }}</span>
+            </div>
+            <p class="small addr mono">{{ s.verificationUri }}</p>
+          }
+          @case ('finishing') { <div class="row wait"><span class="spin"></span><span>{{ 'signin.finishing' | t }}</span></div> }
+          @case ('connected') { <div class="row wait"><span class="ok">✓</span><span>{{ 'signin.connected' | t: { name: s.name } }}</span></div> }
+        }
+        @if (s.provider === 'openai-codex' && !terminal(s)) { <p class="small note">{{ 'connect.chatgpt_note' | t }}</p> }
+        @if (failure(); as f) {
+          <as-error-line [error]="f" />
+          <div class="row fix">
+            <button class="btn sm pri" (click)="signIn(f.code === 'login_port_busy' ? 'code' : s.method)">{{ (f.code === 'login_port_busy' ? 'connect.use_code' : 'action.try_again') | t }}</button>
+            @if (f.code === 'login_failed' && chosen()?.code && s.method !== 'code') { <button class="btn sm" (click)="signIn('code')">{{ 'connect.use_code' | t }}</button> }
+          </div>
+        }
+        <div class="actions">
+          @if (s.state === 'waiting_for_browser' && chosen()?.code) { <button class="btn" (click)="signIn('code')">{{ 'connect.use_code' | t }}</button> }
+          <button class="btn ghost" (click)="cancel()">{{ 'action.cancel' | t }}</button>
+        </div>
+      }
+    }
+  }
+</as-dialog>

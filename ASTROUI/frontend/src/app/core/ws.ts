@@ -4,7 +4,10 @@ import { AppItem, StudioItem } from './model';
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'offline';
 
-type Handler = (item: any, replay: boolean) => void;
+type Handler = (item: StudioItem | AppItem, replay: boolean) => void;
+
+/** A command without a terminal result after this long is reported as failed; it is never sent again by itself. */
+export const COMMAND_TIMEOUT_MS = 30_000;
 
 interface Topic {
   handlers: Set<Handler>;
@@ -12,7 +15,7 @@ interface Topic {
   subscribed: boolean;
 }
 
-interface PendingCommand { resolve: (v: any) => void; reject: (e: unknown) => void; }
+interface PendingCommand { resolve: (v: any) => void; reject: (e: unknown) => void; timer: ReturnType<typeof setTimeout>; }
 
 /**
  * ASTRO-WS/1 client (§27): one socket per tab, `hello` with resume cursors, per-topic de-duplication by `seq`
@@ -34,6 +37,9 @@ export class StudioSocket {
   readonly state = signal<ConnectionState>('connecting');
   readonly epoch = signal<string | null>(null);
   readonly lastSync = signal<number>(Date.now());
+  /** Counts the times the connection came back; what was loaded before may be out of date then. */
+  readonly reconnects = signal(0);
+  private wasOpen = false;
 
   connect(): void {
     this.stopped = false;
@@ -57,6 +63,8 @@ export class StudioSocket {
       this.send({ v: 1, t: 'hello', data: { clientId: 'web', protocols: [1], resume } });
       this.state.set('open');
       this.lastSync.set(Date.now());
+      if (this.wasOpen) this.reconnects.update(n => n + 1);
+      this.wasOpen = true;
       this.startHeartbeat();
     };
     ws.onmessage = (ev) => {
@@ -73,6 +81,9 @@ export class StudioSocket {
     this.stopHeartbeat();
     this.socket = null;
     this.topics.forEach(t => (t.subscribed = false));
+    // A command whose answer can no longer arrive is rejected, so no caller waits forever.
+    this.pending.forEach(p => { clearTimeout(p.timer); p.reject(new StudioError(0, { code: 'connection_lost', message: 'The connection closed before the command was answered.' })); });
+    this.pending.clear();
     if (this.stopped) return;
     this.state.set(this.state() === 'connecting' ? 'offline' : 'reconnecting');
     const delay = Math.min(15000, this.backoff) * (0.7 + Math.random() * 0.6);
@@ -131,17 +142,17 @@ export class StudioSocket {
         const p = this.pending.get(f.id);
         if (!p) return;
         const d = f.data ?? {};
-        if (d.status === 'succeeded') { this.pending.delete(f.id); p.resolve(d.result); }
-        else if (d.status === 'rejected' || d.status === 'unknown') { this.pending.delete(f.id); p.reject(new StudioError(409, d.error ?? { code: d.status, message: 'command ' + d.status })); }
+        if (d.status === 'succeeded') { this.settle(f.id); p.resolve(d.result); }
+        else if (d.status === 'rejected' || d.status === 'unknown') { this.settle(f.id); p.reject(new StudioError(409, d.error ?? { code: d.status, message: 'command ' + d.status })); }
         break;
       }
       case 'err': {
         const p = f.id ? this.pending.get(f.id) : undefined;
-        if (p) { this.pending.delete(f.id); p.reject(new StudioError(400, f.data)); }
+        if (p) { this.settle(f.id); p.reject(new StudioError(400, f.data)); }
         break;
       }
       case 'resync':
-        this.topics.get(f.topic)?.handlers.forEach(h => h({ kind: 'studio.resync', data: f.data, source: 'studio', at: new Date().toISOString(), ids: {} }, false));
+        this.topics.get(f.topic)?.handlers.forEach(h => h({ kind: 'studio.resync', data: f.data, source: 'studio', at: new Date().toISOString(), ids: { work: '' } }, false));
         break;
     }
   }
@@ -171,6 +182,12 @@ export class StudioSocket {
 
   cursor(topic: string): number { return this.topics.get(topic)?.cursor ?? 0; }
 
+  private settle(id: string): void {
+    const p = this.pending.get(id);
+    if (p) clearTimeout(p.timer);
+    this.pending.delete(id);
+  }
+
   /**
    * A command (§27.5) over the socket when open, else over REST with the same idempotency key; the promise settles on
    * the terminal status. Never re-sent automatically after an uncertain outcome.
@@ -180,9 +197,13 @@ export class StudioSocket {
     const frame = { v: 1, t: 'cmd', id, name, target, expected, confirm, args };
     if (this.state() === 'open' && this.socket?.readyState === WebSocket.OPEN) {
       return new Promise<T>((resolve, reject) => {
-        this.pending.set(id, { resolve, reject });
-        if (!this.send(frame)) {
+        const timer = setTimeout(() => {
           this.pending.delete(id);
+          reject(new StudioError(0, { code: 'command_timeout', message: 'The command was not answered in time.' }));
+        }, COMMAND_TIMEOUT_MS);
+        this.pending.set(id, { resolve, reject, timer });
+        if (!this.send(frame)) {
+          this.settle(id);
           this.api.command<T>(name, args, target, expected, confirm, id).then(resolve, reject);
         }
       });

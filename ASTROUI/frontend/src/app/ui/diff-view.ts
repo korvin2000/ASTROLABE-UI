@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { TPipe } from '../i18n/i18n';
 
 interface DiffLine { t: ' ' | '+' | '-' | '@' | 'h'; text: string; old: number | null; neu: number | null; words?: { text: string; mark: boolean }[]; }
 interface DiffFile { path: string; lines: DiffLine[]; binary: boolean; added: number; removed: number; }
@@ -61,12 +62,13 @@ function wordDiff(a: string, b: string): [{ text: string; mark: boolean }[], { t
 /** Read-only unified diff viewer (§10.2): gutters with `+`/`−` (colour is never the only carrier), word-level marks. */
 @Component({
   selector: 'as-diff-view',
+  imports: [TPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @for (f of files(); track f.path) {
       <div class="file">
         @if (showHeader()) { <div class="fhead"><span class="mono">{{ f.path }}</span><span class="grow"></span><span class="mono ok">+{{ f.added }}</span><span class="mono bad">−{{ f.removed }}</span></div> }
-        @if (f.binary) { <div class="dim pad">Binary file — metadata only.</div> }
+        @if (f.binary) { <div class="dim pad">{{ 'changes.binary_file' | t }}</div> }
         <div class="lines">
           @for (l of f.lines; track $index) {
             <div class="l" [class.add]="l.t === '+'" [class.del]="l.t === '-'" [class.hunk]="l.t === '@'">
@@ -77,7 +79,7 @@ function wordDiff(a: string, b: string): [{ text: string; mark: boolean }[], { t
           }
         </div>
       </div>
-    } @empty { <div class="dim pad">No textual changes between these snapshots.</div> }`,
+    } @empty { <div class="dim pad">{{ 'changes.no_text' | t }}</div> }`,
   styles: [`
     :host{display:block;font-family:var(--font-mono);font-size:12.5px;line-height:19px}
     .file{border:1px solid var(--border-subtle);border-radius:6px;overflow:hidden;margin-bottom:10px;background:var(--code-bg)}

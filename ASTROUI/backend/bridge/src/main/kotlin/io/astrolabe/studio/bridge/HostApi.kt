@@ -27,6 +27,13 @@ public data class StartSpec @JvmOverloads constructor(
     val leaseMinutes: Long = 480,
     val effort: String = "Medium",
     val maxOutputTokens: Int? = null,
+    /** Studio 2 §7.3: supply acceptance when the core refuses to open for lack of it. */
+    val verificationSetup: Boolean = false,
+    val savedChecks: SavedChecks = SavedChecks(),
+    /** Studio 2 §7.5: every authority call goes to the host, in both modes; the host applies the mode's policy. */
+    val hostAuthority: Boolean = false,
+    /** Studio 2 §9 setting 9: the project's protected files when they differ from the default; null keeps the contract's. */
+    val protectedPaths: List<String>? = null,
 )
 
 /** A campaign the bridge opened (or reopened) and started. */
@@ -40,6 +47,8 @@ public data class CampaignRef(
     val reconciliationJson: String,
     /** Why the campaign cannot run (`OpenedCampaign.stop`), or null. */
     val stopReason: String?,
+    /** How the result is verified (Studio 2 §7.3); null when the bridge could not tell. */
+    val verification: VerificationSetup? = null,
 )
 
 /** Called once when a campaign's run returns, fails, or its job is cancelled (host shutdown). */

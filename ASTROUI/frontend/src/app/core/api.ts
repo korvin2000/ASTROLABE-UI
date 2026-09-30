@@ -1,12 +1,19 @@
 import { Injectable } from '@angular/core';
-import { ApiError } from './model';
+import { ApiError, ErrorInfo } from './model';
 
-/** An error answered by the Studio (problem+json with the fields of §27.9). */
+/** An error answered by the Studio: a code of the catalog, parameters for its sentence and the raw reason. */
 export class StudioError extends Error {
   constructor(public readonly status: number, public readonly error: ApiError) {
     super(error.message);
   }
   get code(): string { return this.error.code; }
+  get info(): ErrorInfo { return { code: this.error.code, params: this.error.params ?? {}, detail: this.error.detail ?? this.error.message, retryable: this.error.retryable }; }
+}
+
+/** The error of any failure as the message catalog needs it; an unknown failure is `agent_error` with its text. */
+export function errorInfo(e: unknown): ErrorInfo {
+  if (e instanceof StudioError) return e.info;
+  return { code: 'agent_error', params: {}, detail: e instanceof Error ? e.message : String(e) };
 }
 
 function cookie(name: string): string | null {
@@ -63,7 +70,7 @@ export class Api {
     try {
       res = await fetch(this.base + path, { method, headers, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body) });
     } catch (e) {
-      throw new StudioError(0, { code: 'unavailable', message: 'The Studio backend is not reachable.' });
+      throw new StudioError(0, { code: 'connection_lost', message: 'The backend is not reachable.' });
     }
     if (!res.ok) throw await this.error(res);
     const text = await res.text();
@@ -83,6 +90,7 @@ export class Api {
   /** `POST /commands` fallback (the same dispatcher as WebSocket `cmd`). */
   async command<T = any>(name: string, args: unknown, target: Record<string, unknown> = {}, expected: Record<string, unknown> = {}, confirm = false, id = commandId()): Promise<T> {
     const res = await this.post<{ status: string; result: T }>('/commands', { v: 1, t: 'cmd', id, name, target, expected, confirm, args });
+    if (res.status !== 'succeeded') throw new StudioError(409, { code: res.status || 'agent_error', message: 'command ' + res.status });
     return res.result;
   }
 }

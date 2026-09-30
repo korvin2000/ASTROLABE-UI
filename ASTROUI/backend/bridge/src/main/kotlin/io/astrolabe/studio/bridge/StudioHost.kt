@@ -230,6 +230,12 @@ public class StudioHost @JvmOverloads public constructor(
         return launch(p, WorkId(workId), text, spec.copy(requestText = text), config, llm, authority, policyListener, autonomousPolicy, listener)
     }
 
+    /** What the agent is told about the protected files of the project: the core refuses to edit them and asks before a command touches them. */
+    private fun protectedRule(paths: List<String>): String =
+        if (paths.isEmpty()) "Project rule: no file of this project is protected."
+        else "Project rule: these files are protected: ${paths.joinToString(", ")}. They cannot be edited; a command that touches them needs the user's approval. " +
+            "If the task needs a change there, say which change and stop."
+
     private fun launch(
         p: OpenProject,
         work: WorkId,
@@ -253,18 +259,39 @@ public class StudioHost @JvmOverloads public constructor(
             )
             val cost = if (spec.costCurrency != null && spec.costAmount != null) Money(spec.costCurrency, BigDecimal(spec.costAmount)) else null
             val policy = CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected)
-            val opened = controller.open(p.project, CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text), policy)
+            val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text)
+            var opened = controller.open(p.project, request, policy)
+            var verification: VerificationSetup? = null
+            if (spec.verificationSetup) {
+                // Studio 2 §7.3: the core refuses a plan with nothing executable to accept against; supply it and open again.
+                if (opened.state == null) {
+                    val setup = Verification.choose(opened.sniffed, spec.savedChecks)
+                    val told = Guidance.told(opened.contract.requests.map { it.text })
+                    opened.contracts.amendByUser(work, Verification.text(setup) + if (told) "" else " " + Guidance.NOTES) { Verification.apply(it, setup) }
+                    opened = controller.open(p.project, request, policy)
+                    verification = setup
+                } else {
+                    verification = verificationOf(opened, spec.savedChecks)
+                    if (opened.contract.version == 1 && !Guidance.told(opened.contract.requests.map { it.text })) {
+                        opened.contracts.amendByUser(work, Guidance.NOTES)
+                        opened = controller.open(p.project, request, policy)
+                    }
+                }
+            }
+            val protectedPaths = spec.protectedPaths
+            if (protectedPaths != null && opened.contract.version == 1 && opened.contract.scope.protectedPaths.toSet() != protectedPaths.toSet()) {
+                opened.contracts.amendByUser(work, protectedRule(protectedPaths)) { c ->
+                    c.copy(scope = io.astrolabe.contract.Scope(c.scope.writePaths, protectedPaths))
+                }
+            }
             // The frozen attempt configuration is the truth for this attempt (invariant 12); its main profile is read live.
             val frozen = opened.attempt.config
             val main = config.profiles[frozen.profileRoles.main] ?: frozen.profiles[frozen.profileRoles.main]
                 ?: config.mainProfile ?: throw IllegalStateException("no profile '${frozen.profileRoles.main}' for the main routing function")
             val effort = runCatching { Effort.valueOf(spec.effort) }.getOrDefault(Effort.Medium)
-            val model = if (spec.maxOutputTokens != null) {
-                CellModel(adapter, main, estimators.estimatorFor(main), effort, spec.maxOutputTokens)
-            } else {
-                CellModel(adapter, main, estimators.estimatorFor(main), effort)
-            }
-            val authority: Authority = if (frozen.mode == Mode.Autonomous) {
+            val headroom = AutoProfiles.outputHeadroom(main.capabilities.contextLimitTokens, main.capabilities.outputLimitTokens, spec.maxOutputTokens)
+            val model = CellModel(adapter, main, estimators.estimatorFor(main), effort, headroom)
+            val authority: Authority = if (frozen.mode == Mode.Autonomous && !spec.hostAuthority) {
                 RecordingAutonomousAuthority(work.value, AutonomousPolicy(autonomous.acceptNonWeakening, autonomous.reviewer), policyListener)
             } else {
                 PortAuthority(work.value, port)
@@ -279,6 +306,7 @@ public class StudioHost @JvmOverloads public constructor(
                 fingerprint = opened.attempt.fingerprint.hex,
                 reconciliationJson = reconciliationJson(opened.reconciliation),
                 stopReason = opened.stop?.reason,
+                verification = verification,
             )
             campaign.job = scope.launch(CoroutineName("campaign-${work.value}")) {
                 var outcome: String? = null
@@ -315,6 +343,14 @@ public class StudioHost @JvmOverloads public constructor(
             runCatching { adapter.close() }
             throw failure
         }
+    }
+
+    /** How an opened contract is verified: by its declared or saved tests, or by a review pass. */
+    private fun verificationOf(opened: OpenedCampaign, saved: SavedChecks): VerificationSetup {
+        val runs = opened.contract.acceptance.filterIsInstance<io.astrolabe.contract.Acceptance.Run>().map { it.command.argv }
+        if (runs.isEmpty()) return VerificationSetup("review", "none", emptyList())
+        val declared = runs.any { it in opened.sniffed.packages.mapNotNull { p -> p.test } }
+        return VerificationSetup("tests", if (declared) "declared" else "saved", runs)
     }
 
     private fun reconciliationJson(r: Reconciliation): String = json.encodeToString(JsonObject.serializer(), buildJsonObject {
@@ -390,6 +426,33 @@ public class StudioHost @JvmOverloads public constructor(
         if (c.running) return
         live.remove(workId)
         runCatching { c.adapter.close() }
+    }
+
+    /**
+     * Lock recovery (Studio 2 BE-10, finding F-1): a lease names its holder `controller:<pid>`, so after a restart the
+     * workspace stays leased to a process that is gone. This backend holds the project lock, so no other controller can
+     * own the store: a live lease of another holder is stale. It is ended through the core's own `Leases.acquire`, in
+     * the old holder's name with no duration; the next open then takes the workspace under a new generation.
+     * Returns the holders released.
+     */
+    public fun releaseStaleLeases(projectId: String): List<String> {
+        val p = project(projectId)
+        if (runningWork(projectId) != null) return emptyList()
+        val self = "controller:${p.project.store.holder.pid}"
+        val leases = io.astrolabe.campaign.Leases(p.project.store, clock)
+        val released = ArrayList<String>()
+        for (row in p.reads.leases()) {
+            val o = row.jsonObject
+            val holder = o["holder"]?.jsonPrimitive?.content ?: continue
+            val workspace = o["workspaceId"]?.jsonPrimitive?.content ?: continue
+            val lease = leases.current(io.astrolabe.id.WorkspaceId(workspace)) ?: continue
+            if (holder == self || !lease.validAt(clock.instant())) continue
+            val ids = io.astrolabe.id.Identities(WorkId(o["workId"]!!.jsonPrimitive.content), AttemptId(o["attemptId"]!!.jsonPrimitive.content))
+            leases.acquire(lease.workspace, ids, holder, Duration.ZERO)
+            released += holder
+            log.info("released the stale lease of {} held by {} (its process ended)", workspace, holder)
+        }
+        return released
     }
 
     /** Lease expiry of an attached campaign, for the countdown (§25.8 LeaseMonitor). */

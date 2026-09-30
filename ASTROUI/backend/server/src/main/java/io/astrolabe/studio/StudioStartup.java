@@ -28,8 +28,11 @@ public class StudioStartup {
     private final StudioProperties properties;
     private final Telemetry telemetry;
     private final TopicBroker broker;
+    private final io.astrolabe.studio.runtime.TransportService transport;
 
-    public StudioStartup(EventPipeline pipeline, ProjectService projects, CampaignService campaigns, StudioProperties properties, Telemetry telemetry, TopicBroker broker) {
+    public StudioStartup(EventPipeline pipeline, ProjectService projects, CampaignService campaigns, StudioProperties properties, Telemetry telemetry, TopicBroker broker,
+                         io.astrolabe.studio.runtime.TransportService transport) {
+        this.transport = transport;
         this.pipeline = pipeline;
         this.projects = projects;
         this.campaigns = campaigns;
@@ -43,7 +46,7 @@ public class StudioStartup {
     public void ready() {
         pipeline.start();
         telemetry.onChange(() -> broker.publishApp("activity.changed", Json.obj().put("inFlight", telemetry.inFlight().size())));
-        if (properties.fixtures()) {
+        if (transport.demoMode()) {
             try {
                 projects.ensureDemo();
             } catch (RuntimeException e) {

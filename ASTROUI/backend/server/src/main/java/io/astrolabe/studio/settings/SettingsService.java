@@ -6,7 +6,6 @@ import java.util.Map;
 
 import io.astrolabe.studio.bridge.ConfigCheck;
 import io.astrolabe.studio.bridge.ConfigSupport;
-import io.astrolabe.studio.bridge.fixture.FixtureBrain;
 import io.astrolabe.studio.live.TopicBroker;
 import io.astrolabe.studio.runtime.TransportService;
 import io.astrolabe.studio.support.ApiException;
@@ -43,15 +42,12 @@ public class SettingsService {
         ensureStudioLayer();
     }
 
-    /** First run: the Studio layer routes the main and helper functions to the demo profiles (fixture mode). */
+    /** First run: an empty Studio layer. The model of a task is bound when the task starts (Studio 2 BE-4, BE-9). */
     private void ensureStudioLayer() {
         Integer n = jdbc.queryForObject("SELECT count(*) FROM settings_layer WHERE scope = ?", Integer.class, STUDIO);
         if (n != null && n > 0) return;
         ObjectNode layer = Json.obj();
-        ObjectNode roles = layer.putObject("config").putObject("profileRoles");
-        roles.put("main", FixtureBrain.MAIN_PROFILE);
-        roles.put("helper", FixtureBrain.HELPER_PROFILE);
-        roles.putNull("escalation");
+        layer.putObject("config");
         layer.putObject("runtime");
         jdbc.update("INSERT INTO settings_layer (scope, revision, json, updated_at) VALUES (?, 1, ?, ?)", STUDIO, Json.write(layer), Json.now());
     }
@@ -101,6 +97,35 @@ public class SettingsService {
         for (Map.Entry<String, String> e : profiles.profilesJson().entrySet()) profileMap.set(e.getKey(), Json.parse(e.getValue()));
         config.set("profiles", profileMap);
         return Json.write(config);
+    }
+
+    /**
+     * The configuration of one task (Studio 2 §6.5): the layers, then [overrides], with exactly the profiles named in
+     * [profileIds]. Profiles of accounts that are not connected never reach the adapter.
+     */
+    public String taskConfigJson(String projectId, JsonNode overrides, java.util.Collection<String> profileIds) {
+        ObjectNode config = (ObjectNode) Json.parse(effectiveConfigJson(projectId, overrides));
+        ObjectNode all = (ObjectNode) config.get("profiles");
+        ObjectNode kept = Json.obj();
+        for (String id : profileIds) if (all.has(id)) kept.set(id, all.get(id));
+        config.set("profiles", kept);
+        return Json.write(config);
+    }
+
+    /** Merges [patch] into the runtime part of [scope] (project settings of Studio 2 §9); no revision is expected. */
+    public ObjectNode patchRuntime(String scope, ObjectNode patch, String actor) {
+        Layer current = layer(scope);
+        ObjectNode next = current.json().deepCopy();
+        JsonNode runtime = next.has("runtime") && next.get("runtime").isObject() ? next.get("runtime") : Json.obj();
+        next.set("runtime", Json.merge(runtime, patch));
+        if (!next.has("config")) next.putObject("config");
+        long revision = current.revision() + 1;
+        jdbc.update("INSERT INTO settings_layer (scope, revision, json, updated_at) VALUES (?,?,?,?) " +
+            "ON CONFLICT(scope) DO UPDATE SET revision = excluded.revision, json = excluded.json, updated_at = excluded.updated_at",
+            scope, revision, Json.write(next), Json.now());
+        jdbc.update("INSERT INTO audit (at, actor, action, target, details) VALUES (?,?,?,?,?)", Json.now(), actor, "settings.patch", scope, Json.write(patch));
+        broker.publishApp("settings.changed", Json.obj().put("scope", scope).put("revision", revision));
+        return (ObjectNode) next.get("runtime");
     }
 
     private JsonNode configPart(String scope, String candidateScope, ObjectNode candidate) {

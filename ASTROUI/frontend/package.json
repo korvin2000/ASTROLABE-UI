@@ -2,12 +2,13 @@
   "name": "astrolabe-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "ASTROLABE Studio — Angular workspace (spec ASTROLABE_UI_BEST_MIX.md, Part IV)",
+  "description": "ASTROLABE Studio — Angular workspace (spec ASTROLABE_UI_V2_SIMPLE.md)",
   "scripts": {
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "node e2e/a1.mjs"
   },
   "dependencies": {
     "@angular/common": "22.2.0",

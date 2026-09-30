@@ -1,0 +1,67 @@
+<div #canvas class="flow" [class.compact]="layout().compact" [class.idle]="!working()" role="group" [attr.aria-label]="'flow.label' | t">
+  <p class="sr-only" aria-live="polite">{{ alt() }}</p>
+
+  @for (n of nodes(); track n.id) {
+    <div [class]="'fnode ' + n.state" [class.think]="n.thinking" [class.enter]="entered()" [style]="n.style"
+      tabindex="0" role="button" [attr.aria-label]="n.label" [attr.aria-expanded]="popover() === n.id"
+      (click)="click(n.id)" (keydown)="key($event, n.id)" (mouseenter)="hover(n.id)" (mouseleave)="hover(null)" (focus)="hover(n.id)" (blur)="hover(null)">
+      <span class="fi">
+        <svg viewBox="0 0 18 18" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          @for (s of icons[n.id]; track $index) {
+            @switch (s.t) {
+              @case ('circle') { <circle [attr.cx]="s.cx" [attr.cy]="s.cy" [attr.r]="s.r" /> }
+              @case ('ellipse') { <ellipse [attr.cx]="s.cx" [attr.cy]="s.cy" [attr.rx]="s.rx" [attr.ry]="s.ry" /> }
+              @default { <path [attr.d]="s.d" /> }
+            }
+          }
+        </svg>
+      </span>
+      <b>{{ n.name }}</b>
+      @for (text of [n.subtitle]; track text) { <span class="fs">{{ text }}</span> }
+      <span class="fd">{{ n.detail }}</span>
+      <span class="fdots"><i></i><i></i><i></i><em class="fm">{{ n.mark }}</em></span>
+      @if (n.id === 'agent' && helpers().squares.length) {
+        <span class="fhelp" [attr.aria-label]="'flow.agent.helpers' | t: { n: helpers().squares.length + helpers().more }">
+          @for (h of helpers().squares; track $index) { <i></i> }
+          @if (helpers().more) { <small>+{{ helpers().more }}</small> }
+        </span>
+      }
+    </div>
+  }
+
+  <svg #svg aria-hidden="true" [attr.viewBox]="'0 0 ' + layout().width + ' ' + layout().height">
+    <defs>
+      @for (r of routes(); track r.id; let i = $index) {
+        <linearGradient [attr.id]="gradient(i)" gradientUnits="userSpaceOnUse" [attr.x1]="r.x1" [attr.y1]="r.y1" [attr.x2]="r.x2" [attr.y2]="r.y2">
+          <stop offset="0" [attr.stop-color]="colours[r.from]" /><stop offset="1" [attr.stop-color]="colours[r.to]" />
+        </linearGradient>
+      }
+    </defs>
+    @for (r of routes(); track r.id; let i = $index) {
+      <g class="fedge" [attr.data-line]="r.id" [style.--c]="colours[r.from]">
+        <path class="fe-base" [attr.d]="r.d" [attr.stroke]="'url(#' + gradient(i) + ') ' + colours[r.from]" />
+        <path class="fe-live" [attr.d]="r.d" [attr.stroke]="'url(#' + gradient(i) + ') ' + colours[r.from]" />
+        <path class="fe-dash" [attr.d]="r.d" />
+        <circle class="fring a" [attr.cx]="r.x1" [attr.cy]="r.y1" [attr.r]="layout().port" [attr.stroke]="colours[r.from]" />
+        <circle class="fring b" [attr.cx]="r.x2" [attr.cy]="r.y2" [attr.r]="layout().port" [attr.stroke]="colours[r.to]" />
+        <circle class="fport a" [attr.cx]="r.x1" [attr.cy]="r.y1" [attr.r]="layout().port" [attr.fill]="colours[r.from]" [style.--c]="colours[r.from]" />
+        <circle class="fport b" [attr.cx]="r.x2" [attr.cy]="r.y2" [attr.r]="layout().port" [attr.fill]="colours[r.to]" [style.--c]="colours[r.to]" />
+      </g>
+    }
+  </svg>
+
+  @for (n of nodes(); track n.id) {
+    @if (popover() === n.id && (n.activities.length || n.detail)) {
+      <div class="fpop" [style]="popStyle(n)" role="tooltip">
+        <b>{{ n.name }}</b>
+        @if (n.detail) { <div class="d">{{ n.detail }}</div> }
+        @if (n.id === 'agent' && plan().length > 1) {
+          <ol>
+            @for (s of plan(); track s.n) { <li [attr.data-s]="s.state">{{ s.text }}</li> }
+          </ol>
+        }
+        @for (a of n.activities; track $index) { <div class="a"><span>{{ a.text }}</span><time>{{ a.at }}</time></div> }
+      </div>
+    }
+  }
+</div>

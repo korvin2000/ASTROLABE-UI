@@ -1,93 +1,89 @@
-import { ChangeDetectionStrategy, Component, HostListener, inject, signal } from '@angular/core';
-import { Router, RouterOutlet } from '@angular/router';
-import { AppStore } from './state/app.store';
+import { ChangeDetectionStrategy, Component, HostListener, computed, effect, inject, signal } from '@angular/core';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { StudioSocket } from './core/ws';
 import { Sidebar } from './features/shell/sidebar';
-import { InspectorDrawer, Inspector } from './features/shell/inspector';
-import { Palette } from './features/shell/palette';
 import { Toasts } from './features/shell/toasts';
-import { AddProjectDialog } from './features/projects/add-project';
-import { Icon } from './ui/icon';
-import { Mark } from './ui/glyph';
+import { TPipe } from './i18n/i18n';
+import { AppStore } from './state/app.store';
 
-/** The shell (§4): one sidebar, one workspace, an inspector drawer on demand, overlays for palette and dialogs. */
+/** The shell (Studio 2 section 4): a sidebar, the conversation, a side panel on demand. No permanent secondary panels. */
 @Component({
   selector: 'as-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterOutlet, Sidebar, InspectorDrawer, Palette, Toasts, AddProjectDialog, Icon, Mark],
+  imports: [RouterOutlet, Sidebar, Toasts, TPipe],
   template: `
     @if (app.unauthorized()) {
       <div class="gate">
-        <as-mark [size]="44" />
-        <h1 class="h-page">ASTROLABE Studio</h1>
-        <p class="meta">No Studio session in this browser. Open the launch link the Studio printed when it started
-          (it is also written to <span class="mono">launch-url.txt</span> in the Studio data directory).</p>
+        <h1>ASTROLABE</h1>
+        <p class="muted">{{ 'gate.no_session' | t }}</p>
       </div>
     } @else if (app.fatal()) {
       <div class="gate">
-        <as-mark [size]="44" />
-        <h1 class="h-page">Studio backend unavailable</h1>
-        <p class="meta">{{ app.fatal() }}</p>
-        <button class="btn" (click)="reload()">Retry</button>
+        <h1>{{ 'gate.unavailable' | t }}</h1>
+        <p class="muted">{{ 'gate.unavailable_hint' | t }}</p>
+        <button class="btn pri" (click)="reload()">{{ 'action.retry' | t }}</button>
       </div>
-    } @else {
-      <div class="layout" [class.rail]="railed()">
-        <as-sidebar (palette)="paletteOpen.set(true)" (addProject)="addOpen.set(true)" />
+    } @else if (app.ready()) {
+      <div class="layout">
+        @if (showSidebar()) { <as-sidebar /> }
         <main class="main">
-          @if (socket.state() !== 'open' && app.ready()) {
-            <div class="conn banner warn" role="status">
-              <as-icon name="refresh" [size]="14" />
-              {{ socket.state() === 'offline' ? 'Offline — the Studio backend is not reachable.' : 'Reconnecting… live updates paused; views show their last synchronized state.' }}
+          @if (socket.state() !== 'open') {
+            <div class="banner" role="status"><span class="spin"></span>{{ 'error.connection_lost' | t }}</div>
+          }
+          @if (expired(); as account) {
+            <div class="banner warn" role="status">
+              {{ 'banner.session_expired' | t: { account: account.name } }}
+              <button class="lnk" (click)="signInAgain()">{{ 'action.sign_in_again' | t }}</button>
             </div>
           }
-          @if (app.ready()) { <router-outlet /> } @else { <div class="loading meta">Loading the workspace…</div> }
+          <router-outlet />
         </main>
       </div>
-      <as-inspector />
-      @if (paletteOpen()) { <as-palette (close)="paletteOpen.set(false)" /> }
-      @if (addOpen()) { <as-add-project (close)="addOpen.set(false)" /> }
       <as-toasts />
+    } @else {
+      <div class="gate"><span class="spin"></span></div>
     }`,
   styles: [`
-    :host{display:block;height:100vh}
-    .layout{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);height:100vh}
-    .main{position:relative;display:flex;flex-direction:column;min-width:0;min-height:0;height:100vh}
-    .conn{border-radius:0;border-left:0;border-right:0;border-top:0;flex:none}
-    .loading{padding:40px}
-    .gate{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;max-width:560px;margin:0 auto}
-    @media (max-width:1023px){.layout{grid-template-columns:minmax(0,1fr)} .layout as-sidebar{display:none}}
+    :host { display: block; height: 100vh; }
+    .layout { display: flex; height: 100vh; }
+    .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+    .banner { flex: none; display: flex; gap: 10px; align-items: center; padding: 7px 18px; background: var(--side); border-bottom: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+    .banner.warn { background: var(--warn-soft); color: var(--warn); }
+    .gate { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; padding: 24px; max-width: 520px; margin: 0 auto; }
+    .gate h1 { font-size: 22px; font-weight: 600; }
+    @media (max-width: 720px) { as-sidebar { display: none; } }
   `],
 })
 export class App {
   readonly app = inject(AppStore);
   readonly socket = inject(StudioSocket);
   private readonly router = inject(Router);
-  private readonly inspector = inject(Inspector);
-  readonly paletteOpen = signal(false);
-  readonly addOpen = signal(false);
-  readonly railed = signal(false);
+  private readonly url = signal('/');
+
+  readonly showSidebar = computed(() => !this.url().startsWith('/welcome'));
+  readonly expired = computed(() => this.app.accounts().find(a => a.state === 'expired') ?? null);
 
   constructor() {
-    this.app.init();
+    void this.app.init();
+    this.router.events.subscribe(e => { if (e instanceof NavigationEnd) this.url.set(e.urlAfterRedirects); });
+    // The tab title starts with the number of tasks that wait for the user (section 7.5).
+    effect(() => {
+      const n = this.app.needsYou().length;
+      document.title = (n > 0 ? `(${n}) ` : '') + 'ASTROLABE';
+    });
   }
 
   reload(): void { location.reload(); }
 
-  /** §20.2 keyboard map (never overriding browser refresh, tabs or text editing). */
+  signInAgain(): void { void this.router.navigate(['/settings', 'models'], { queryParams: { connect: this.expired()?.provider } }); }
+
+  /** Shortcuts of section 11; they never take a key from a text field, a browser refresh or a tab switch. */
   @HostListener('document:keydown', ['$event'])
   onKey(ev: KeyboardEvent): void {
     const mod = ev.ctrlKey || ev.metaKey;
-    const target = ev.target as HTMLElement | null;
-    const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
-    if (mod && ev.key.toLowerCase() === 'k') { ev.preventDefault(); this.paletteOpen.set(!this.paletteOpen()); return; }
-    if (mod && ev.key.toLowerCase() === 'i') { ev.preventDefault(); this.router.navigate(['/inbox']); return; }
-    if (mod && ev.key === '.') { ev.preventDefault(); this.router.navigate(['/activity']); return; }
-    if (ev.altKey && ev.key.toLowerCase() === 'n') { ev.preventDefault(); this.router.navigate(['/new']); return; }
-    if (ev.key === 'Escape') {
-      if (this.paletteOpen()) { this.paletteOpen.set(false); return; }
-      if (this.addOpen()) { this.addOpen.set(false); return; }
-      if (this.inspector.current()) { this.inspector.close(); return; }
+    if (mod && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === 'n') {
+      ev.preventDefault();
+      void this.router.navigate(['/new']);
     }
-    if (!typing && ev.key === '?' ) { this.paletteOpen.set(true); }
   }
 }

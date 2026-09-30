@@ -59,10 +59,13 @@ public class ProjectService {
 
     private StudioHost host() { return hosts.host(); }
 
+    /** Registered projects; the demo project is listed only in demo mode (Studio 2 BE-9). */
     public List<ProjectRow> rows() {
+        boolean demo = transport.demoMode();
         return jdbc.query("SELECT * FROM project WHERE archived = 0 ORDER BY pinned DESC, name", (rs, i) -> new ProjectRow(
             rs.getString("id"), rs.getString("path"), rs.getString("name"), rs.getInt("demo") != 0, rs.getString("state_root"),
-            rs.getString("added_at"), rs.getString("opened_at"), rs.getInt("pinned") != 0, rs.getInt("archived") != 0));
+            rs.getString("added_at"), rs.getString("opened_at"), rs.getInt("pinned") != 0, rs.getInt("archived") != 0))
+            .stream().filter(r -> demo || !r.demo()).toList();
     }
 
     public Optional<ProjectRow> row(String id) { return rows().stream().filter(r -> r.id().equals(id)).findFirst(); }

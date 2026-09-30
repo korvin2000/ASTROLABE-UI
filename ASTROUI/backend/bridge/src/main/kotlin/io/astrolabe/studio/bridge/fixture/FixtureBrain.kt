@@ -35,7 +35,7 @@ import java.util.function.Supplier
  * itself: the verifier decides. Labelled "Demo data" everywhere it appears.
  */
 public class FixtureBrain @JvmOverloads constructor(
-    /** Repository roots the script may resolve paths against (fixture repositories first). */
+    /** Repository roots the script may resolve paths against: the projects of the working demo runs, else every open project. */
     private val roots: Supplier<List<Path>>,
     /** Artificial think time per reply, so live views have something to show. */
     private val latencyMillis: Long = 900,
@@ -66,7 +66,9 @@ public class FixtureBrain @JvmOverloads constructor(
         val results = messages.filterIsInstance<ToolResultMessage>().flatMap { it.results() }.map { it.text() }
         val userText = messages.filterIsInstance<UserMessage>().joinToString("\n") { it.text() }
         if (System.getProperty("studio.fixture.debug") != null) println("BRAIN role=$role turn=$turn results=${results.map { it.take(600) }}")
-        val reply = when (role) {
+        val reply = if (system.startsWith(io.astrolabe.studio.bridge.Verification.REVIEW_MARKER)) {
+            Reply("""{"verdict":"approve","confidence":0.9,"summary":"The change does what was asked.","findings":[]}""", emptyList())
+        } else when (role) {
             "implementing", "writer", "repair" -> implementing(turn, results, userText + "\n" + system)
             "plan" -> Reply("The request is small and local; one increment covers it.", emptyList())
             "review" -> Reply("Reviewed the diff against the acceptance criteria; no findings.", emptyList())
@@ -105,7 +107,7 @@ public class FixtureBrain @JvmOverloads constructor(
                         """{"plan.add":{"text":"read pricing.py and the tests that pin it"}}""",
                         """{"plan.add":{"text":"check whether CI workflows under .github pin pricing"}}""",
                         """{"plan.add":{"text":"apply the discount as a percentage, clamp at zero, round as agreed","accept":"AC-1"}}""",
-                        """{"plan.add":{"text":"run the acceptance suite at the new stamp","accept":"AC-1"}}""",
+                        """{"plan.add":{"text":"run the tests","accept":"AC-1"}}""",
                         """{"plan.tick":{"n":1,"evidence":"op:1"}}""",
                         """{"plan.cursor":2}""",
                         """{"fact.add":{"kind":"h","text":"the tests do not pin rounding; the user decides"}}""",
@@ -116,7 +118,7 @@ public class FixtureBrain @JvmOverloads constructor(
             )
             1 -> Reply(
                 (if (answered != null) "Noted: ${if (rounding) "totals round to cents" else "totals keep full precision"}. " else "") +
-                    "Before editing I'll look at the history of the CI workflows under `.github`; that path is protected, so the harness asks you first.",
+                    "Before editing I'll look at the history of the CI workflows under `.github`; that path is protected, so I need your approval first.",
                 listOf(
                     "run" to """{"argv":["git","log","-1","--oneline","--","${".github"}"],"intent":"see whether CI workflows pin pricing before editing"}""",
                     state(
@@ -132,26 +134,77 @@ public class FixtureBrain @JvmOverloads constructor(
                         "Applying the discount as a percentage with a floor of zero" + (if (rounding) ", rounded to cents." else ", keeping full precision."),
                     listOf(
                         edit(PRICING_PATH, sha256(content), FixtureRepos.BUGGY_BODY, if (rounding) FixtureRepos.FIXED_BODY_ROUNDED else FixtureRepos.FIXED_BODY),
-                        state(step2, """{"plan.cursor":3}""", """{"next":"run the acceptance suite"}"""),
+                        state(step2, """{"plan.cursor":3}""", """{"next":"run the tests"}"""),
                     ),
                 ) else Reply(
-                    "The fix is already present in the workspace; moving to acceptance.",
-                    listOf(state(step2, """{"plan.cursor":3}""", """{"next":"run the acceptance suite"}""")),
+                    "The fix is already in place; moving on to the tests.",
+                    listOf(state(step2, """{"plan.cursor":3}""", """{"next":"run the tests"}""")),
                 )
             }
             3 -> Reply(
-                "Running the acceptance suite against the edited workspace.",
+                "Running the tests on the changed code.",
                 listOf(
                     verify("acceptance"),
                     state(
                         """{"plan.tick":{"n":3,"evidence":"op:1"},"if":"green(op:1)"}""",
                         """{"plan.tick":{"n":4,"evidence":"op:1"},"if":"green(op:1)"}""",
-                        """{"fact.add":{"kind":"v","text":"the acceptance suite passes at the edited stamp","evidence":"op:1"},"if":"green(op:1)"}""",
+                        """{"fact.add":{"kind":"v","text":"the tests pass with the change in place","evidence":"op:1"},"if":"green(op:1)"}""",
                         """{"next":"report completion"}""",
                     ),
                 ),
             )
-            else -> Reply("Acceptance is green at the current stamp; the rounding rule you chose is in place.", emptyList())
+            else -> Reply("The tests pass; the rounding rule you chose is in place.", emptyList())
+        }
+    }
+
+    /**
+     * The demo outside the demo repository: look around, write one file, check, report. The file is the one the
+     * request names (a follow-up names another), else `demo-note.md`; an existing file is left alone, and the
+     * script says so instead of trying to write it.
+     */
+    private fun anywhere(turn: Int, results: List<String>, context: String): Reply {
+        // The contract names the request as `R1: <text>  accept: …`; a follow-up carries a recap before the new words.
+        val request = context.substringAfter("R1: ", context).substringBefore("  accept:").substringAfterLast("[End of context]")
+            .lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+        val named = FILE_NAME.findAll(request).map { it.value.trim('`', '"', '\'', '.', ',') }
+            .firstOrNull { it.isNotEmpty() && !it.startsWith("/") && ".." !in it && ':' !in it }
+        val path = named ?: "demo-note.md"
+        val wrote = results.any { it.contains("tool=edit") && it.contains("status=ok") }
+        val refused = results.any { it.contains("tool=edit") && !it.contains("status=ok") }
+        val root = roots.get().singleOrNull()
+        val there = !wrote && !refused && root != null && Files.exists(root.resolve(path))
+        return when (turn) {
+            0 -> Reply(
+                "I'll look at the project first, then make the change.",
+                listOf(
+                    look("tree", "."),
+                    state(
+                        """{"plan.add":{"text":"look at the project"}}""",
+                        """{"plan.add":{"text":"write ${path.replace("\"", "")}"}}""",
+                        """{"plan.tick":{"n":1,"evidence":"op:1"}}""",
+                        """{"plan.cursor":2}""",
+                        """{"next":"write the file"}""",
+                    ),
+                ),
+            )
+            1 -> if (there) Reply(
+                "`$path` is there already, so I leave it as it is.",
+                listOf(state("""{"plan.cancel":{"n":2,"reason":"the file exists already"}}""", """{"next":"check the result"}""")),
+            ) else Reply(
+                "Writing `$path`.",
+                listOf(
+                    "edit" to """{"ops":[{"create":${quote(path)},"content":${quote("Hello from the ASTROLABE demo.\n\nRequest: $request\n")}}],"why":"write the file the request asks for"}""",
+                    state("""{"plan.tick":{"n":2,"evidence":"op:1"},"if":"applied(op:1)"}""", """{"next":"check the result"}"""),
+                ),
+            )
+            2 -> Reply("Checking the result.", listOf(verify("acceptance")))
+            else -> Reply(
+                (if (there) "`$path` exists already; I left it as it is."
+                else if (refused) "`$path` was not written: the project does not allow it."
+                else "`$path` is written.") +
+                    " This is the scripted demo model: it writes one small file and changes nothing else.",
+                emptyList(),
+            )
         }
     }
 
@@ -161,6 +214,9 @@ public class FixtureBrain @JvmOverloads constructor(
         val pricing = root?.resolve(PRICING_PATH)
         val content = pricing?.takeIf { Files.isRegularFile(it) }?.let { Files.readAllBytes(it) }
         val buggy = content != null && String(content, Charsets.UTF_8).replace("\r\n", "\n").contains(FixtureRepos.BUGGY_BODY)
+        // One root: the project of the run is known. Several: the demo-shop script runs only where the prompt shows its files.
+        val certain = roots.get().size == 1
+        if (content == null || (!certain && !context.contains("pricing.py"))) return anywhere(turn, results, context)
         if (context.contains("Ask me", ignoreCase = true) || context.contains("consult me", ignoreCase = true)) return interactive(turn, results, context, content, buggy)
         return when (turn) {
             0 -> Reply(
@@ -171,7 +227,7 @@ public class FixtureBrain @JvmOverloads constructor(
                     state(
                         """{"plan.add":{"text":"read pricing.py and the tests that pin it"}}""",
                         """{"plan.add":{"text":"apply the discount as a percentage and clamp at zero","accept":"AC-1"}}""",
-                        """{"plan.add":{"text":"run the acceptance suite at the new stamp","accept":"AC-1"}}""",
+                        """{"plan.add":{"text":"run the tests","accept":"AC-1"}}""",
                         """{"plan.tick":{"n":1,"evidence":"op:1"}}""",
                         """{"plan.cursor":2}""",
                         """{"fact.add":{"kind":"h","text":"apply_discount subtracts the raw percent instead of a percentage"}}""",
@@ -187,21 +243,21 @@ public class FixtureBrain @JvmOverloads constructor(
                     state(
                         """{"fact.add":{"kind":"v","text":"apply_discount returned total - percent before this edit","evidence":"op:1"}}""",
                         """{"decision.add":{"text":"compute total * (1 - percent / 100) and clamp at 0","because":"the tests pin percentage semantics and a non-negative total","rejected":"clamping inside cart_total only"}}""",
-                        """{"next":"run the acceptance suite"}""",
+                        """{"next":"run the tests"}""",
                     ),
                 ),
             ) else Reply(
-                "The percentage fix is already present in the workspace; moving straight to acceptance.",
-                listOf(state("""{"open.add":{"text":"was the fix applied by an earlier campaign?","needs":"acceptance evidence"}}""", """{"next":"run the acceptance suite"}""")),
+                "The percentage fix is already in place; moving straight to the tests.",
+                listOf(state("""{"open.add":{"text":"was the fix applied by an earlier task?","needs":"a test run"}}""", """{"next":"run the tests"}""")),
             )
             2 -> Reply(
-                "Running the acceptance suite against the edited workspace.",
+                "Running the tests on the changed code.",
                 listOf(
                     verify("acceptance"),
                     state(
                         """{"plan.tick":{"n":2,"evidence":"op:1"},"if":"green(op:1)"}""",
                         """{"plan.tick":{"n":3,"evidence":"op:1"},"if":"green(op:1)"}""",
-                        """{"fact.add":{"kind":"v","text":"the acceptance suite passes at the edited stamp","evidence":"op:1"},"if":"green(op:1)"}""",
+                        """{"fact.add":{"kind":"v","text":"the tests pass with the change in place","evidence":"op:1"},"if":"green(op:1)"}""",
                         """{"next":"report completion"}""",
                     ),
                 ),
@@ -209,8 +265,8 @@ public class FixtureBrain @JvmOverloads constructor(
             else -> {
                 val red = results.any { it.contains("tool=verify") && (it.contains("status=failed") || it.contains(" fail ") && !it.contains(" 0 fail ")) }
                 Reply(
-                    if (red) "The acceptance run is red; the harness will not accept this increment. Reporting the failure instead of claiming completion."
-                    else "Acceptance is green at the current stamp. `apply_discount` now applies a percentage and never returns a negative total; `cart_total` is unchanged.",
+                    if (red) "The tests fail, so this is not done. I report the failure instead of claiming success."
+                    else "The tests pass. `apply_discount` now applies a percentage and never returns a negative total; `cart_total` is unchanged.",
                     emptyList(),
                 )
             }
@@ -234,6 +290,7 @@ public class FixtureBrain @JvmOverloads constructor(
         private const val QUEUE = 64
         private const val PRICING_PATH = FixtureRepos.PRICING_PATH
         private const val TESTS_PATH = FixtureRepos.TESTS_PATH
+        private val FILE_NAME = Regex("""[`"']?[\w./-]*\w\.[A-Za-z][A-Za-z0-9]{0,7}[`"']?""")
         private val ROUND_WORDS = listOf("Round to cents", "Keep full precision", "full precision", "2 decimals")
 
         private fun demoModel(id: String, context: Long, output: Long): Model = Model.builder(PROVIDER, id)

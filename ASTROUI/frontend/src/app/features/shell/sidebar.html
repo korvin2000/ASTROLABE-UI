@@ -1,0 +1,115 @@
+<aside class="side" [class.narrow]="narrow()" [attr.aria-label]="'sidebar.label' | t">
+  <div class="top">
+    @if (!narrow()) { <span class="brand">ASTROLABE</span> }
+    <button class="icon-btn" (click)="toggleNarrow()" [attr.aria-label]="(narrow() ? 'sidebar.expand' : 'sidebar.collapse') | t" [title]="(narrow() ? 'sidebar.expand' : 'sidebar.collapse') | t">
+      <as-icon name="sidebar" [size]="16" />
+    </button>
+  </div>
+
+  <a class="newtask" routerLink="/new" [title]="'sidebar.new_task' | t">
+    <as-icon name="plus" [size]="15" />
+    @if (!narrow()) { <span>{{ 'sidebar.new_task' | t }}</span><kbd>Ctrl N</kbd> }
+  </a>
+
+  @if (app.needsYou().length; as n) {
+    <button class="needs" (click)="openOldest()" [title]="'sidebar.needs_you' | t: { n: n }">
+      <span class="dot need"></span>
+      @if (!narrow()) { <span>{{ 'sidebar.needs_you' | t: { n: n } }}</span> }
+    </button>
+  }
+
+  <nav class="list">
+    @for (g of groups(); track g.project.id) {
+      <section class="proj">
+        <div class="phead">
+          <button class="pname" (click)="toggle(g.project)" [attr.aria-expanded]="!closed()[g.project.id]" [title]="g.project.path">
+            @if (narrow()) { <as-icon name="folder" [size]="15" /> } @else {
+              <span class="caret">{{ closed()[g.project.id] ? '▸' : '▾' }}</span>
+              <span class="ellipsis">{{ g.project.name }}</span>
+              @if (g.project.demo) { <span class="tag">{{ 'demo.tag' | t }}</span> }
+            }
+          </button>
+          @if (!narrow()) {
+            <button class="icon-btn hov" (click)="newTaskIn(g.project)" [attr.aria-label]="'sidebar.new_task_in' | t: { project: g.project.name }" [title]="'sidebar.new_task_in' | t: { project: g.project.name }"><as-icon name="plus" [size]="14" /></button>
+            <button class="icon-btn hov" (click)="openMenu($event, 'project', g.project.id)" [attr.aria-label]="'sidebar.project_menu' | t: { project: g.project.name }"><as-icon name="more" [size]="14" /></button>
+          }
+        </div>
+        @if (!closed()[g.project.id]) {
+          @for (t of g.tasks; track t.id) {
+            <a class="task" [routerLink]="['/t', t.id]" routerLinkActive="cur" [title]="t.title">
+              <as-state-mark [state]="t.state" />
+              @if (!narrow()) {
+                <span class="t ellipsis">{{ t.title }}</span>
+                <button class="icon-btn hov" (click)="openMenu($event, 'task', t.id)" [attr.aria-label]="'sidebar.task_menu' | t: { task: t.title }"><as-icon name="more" [size]="14" /></button>
+              }
+            </a>
+          } @empty {
+            @if (!narrow()) { <div class="none">{{ 'sidebar.no_tasks' | t }}</div> }
+          }
+          @if (g.more > 0 && !narrow()) { <button class="more" (click)="showMore(g.project)">{{ 'sidebar.show_more' | t: { n: g.more } }}</button> }
+        }
+      </section>
+    } @empty {
+      @if (!narrow()) {
+        <div class="empty">
+          <p class="muted">{{ 'sidebar.no_projects' | t }}</p>
+          <button class="btn sm" (click)="choosing.set(true)">{{ 'action.open_folder' | t }}</button>
+        </div>
+      }
+    }
+  </nav>
+
+  @if (app.hasModel()) {
+    <a class="foot" routerLink="/settings" routerLinkActive="cur" [title]="'sidebar.settings' | t">
+      <as-icon name="settings" [size]="15" />
+      @if (!narrow()) { <span>{{ 'sidebar.settings' | t }}</span> }
+    </a>
+  } @else {
+    <a class="foot accent" [routerLink]="['/settings', 'models']" [queryParams]="{ add: 1 }" [title]="'sidebar.connect' | t">
+      <as-icon name="plug" [size]="15" />
+      @if (!narrow()) { <span>{{ 'sidebar.connect' | t }}</span> }
+    </a>
+  }
+</aside>
+
+@if (menu(); as m) {
+  <div class="menu" [style.left.px]="m.x" [style.top.px]="m.y" role="menu" (click)="$event.stopPropagation()">
+    @if (menuTask(); as t) {
+      <button role="menuitem" (click)="rename(t); closeMenu()">{{ 'action.rename' | t }}</button>
+      <button role="menuitem" [disabled]="t.state !== 'working' && t.state !== 'needs_you'" (click)="stop(t); closeMenu()">{{ 'action.stop' | t }}</button>
+      <button role="menuitem" class="danger" (click)="askDelete(t); closeMenu()">{{ 'action.delete' | t }}</button>
+    }
+    @if (menuProject(); as p) {
+      <button role="menuitem" (click)="projectSettings(p); closeMenu()">{{ 'sidebar.project_settings' | t }}</button>
+      <button role="menuitem" class="danger" (click)="askRemove(p); closeMenu()">{{ 'sidebar.remove_project' | t }}</button>
+    }
+  </div>
+}
+
+@if (renaming(); as task) {
+  <as-dialog [label]="'dialog.rename.title' | t" (closed)="renaming.set(null)">
+    <h3>{{ 'dialog.rename.title' | t }}</h3>
+    <form (ngSubmit)="saveTitle()">
+      <input class="input" name="title" [(ngModel)]="title" [attr.aria-label]="'dialog.rename.title' | t" maxlength="140" autofocus>
+      @if (failure(); as f) { <as-error-line [error]="f" /> }
+      <div class="actions">
+        <button type="button" class="btn ghost" (click)="renaming.set(null)">{{ 'action.cancel' | t }}</button>
+        <button type="submit" class="btn pri">{{ 'action.save' | t }}</button>
+      </div>
+    </form>
+  </as-dialog>
+}
+
+@if (confirming(); as c) {
+  <as-dialog [label]="(c.kind === 'delete-task' ? 'dialog.delete_task.title' : 'dialog.remove_project.title') | t" (closed)="confirming.set(null)">
+    <h3>{{ (c.kind === 'delete-task' ? 'dialog.delete_task.title' : 'dialog.remove_project.title') | t }}</h3>
+    <p>{{ (c.kind === 'delete-task' ? 'dialog.delete_task.text' : 'dialog.remove_project.text') | t: { name: c.name } }}</p>
+    @if (failure(); as f) { <as-error-line [error]="f" /> }
+    <div class="actions">
+      <button class="btn ghost" (click)="confirming.set(null)">{{ 'action.cancel' | t }}</button>
+      <button class="btn pri" (click)="confirm()">{{ (c.kind === 'delete-task' ? 'action.delete' : 'action.remove') | t }}</button>
+    </div>
+  </as-dialog>
+}
+
+@if (choosing()) { <as-folder-dialog (closed)="choosing.set(false)" (opened)="opened($event)" /> }

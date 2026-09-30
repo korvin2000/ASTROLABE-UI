@@ -1,0 +1,24 @@
+:host { display: block; width: 100%; max-width: 760px; margin: 0 auto; }
+.composer { border: 1px solid var(--border); border-radius: 12px; background: var(--raised); box-shadow: 0 1px 2px rgba(0, 0, 0, .04); position: relative; }
+.composer:focus-within { border-color: var(--accent); }
+.ta { display: block; width: 100%; border: 0; outline: 0; resize: none; background: transparent; padding: 12px 14px 4px; min-height: 44px; max-height: 240px; line-height: 1.5; }
+.ta::placeholder { color: var(--faint); }
+.bar { display: flex; gap: 4px; align-items: center; padding: 6px 8px 8px; }
+.ctl { position: relative; min-width: 0; }
+.pill { border: 0; background: transparent; border-radius: 6px; padding: 4px 8px; color: var(--muted); display: flex; gap: 6px; align-items: center; font-size: 13px; white-space: nowrap; max-width: 230px; }
+.pill:hover:not(:disabled), .pill.open { background: var(--hover); color: var(--text); }
+.pill:disabled { opacity: 1; }
+.pill b { font-weight: 500; color: var(--text); }
+.pill .d { color: var(--accent); font-size: 11px; }
+.menu { bottom: calc(100% + 6px); left: 0; max-height: 320px; overflow: auto; min-width: 230px; }
+.picker { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; }
+.composer:not(.up) .menu, .composer:not(.up) .picker { bottom: auto; top: calc(100% + 6px); }
+.modes { width: 330px; }
+.modes button { align-items: flex-start; white-space: normal; }
+.modes b { display: block; font-weight: 500; }
+.modes small { display: block; color: var(--muted); font-size: 13px; }
+.tag { font-size: 10px; font-weight: 600; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; }
+.send { width: 30px; height: 30px; border-radius: 8px; border: 0; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; flex: none; }
+.send.stop { background: var(--text); }
+.send .sq { width: 10px; height: 10px; border-radius: 2px; background: var(--bg); display: block; }
+@media (max-width: 560px) { .pill { max-width: 120px; } }

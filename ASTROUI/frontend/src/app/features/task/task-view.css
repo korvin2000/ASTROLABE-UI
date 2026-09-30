@@ -1,0 +1,49 @@
+:host { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.screen { flex: 1; min-width: 0; min-height: 0; display: flex; position: relative; }
+.screen.dragging { user-select: none; cursor: col-resize; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.head { height: 46px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.crumb { color: var(--muted); flex: 0 0 auto; max-width: 30%; }
+.title { font-size: 14px; font-weight: 600; flex: 0 1 auto; min-width: 0; }
+.state { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex: none; }
+.tag { font-size: 10px; font-weight: 600; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; }
+.ctl { position: relative; }
+.menu { right: 0; top: calc(100% + 4px); }
+
+.scroll { flex: 1; min-height: 0; overflow: auto; padding: 26px 18px 10px; }
+.col { max-width: 760px; margin: 0 auto; }
+.center { display: grid; place-items: center; padding: 40px; }
+.who { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 0 4px; }
+.who:first-child { margin-top: 0; }
+.msg { margin: 0 0 8px; overflow-wrap: anywhere; }
+.msg.user { white-space: pre-wrap; }
+.note { color: var(--muted); font-size: 13px; margin: 10px 0; padding-left: 10px; border-left: 2px solid var(--border); overflow-wrap: anywhere; }
+.plan { display: flex; gap: 6px; align-items: center; margin: 18px 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.plan::after { content: ""; flex: 1; border-top: 1px solid var(--border); margin-left: 6px; }
+
+.composer-wrap { flex: none; padding: 6px 18px 16px; }
+.status { max-width: 760px; margin: 0 auto 6px; color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.fail { max-width: 760px; margin: 0 auto 6px; }
+
+.panel { min-width: 474px; max-width: 70%; flex: none; border-left: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg); position: relative; }
+.grip { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; }
+.grip:hover, .dragging .grip { background: var(--accent-soft); }
+.tabs { height: 46px; flex: none; display: flex; gap: 2px; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--border); }
+.tabs [role="tab"] { border: 0; background: transparent; padding: 5px 10px; border-radius: 6px; color: var(--muted); }
+.tabs [role="tab"]:hover { background: var(--hover); }
+.tabs [role="tab"].on { background: var(--hover); color: var(--text); font-weight: 500; }
+.pbody { flex: 1; min-height: 0; overflow: auto; padding: 14px 16px; }
+
+.flowmax { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px 18px; position: relative; }
+.flowmax .stage { flex: 1; min-height: 440px; }
+.flowfoot { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; flex: none; }
+.flowfoot .rail { flex: 1; min-width: 300px; max-width: 520px; }
+.nowline { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.nowline b { color: var(--text); font-weight: 500; }
+.dock { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 6; width: min(520px, calc(100% - 60px)); }
+.dock ::ng-deep .card { margin: 0; box-shadow: var(--shadow); }
+
+@media (max-width: 1100px) {
+  .panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(560px, 88%) !important; min-width: 0; max-width: none; box-shadow: var(--shadow); z-index: 8; }
+  .grip { display: none; }
+}

@@ -59,6 +59,21 @@ public class StudioDb {
             "CREATE TABLE audit (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT, details TEXT)",
             "CREATE TABLE notification (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, " +
                 "body TEXT, target TEXT, read INTEGER NOT NULL DEFAULT 0)"
+        ),
+        // Studio 2: tasks (a first run and its follow-ups), their model and mode, normalised reasons, preferences.
+        List.of(
+            "ALTER TABLE campaign_index ADD COLUMN task_id TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN model_ref TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN effort TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN task_mode TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN verification_json TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN reason_json TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN request_text TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN ended_at TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+            "UPDATE campaign_index SET task_id = coalesce(parent_work, work_id) WHERE task_id IS NULL",
+            "CREATE INDEX campaign_index_by_task ON campaign_index (task_id, created_at)",
+            "CREATE TABLE preference (key TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL)"
         )
     );
 

@@ -1,0 +1,56 @@
+<div class="welcome">
+  <div class="in">
+    <h1>{{ 'welcome.title' | t }}</h1>
+    <p class="sub">{{ 'welcome.sub' | t }}</p>
+
+    <div class="stepn"><b [class.done]="app.hasModel()">{{ app.hasModel() ? '✓' : '1' }}</b><h2>{{ 'welcome.connect' | t }}</h2></div>
+    @if (app.hasModel() && account(); as a) {
+      <p class="done-line">
+        {{ 'welcome.connected' | t: { account: a.name, model: app.defaultModel()?.name ?? '' } }}
+        <button class="lnk" (click)="change()">{{ 'action.change' | t }}</button>
+      </p>
+    } @else {
+      <div class="grid2">
+        <button class="big" (click)="connecting.set({ provider: 'openai-codex' })"><b>{{ 'welcome.chatgpt' | t }}</b><small>{{ 'welcome.chatgpt_sub' | t }}</small></button>
+        <button class="big" (click)="connecting.set({ provider: 'openrouter' })"><b>OpenRouter</b><small>{{ 'welcome.openrouter_sub' | t }}</small></button>
+      </div>
+      <div class="row more">
+        @for (p of featured; track p) { <button class="btn" (click)="connecting.set({ provider: p })">{{ name(p) }}</button> }
+        <button class="btn" (click)="connecting.set({ provider: 'local' })">{{ 'welcome.local' | t }}</button>
+        <button class="btn ghost" (click)="connecting.set({ provider: null })">{{ 'welcome.more' | t }}</button>
+      </div>
+      @if (found().length) {
+        <div class="found">
+          <div class="t">{{ 'welcome.found' | t }}</div>
+          @for (f of found(); track f.id) {
+            <div class="r">
+              <span class="ok" aria-hidden="true">✓</span>
+              @if (f.kind === 'env') { <span><code>{{ f.variable }}</code> {{ 'welcome.found_env' | t: { name: f.name } }}</span> }
+              @else { <span>{{ 'welcome.found_local' | t: { name: f.name, n: f.models ?? 0 } }}</span> }
+              <button class="btn sm" [disabled]="busy() === f.id" (click)="use(f)">{{ 'action.use_it' | t }}</button>
+            </div>
+          }
+        </div>
+      }
+    }
+
+    <div class="stepn"><b [class.done]="!!project()">{{ project() ? '✓' : '2' }}</b><h2>{{ 'welcome.open' | t }}</h2></div>
+    @if (project(); as p) {
+      <p class="done-line"><code>{{ p.path }}</code> <button class="lnk" (click)="choosing.set(true)">{{ 'action.change' | t }}</button></p>
+    } @else {
+      <div class="row">
+        <button class="btn pri" (click)="choosing.set(true)">{{ 'action.choose_folder' | t }}</button>
+      </div>
+    }
+
+    @if (failure(); as f) { <as-error-line [error]="f" /> }
+
+    @if (!app.hasModel()) {
+      <p class="hint">{{ 'welcome.no_account' | t }} <button class="lnk" [disabled]="busy() === 'demo'" (click)="demo()">{{ 'welcome.run_demo' | t }}</button></p>
+    }
+    @if (app.host()?.platformSupported === false) { <p class="hint warn">{{ 'welcome.unsupported' | t }}</p> }
+  </div>
+</div>
+
+@if (connecting(); as c) { <as-connect-dialog [provider]="c.provider" (closed)="connecting.set(null)" (connected)="connected()" /> }
+@if (choosing()) { <as-folder-dialog (closed)="choosing.set(false)" (opened)="opened($event)" /> }

@@ -1,0 +1,135 @@
+<div class="screen" [class.panel-open]="tab() && !filled()" [class.dragging]="dragging()">
+  <div class="main">
+    <header class="head">
+      <span class="crumb ellipsis">{{ project()?.name }} ›</span>
+      <h1 class="title ellipsis">{{ task()?.title }}</h1>
+      @if (task(); as t) {
+        <span class="state"><as-state-mark [state]="store.state()" />{{ ('state.' + store.state()) | t }}</span>
+        @if (t.demo) { <span class="tag">{{ 'demo.tag' | t }}</span> }
+      }
+      <span class="grow"></span>
+      @if (filled()) {
+        <button class="btn ghost sm" (click)="fill(false)">{{ 'action.back_to_conversation' | t }}</button>
+      } @else {
+        <button class="icon-btn" (click)="toggle()" [attr.aria-label]="'panel.toggle' | t" [title]="'panel.toggle' | t" [attr.aria-expanded]="!!tab()"><as-icon name="sidebar" [size]="16" /></button>
+        <span class="ctl">
+          <button class="icon-btn" (click)="$event.stopPropagation(); menu.set(!menu())" [attr.aria-label]="'task.menu' | t" [attr.aria-expanded]="menu()"><as-icon name="more" [size]="16" /></button>
+          @if (menu()) {
+            <div class="menu" role="menu">
+              <button role="menuitem" (click)="rename()">{{ 'action.rename' | t }}</button>
+              <button role="menuitem" [disabled]="!store.working()" (click)="actions.stop()">{{ 'action.stop' | t }}</button>
+            </div>
+          }
+        </span>
+      }
+    </header>
+
+    @if (filled()) {
+      <div class="flowmax">
+        <as-flow-stage class="stage" [model]="store.flow" [version]="store.version()" [working]="store.working()" [plan]="store.progress()?.plan ?? []" (nodeClick)="node($event)" />
+        @if (pending(); as p) { <div class="dock"><as-ask-card [item]="p" [version]="store.version()" /></div> }
+        <div class="flowfoot">
+          <as-stage-rail class="rail" [stage]="store.timeline.stage" [working]="store.working()" />
+          <div class="nowline">
+            <as-state-mark [state]="store.state()" />
+            @if (store.status(); as s) { <span>{{ 'progress.now' | t }}</span><b>{{ s.text | t }}</b><span>{{ clock(s.seconds) }}</span> }
+            @else { <b>{{ ('state.' + store.state()) | t }}</b> }
+          </div>
+        </div>
+      </div>
+    } @else {
+      <div #scroller class="scroll" (scroll)="scrolled()">
+        <div class="col" role="log" [attr.aria-label]="'task.conversation' | t">
+          @if (store.loading() && !items().length) { <div class="center"><span class="spin"></span></div> }
+          @if (store.failure(); as f) { <as-error-line [error]="f" /> }
+          @for (item of items(); track item.id) {
+            @switch (item.type) {
+              @case ('user') {
+                <div class="who">{{ 'task.you' | t }}</div>
+                <div class="msg user">{{ item.text }}</div>
+              }
+              @case ('agent') {
+                <div class="who">ASTROLABE</div>
+                <div class="msg md" [innerHTML]="item.text | markdown"></div>
+              }
+              @case ('activity') { <as-activity-group [item]="item" [version]="store.version()" /> }
+              @case ('notice') {
+                <div class="note">
+                  {{ item.text | t }}
+                  @if (item.action === 'checks_settings' && mode() === 'ask') { · <button class="lnk" (click)="actions.settings('project', { project: task()?.projectId ?? '' })">{{ 'action.change' | t }}</button> }
+                </div>
+              }
+              @case ('plan') { <div class="plan"><span>{{ 'task.plan_step' | t: { n: item.index, total: item.total } }}</span>@if (item.title) { <span>· {{ item.title }}</span> }</div> }
+              @case ('checks') { <as-checks-card [item]="item" /> }
+              @case ('card') { <as-ask-card [item]="item" [version]="store.version()" /> }
+              @case ('error') { <as-error-card [item]="item" [latest]="item.id === lastId()" /> }
+              @case ('result') { <as-result-card [item]="item" [latest]="item.id === lastResult()" /> }
+            }
+          }
+          @if (startTimeout(); as e) { <as-error-card [item]="e" /> }
+          @if (store.askToWait()) {
+            <section class="card attn" role="alert">
+              <div class="k">{{ 'watchdog.title' | t }}</div>
+              <p>{{ 'watchdog.text' | t }}</p>
+              <div class="row">
+                <button class="btn pri" (click)="store.keepWaiting()">{{ 'action.keep_waiting' | t }}</button>
+                <button class="btn" (click)="actions.stop()">{{ 'action.stop' | t }}</button>
+              </div>
+            </section>
+          }
+        </div>
+      </div>
+
+      <div class="composer-wrap">
+        @if (actions.failure(); as f) { <div class="fail"><as-error-line [error]="f" /></div> }
+        @if (store.status(); as s) {
+          <div class="status" role="status"><span class="dot work"></span><span class="ellipsis">{{ s.text | t }}</span><span class="grow"></span><span>{{ clock(s.seconds) }}</span></div>
+        }
+        <as-composer #composer [placeholder]="placeholder()" [projectId]="task()?.projectId ?? null" [projectFixed]="true" [model]="model()" [effort]="effort()" [mode]="mode()"
+          [working]="store.state() === 'working'" [busy]="actions.busy()"
+          (send)="send($event)" (stop)="actions.stop()" (modelChange)="choose({ model: $event })" (effortChange)="choose({ effort: $event })" (modeChange)="choose({ mode: $event })" />
+      </div>
+    }
+  </div>
+
+  @if (tab() && !filled()) {
+    <aside class="panel" [style.width]="panelWidth()" [attr.aria-label]="'panel.label' | t">
+      <div class="grip" (pointerdown)="grab($event)" role="separator" aria-orientation="vertical" [attr.aria-label]="'panel.resize' | t"></div>
+      <div class="tabs" role="tablist">
+        @for (t of tabs; track t) {
+          <button role="tab" [class.on]="t === tab()" [attr.aria-selected]="t === tab()" (click)="open(t)">{{ ('panel.' + t) | t }}</button>
+        }
+        <span class="grow"></span>
+        @if (tab() === 'progress') { <button class="icon-btn" (click)="fill(true)" [attr.aria-label]="'panel.fill' | t" [title]="'panel.fill' | t"><as-icon name="maximize" [size]="15" /></button> }
+        <button class="icon-btn" (click)="close()" [attr.aria-label]="'action.close' | t" [title]="'action.close' | t"><as-icon name="x" [size]="15" /></button>
+      </div>
+      <div class="pbody" role="tabpanel">
+        @switch (tab()) {
+          @case ('changes') { <as-changes [select]="file()" /> }
+          @case ('progress') { <as-progress (node)="node($event)" /> }
+          @case ('output') { <as-output [select]="out()" /> }
+        }
+      </div>
+    </aside>
+  }
+</div>
+
+@if (dialog(); as d) {
+  @switch (d.kind) {
+    @case ('commit') { <as-commit-dialog [summary]="summary()" (closed)="dialog.set(null)" /> }
+    @case ('undo') { <as-undo-dialog [file]="d.file" (closed)="dialog.set(null)" /> }
+    @case ('rename') {
+      <as-dialog [label]="'dialog.rename.title' | t" (closed)="dialog.set(null)">
+        <h3>{{ 'dialog.rename.title' | t }}</h3>
+        <form (ngSubmit)="saveTitle()">
+          <input class="input" name="title" [(ngModel)]="title" [attr.aria-label]="'dialog.rename.title' | t" maxlength="140" autofocus>
+          @if (actions.failure(); as f) { <as-error-line [error]="f" /> }
+          <div class="actions">
+            <button type="button" class="btn ghost" (click)="dialog.set(null)">{{ 'action.cancel' | t }}</button>
+            <button type="submit" class="btn pri" [disabled]="actions.busy()">{{ 'action.save' | t }}</button>
+          </div>
+        </form>
+      </as-dialog>
+    }
+  }
+}

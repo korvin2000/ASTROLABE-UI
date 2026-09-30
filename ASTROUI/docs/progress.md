@@ -1,69 +1,87 @@
 # Progress
 
-Status as of 2026-09-29. Deviations and upstream findings: `decisions.md`.
+Status as of 2026-09-30: Studio 2 (`../ASTROLABE_UI_V2_SIMPLE.md`). Deviations and upstream findings: `decisions.md`.
 
 ## Done
 
-**Build.** One Gradle build (wrapper 9.7.1, JDK 26 toolchain) with ASTROLABE as an included build; `./gradlew studio`
-produces `backend/server/build/libs/astrolabe-studio.jar` with the Angular bundle inside (`classpath:/static`).
+**Frontend (`frontend`, Angular 22), written anew.** Five routes: first run, new task, task, settings, and `/` that
+opens the last task. Sidebar with projects and tasks, "Needs you", collapse. Task view: conversation (messages,
+grouped steps, notices, question / approval / suggestion cards, error and pause cards with at most two actions,
+result card with Commit and Undo), message box with project, model and effort, mode, Send / Stop; side panel with
+Changes (diff, undo per file, commit), Progress (stage rail, the Flow, plan, usage) and Output. The Flow: seven fixed
+nodes, seven lines, messages that travel them, no graph library; it fills the main area on request. Settings: 19
+settings in five sections with search. Account dialog: sign-in by browser or code, API key, local and custom servers.
+Message catalogs in English and Russian; the language follows the browser. Light and dark themes, reduced motion.
+The screens of the first Studio are removed.
 
-**Bridge (`backend/bridge`, Kotlin).** `StudioHost` opens projects through `Astrolabe.open`, starts / resumes
-campaigns on the public `Controller` (lease duration, `maxCells`, effort), keeps the live handle for amend, cancel,
-amendment resolution, intent reconciliation and publication; one shared `Events` bus; `AuthorityPort` futures for
-questions, approvals, amendments and reviews; documented read-only store queries (`StoreReads`); configuration
-decode / validate / freeze dry-run (`ConfigSupport`); rules-file and repository inspection; fixture brain on the
-SDK's `FakeProvider` through the real `AiGateAdapter`. Tests: both demo campaigns end to end.
+**Server (`backend/server`).** Accounts (key, environment key, local, custom, sign-in sessions), usable models and
+recommendations, automatic model profiles, preferences, folder listing and git init, tasks (start with preflight,
+messages, follow-up runs with a recap, stop, continue, retry, rename, delete), host policy for Ask and Auto mode with
+the allow list, review pass, changes of a task, undo, commit, progress and output, diagnostics export, normalised
+errors (section 10), one API (`SimpleApi`). The server of the first Studio stays underneath.
 
-**Server (`backend/server`, Spring Boot 4.1).** Studio database (projects, campaign index, durable per-campaign event
-log, decisions, commands, settings layers and history, profiles, provider config, telemetry, audit, notifications);
-live pipeline (bus + journal tailing + Studio items, ordering per campaign, drop detection → `studio.resync`);
-ASTRO-WS/1 (hello/resume, subscribe with replay, commands with running/terminal results, ping); idempotent command
-ledger; REST views for every tab; settings schema with availability and gaps; providers, credentials (write-only),
-connection test (unbilled steps), model catalog, profiles (draft / validate / qualify / freeze); changes from shadow
-refs with attribution; statistics; local session (launch token, HttpOnly cookie, Host and Origin checks, CSRF, CSP).
+**Bridge (`backend/bridge`).** Verification setup for projects without an executable acceptance, automatic profiles,
+output reserve, the Studio's note for the agent, stale lease release, demo model that works in any project.
 
-**Frontend (`frontend`, Angular 22).** Shell (sidebar, command palette, inspector drawer, toasts, OS notifications),
-home, project page (health, lease, rules review & bind, sniffed commands), new campaign (options, hints annex,
-preflight, demos), campaign view with mission strip and tabs — Thread (cells, turns, tool cards, decision cards,
-finish card, composer with answer / amend / resume), Overview (flow canvas driven by events, STATE register,
-ticker), Plan (contract versions and compare, requirements, acceptance, amendments, increments, ledger), Changes
-(snapshot range, attribution, diffs, publication ladder and request), Evidence, Context (context stack per request,
-manifests, workset, register history, invocations) — plus Needs-you inbox, Activity (processes, intents,
-reconcile), Knowledge (read-only), Statistics, Providers & models, Settings (schema-driven, scopes, validate /
-apply with revision check, presets, roles), Diagnostics. Dark and light themes, density, reduced motion.
+## Verified
 
-**Verified.**
-- Bridge tests `FixtureCampaignTest`, `InteractiveFixtureTest` pass.
-- Frontend `vitest run`: reducer replay of a recorded interactive campaign (end state, duplicate and stale
-  redelivery, reconnect split, ephemeral progress) and envelope parsing — 6 tests pass.
-- Packaged jar with security on: health open, API 401 without session, bad / reused launch token 401, cookies
-  HttpOnly + SameSite=Strict, CSRF-less POST 403, foreign Host 403, deep links served, CSP without console violations;
-  interactive demo run from the UI in that build (question answered, D-class approved, campaign completed, header
-  and composer switch to final state).
-- Every page checked in the browser against live data (fixture mode), in the dev server and in the packaged jar
-  (no horizontal overflow at 1440 px; sidebar rows single-line; thread scroll ends above the composer).
-- Lifecycle from the UI in the packaged jar: amend while running (contract v2), cancel (final; pending question
-  expired; only "new campaign from this" offered), decline a question (waiting for input, resumable), resume with
-  an amendment, answer, approve, complete — the earlier run's finish card stays as it was.
-- Lease refusal after a restart: `lease_held` with holder and local expiry; preflight and project page show it.
-- Changes on a CRLF working tree (`core.autocrlf=true`): a one-line edit shows as +2/−1 with an `EOL` flag
-  (raw: +13/−12); the toggle shows the raw diff.
+Automated, all passing on the final build:
 
-## Dead ends
+| What | Result |
+|---|---|
+| `npm test` (vitest) | 110 tests: timeline and Flow replays of recorded runs (demo and live), Flow layout and routes at 10 sizes from 440 × 440, vocabulary, catalogs (English, Russian), small rules |
+| `./gradlew :backend:bridge:test` | fixture tasks, verification setup, output reserve |
+| `npm run e2e` (A-1, demo model, packaged jar, empty data folder) | 27 checks |
+| Packaged jar with security on | 18 checks: 401 without session, launch link once, HttpOnly session cookie, every route served, content security policy, live connection |
 
-- A git-ref D-class example (`git stash list`) in the interactive demo: denied by the S0 capability ceiling before
-  approval (see D-6).
-- Resetting the demo repository by re-creating it changed its RepoIdentity and orphaned its campaigns; it is now
-  restored in place with deterministic commit dates.
-- Angular's critical-CSS inlining in the production build: blocked by the Studio CSP, the packaged UI lost its
-  global styles (D-11).
-- Gradle `npmInstall` declared `node_modules` as its output, so any cache write re-ran `npm ci` (which wipes
-  `node_modules`, and fails on Windows while `ng serve` runs); the output is now npm's hidden lockfile.
+In the running application, headless browser, with the demo model (the mechanics of the screens): 122 checks pass —
+first run, account dialog, wrong key, folder dialog with git init, follow-up, changes, undo, stop, commit, cards and
+their keys, "always allow", Auto mode, all 19 settings, search, reset, Ctrl+Enter, rename, delete, narrow window,
+restart, the Flow in both sizes and themes, reduced motion.
 
-## Next
+Acceptance scenarios (section 15) against a real provider — OpenRouter, model `z-ai/glm-5.3-flash`, the backend's
+connections led through a tunnel that the test can cut:
 
-1. Generate protocol types (records → JSON Schema / TypeScript) and replace `core/model.ts` (D-1).
-2. Cassette replay mode for demos and e2e tests (D-5).
-3. OS credential vault (G-27), OAuth relay (D-7).
-4. Upstream proposals F-1 (lease holder across restarts) and F-2 (snapshot line endings).
-5. Flyway once the Studio schema needs a data migration (D-2).
+| Id | Result | Evidence |
+|---|---|---|
+| A-1 | Pass | Three decisions from the connected account to typing; first step 2 s after the run started; result with changes. The sign-in itself: see S-2 |
+| A-2 | Pass after the key | With the key saved the account is connected and a model chosen with no further question. Pasting the key is the owner's step |
+| A-3 | Not verified | No local model server on this machine. With a stand-in server the path works (listed under "Found on this computer", one click) |
+| A-4 | Pass | "Create a hello world Java app" in an empty repository: Done, "Reviewed by a second pass — no tests in this project" |
+| A-5 | Partly | Approval card, "Always allow in this project" and no card in the next task: pass, for a command on a protected file. For a package installation: not possible, the core refuses it before an approval (F-10) |
+| A-6 | Pass | Question card; the answer typed in the message box; the task went on and used it |
+| A-7 | Partly | An invalid key shows "OpenRouter rejected the key." in the dialog and is not kept. "Replace the key, then Retry" needs the owner's key |
+| A-8 | Pass | The dialog names the 315 models that leave; account and models are gone; the footer asks to connect a model |
+| A-9 | Pass | Backend killed during a task and started again: Paused, "Continue", Done, no lock error |
+| A-10 | Pass | Vocabulary test |
+| A-11 | Pass | All 19 settings changed in the browser, none by typing JSON |
+| A-12 | Pass | The follow-up ran in the same task and named the class of the first run in its README |
+| A-13 | Pass | Stop kept the file written so far; "Undo all" removed the task's files and left and named the one the user had edited |
+| A-14 | Partly | With port 1455 taken the sign-in offers the code; completing it needs the owner |
+| A-15 | Pass | Tunnel cut during a task: "Could not reach OpenRouter." after 2 s, Retry finished the task |
+| A-16 | Pass | Real task: Model, Agent, Edit & run, Checks became active, three lines lit at once; question turned You amber; finished task left the nodes Done and Checks green; no motion at rest |
+| A-17 | Pass | No overlap and every node inside at panel width and in the main area, 440 px and above; both themes; nothing moves with reduced motion; 60 frames per second |
+
+Live spend on the owner's OpenRouter account: about USD 0.17 on the spike runs and about USD 0.15 on the runs with
+`z-ai/glm-5.3-flash`.
+
+## Found and fixed during verification
+
+- A reloaded task page and `/welcome` gave 404 from the packaged server (route list of the first Studio).
+- The first demo task of a new user ran the wrong script and failed.
+- Local servers showed no model (listings carry no capabilities).
+- A model with a very large context window could not start a task (F-8).
+- A real model could not record its progress (F-9).
+- The review pass refused correct results: it did not know the user's answers, nor what an interrupted run had done.
+- After a reload a follow-up run could stand above the first run.
+- After a backend restart the open task stayed "Working".
+- While a question waited, the header and the sidebar said "Working"; the card stood above the agent's words.
+- The side panel could be narrower than the Flow's smallest canvas.
+- Effort "Medium" was shown for a model without it.
+- A lost connection was reported as an agent error.
+
+## Open
+
+- S-2 and A-14: the last step of the ChatGPT sign-in and of the sign-in by code; S-3 on that account.
+- A-3 with a real local server.
+- Upstream proposals F-1 and F-4 to F-12.
