@@ -25,6 +25,16 @@ export function reworkable(kind: Task['verified'] | string | undefined): boolean
   return kind === 'unverified' || kind === 'user';
 }
 
+/** A done task whose result no check passed (F5): it reads "Done · not verified", never a plain "Done". */
+export function doneUnverified(state: string | undefined, kind: Task['verified'] | string | undefined): boolean {
+  return state === 'done' && kind !== 'answer' && !verifiedOf(kind).ok;
+}
+
+/** The catalog key of a task's state, with the "not verified" qualifier of [doneUnverified]. */
+export function stateKey(state: string | undefined, kind: Task['verified'] | string | undefined): string {
+  return doneUnverified(state, kind) ? 'state.done_unverified' : 'state.' + state;
+}
+
 /** How the result was checked: the catalog key, whether it counts as verified (✓), whether it has an output. */
 export function verifiedOf(kind: Task['verified'] | string | undefined): { key: string; ok: boolean; output: boolean } {
   switch (kind) {

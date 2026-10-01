@@ -4,7 +4,7 @@
       <span class="crumb ellipsis">{{ project()?.name }} ›</span>
       <h1 class="title ellipsis">{{ task()?.title }}</h1>
       @if (task(); as t) {
-        <span class="state"><as-state-mark [state]="store.state()" />{{ ('state.' + store.state()) | t }}</span>
+        <span class="state"><as-state-mark [state]="store.state()" [unverified]="unverified()" />{{ stateKey(store.state(), t.verified) | t }}</span>
         @if (t.demo) { <span class="tag">{{ 'demo.tag' | t }}</span> }
       }
       <span class="grow"></span>

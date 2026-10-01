@@ -101,6 +101,7 @@ export const EN: Record<string, string> = {
   'state.needs_you': 'Needs you',
   'state.paused': 'Paused',
   'state.done': 'Done',
+  'state.done_unverified': 'Done · not verified',
   'state.stopped': 'Stopped',
   'state.failed': 'Failed',
 

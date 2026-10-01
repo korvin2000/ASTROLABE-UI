@@ -136,6 +136,35 @@ class TaskAcceptanceTest {
         verify(projects, never()).open(any());
     }
 
+    private String recapOfCompleted(String receipt) {
+        run("stored", "completed", null);
+        when(host.isOpen("p1")).thenReturn(receipt != null);
+        when(host.finishReceipt("p1", "W-1")).thenReturn(receipt);
+        String recap = tasks.recap(tasks.runs("W-1"));
+        assertTrue(recap.length() <= 1_500, recap);
+        return recap;
+    }
+
+    @Test
+    void theRecapCallsAPolicyAcceptedRunNotVerified() {
+        String recap = recapOfCompleted("{\"acceptance\":[{\"id\":\"AC-1\",\"provenance\":\"accepted\",\"decider\":\"policy\"}]}");
+        assertTrue(recap.contains("Outcome: finished, not verified (accepted by the auto policy without a passing check)."), recap);
+        assertEquals("unverified", Json.text(tasks.task("W-1", false), "verified"));
+    }
+
+    @Test
+    void theRecapCallsARunWithoutAReceiptNotVerified() {
+        String recap = recapOfCompleted(null);
+        assertTrue(recap.contains("Outcome: finished, not verified (no passing check recorded)."), recap);
+        assertTrue(!recap.contains("finished and verified"), recap);
+    }
+
+    @Test
+    void theRecapCallsAReviewedRunVerified() {
+        String recap = recapOfCompleted("{\"acceptance\":[{\"id\":\"AC-1\",\"provenance\":\"reviewed\"}]}");
+        assertTrue(recap.contains("Outcome: finished and verified."), recap);
+    }
+
     @Test
     void aRunThatEndedOtherwiseShowsNoCard() {
         String card = waitingCard();

@@ -14,7 +14,7 @@ import { I18n } from '../i18n/i18n';
       @case ('working') { <span class="dot work" role="img" [attr.aria-label]="label()"></span> }
       @case ('needs_you') { <span class="dot need" role="img" [attr.aria-label]="label()"></span> }
       @case ('paused') { <span class="dot pause" role="img" [attr.aria-label]="label()"></span> }
-      @case ('done') { <span class="mark ok" role="img" [attr.aria-label]="label()">✓</span> }
+      @case ('done') { <span class="mark" [class.ok]="!unverified()" role="img" [attr.aria-label]="label()" [attr.title]="unverified() ? label() : null">✓</span> }
       @case ('stopped') { <span class="mark sq" role="img" [attr.aria-label]="label()"></span> }
       @case ('failed') { <span class="mark bad" role="img" [attr.aria-label]="label()">!</span> }
     }`,
@@ -27,6 +27,8 @@ import { I18n } from '../i18n/i18n';
 export class StateMark {
   private readonly i18n = inject(I18n);
   readonly state = input.required<TaskState>();
+  /** A done task that no check verified (F5): the mark is not green and its name says "not verified". */
+  readonly unverified = input(false);
 
-  label(): string { return this.i18n.t('state.' + this.state()); }
+  label(): string { return this.i18n.t(this.state() === 'done' && this.unverified() ? 'state.done_unverified' : 'state.' + this.state()); }
 }

@@ -9,6 +9,7 @@ import { Dialog } from '../../ui/dialog';
 import { ErrorLine } from '../../ui/error-line';
 import { Icon } from '../../ui/icon';
 import { StateMark } from '../../ui/state-mark';
+import { doneUnverified } from '../task/acceptance';
 import { FolderDialog } from '../welcome/folder-dialog';
 
 const SHOWN = 8;
@@ -28,6 +29,8 @@ export class Sidebar {
   readonly app = inject(AppStore);
   private readonly api = inject(Api);
   private readonly router = inject(Router);
+  /** F5: a done task that no check verified says so in its mark. */
+  readonly unverified = (t: Task): boolean => doneUnverified(t.state, t.verified);
 
   readonly narrow = signal(this.stored().narrow === true);
   readonly closed = signal<Record<string, boolean>>(this.stored().closed ?? {});

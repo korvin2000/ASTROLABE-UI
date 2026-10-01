@@ -8,6 +8,7 @@ import io.astrolabe.provider.Profile
 import io.astrolabe.provider.SchemaDialect
 import io.astrolabe.provider.aigate.AiGateAdapter
 import io.astrolabe.provider.aigate.AiGateProfiles
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import net.ai.gate.Llm
@@ -29,6 +30,9 @@ public object AutoProfiles {
     public const val ESTIMATED_CONTEXT: Int = 32_768
     public const val ESTIMATED_OUTPUT: Int = 4_096
 
+    /** OpenRouter upstreams skipped per model-id prefix: their tool-call parser corrupts nested arguments (measured 2026-09-30). */
+    internal val OPENROUTER_UPSTREAM_IGNORES: Map<String, List<String>> = mapOf("z-ai/" to listOf("Together"))
+
     /** `auto.<provider>.<model>` with every character outside the profile id alphabet replaced. */
     @JvmStatic
     public fun idOf(providerId: String, modelId: String): String =
@@ -43,13 +47,14 @@ public object AutoProfiles {
         val id = idOf(providerId, modelId)
         val today = LocalDate.now()
         var estimated = false
-        val profile = try {
+        val drafted = try {
             AiGateProfiles.draft(llm, providerId, modelId, id, today)
         } catch (e: IllegalArgumentException) {
             if (e.message?.contains("no limits") != true) throw e
             estimated = true
             estimate(llm, providerId, modelId, id, today)
         }
+        val profile = drafted.copy(config = routed(providerId, modelId, drafted.config))
         val violations = try {
             AiGateAdapter.violations(llm, listOf(profile)).map { it.toString() }
         } catch (e: RuntimeException) {
@@ -67,6 +72,16 @@ public object AutoProfiles {
     public fun outputHeadroom(contextLimitTokens: Int, outputLimitTokens: Int, wanted: Int?): Int {
         val share = maxOf(contextLimitTokens / 4, 1)
         return minOf(wanted ?: outputLimitTokens, outputLimitTokens, share).coerceAtLeast(1)
+    }
+
+    /** [config] with `gate.body.provider.ignore` naming the OpenRouter upstreams [OPENROUTER_UPSTREAM_IGNORES] lists for [modelId]. */
+    internal fun routed(providerId: String, modelId: String, config: JsonObject): JsonObject {
+        if (providerId != "openrouter") return config
+        val ignore = OPENROUTER_UPSTREAM_IGNORES.filterKeys { modelId.startsWith(it) }.values.flatten().distinct()
+        if (ignore.isEmpty()) return config
+        val gate = config["gate"] as? JsonObject ?: JsonObject(emptyMap())
+        val body = JsonObject(mapOf("provider" to JsonObject(mapOf("ignore" to JsonArray(ignore.map(::JsonPrimitive))))))
+        return JsonObject(config + ("gate" to JsonObject(gate + ("body" to body))))
     }
 
     private fun estimate(llm: Llm, providerId: String, modelId: String, id: String, date: LocalDate): Profile {

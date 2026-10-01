@@ -4,7 +4,7 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
-import { acceptanceBody, acceptanceChoices, reworkable, verifiedOf } from './acceptance';
+import { acceptanceBody, acceptanceChoices, reworkable, stateKey, verifiedOf } from './acceptance';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { sends } from './keys';
 import { kindOf } from './project-kind';
@@ -119,6 +119,14 @@ describe('acceptance (B3)', () => {
     for (const kind of ['tests', 'review', 'build', 'answer', 'none', undefined]) expect(reworkable(kind), String(kind)).toBe(false);
     expect(translate('en', 'action.not_done_rework')).toBe('Not done — rework it');
     expect(translate('ru', 'composer.rework')).toBe('Что нужно изменить?');
+  });
+
+  it('never calls a done task plainly "Done" when no check passed (F5)', () => {
+    for (const kind of ['none', 'unverified', 'user', undefined]) expect(stateKey('done', kind), String(kind)).toBe('state.done_unverified');
+    for (const kind of ['tests', 'review', 'build', 'answer']) expect(stateKey('done', kind), kind).toBe('state.done');
+    expect(stateKey('working', 'none')).toBe('state.working');
+    expect(translate('en', 'state.done_unverified')).toBe('Done · not verified');
+    expect(translate('ru', 'state.done_unverified')).toBe('Готово · не проверено');
   });
 
   it('says how the result was verified', () => {

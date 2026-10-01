@@ -18,6 +18,7 @@ import { Changes } from '../panel/changes';
 import { FlowStage } from '../panel/flow/flow-stage';
 import { Output } from '../panel/output';
 import { Progress, StageRail } from '../panel/progress';
+import { doneUnverified, stateKey } from './acceptance';
 import { ActivityGroup } from './activity-group';
 import { AskCard, ChecksCard, ErrorCard, ResultCard } from './cards';
 import { Composer } from './composer';
@@ -66,6 +67,9 @@ export class TaskView {
   private pinned = true;
 
   readonly task = computed(() => this.store.task() ?? this.app.task(this.taskId()));
+  /** F5: the header of a done task that no check verified reads "Done · not verified". */
+  readonly unverified = computed(() => doneUnverified(this.store.state(), this.task()?.verified));
+  readonly stateKey = stateKey;
   readonly project = computed(() => this.app.project(this.task()?.projectId));
   readonly tab = computed<PanelTab | null>(() => (TABS.includes(this.panel() as PanelTab) ? (this.panel() as PanelTab) : null));
   readonly filled = computed(() => this.max() === '1' && this.tab() === 'progress');

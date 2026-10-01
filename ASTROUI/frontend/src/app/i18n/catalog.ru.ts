@@ -101,6 +101,7 @@ export const RU: Record<string, string> = {
   'state.needs_you': 'Ждёт вас',
   'state.paused': 'На паузе',
   'state.done': 'Готово',
+  'state.done_unverified': 'Готово · не проверено',
   'state.stopped': 'Остановлена',
   'state.failed': 'Ошибка',
 

@@ -37,7 +37,7 @@
         @if (!closed()[g.project.id]) {
           @for (t of g.tasks; track t.id) {
             <a class="task" [routerLink]="['/t', t.id]" routerLinkActive="cur" [title]="t.title">
-              <as-state-mark [state]="t.state" />
+              <as-state-mark [state]="t.state" [unverified]="unverified(t)" />
               @if (!narrow()) {
                 <span class="t ellipsis">{{ t.title }}</span>
                 <button class="icon-btn hov" (click)="openMenu($event, 'task', t.id)" [attr.aria-label]="'sidebar.task_menu' | t: { task: t.title }"><as-icon name="more" [size]="14" /></button>

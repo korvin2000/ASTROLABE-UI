@@ -100,7 +100,7 @@ public class TaskService implements DisposableBean {
                        String outcome, String reason, String modelRef, String effort, String mode, String requestText, JsonNode verification,
                        JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt, String stopCode) { }
 
-    private List<Run> runs(String taskId) {
+    List<Run> runs(String taskId) {
         return jdbc.query("SELECT * FROM campaign_index WHERE task_id = ? AND hidden = 0 ORDER BY created_at, rowid", (rs, i) -> new Run(
             rs.getString("work_id"), rs.getString("project_id"), rs.getString("task_id"), rs.getString("parent_work"), rs.getString("title"),
             rs.getString("custom_title"), rs.getString("status"), rs.getString("phase"), rs.getString("outcome"), rs.getString("reason"),
@@ -726,7 +726,7 @@ public class TaskService implements DisposableBean {
         String asked = lastUserText(last);
         String result = lastAgentText(last.workId());
         String outcome = switch (String.valueOf(last.outcome())) {
-            case "completed" -> "finished and verified";
+            case "completed" -> completedOutcome(verifiedLabel(last));
             case "answered" -> "answered, nothing changed";
             case "cancelled" -> "stopped by the user before it finished";
             case "failed" -> "did not finish";
@@ -749,6 +749,19 @@ public class TaskService implements DisposableBean {
         sb.append("[End of context]\n\n");
         String recap = sb.toString();
         return recap.length() > RECAP_LIMIT ? recap.substring(0, RECAP_LIMIT - 20) + "…\n[End of context]\n\n" : recap;
+    }
+
+    /**
+     * How the recap names a completed run (F5): "verified" only when a check passed (`review`, `tests`); a run accepted
+     * on the policy's or the user's word, or with no receipt, is finished but not verified.
+     */
+    static String completedOutcome(String verified) {
+        return switch (verified) {
+            case "review", "tests" -> "finished and verified";
+            case "unverified" -> "finished, not verified (accepted by the auto policy without a passing check)";
+            case "user" -> "finished, not verified (accepted on the user's word)";
+            default -> "finished, not verified (no passing check recorded)";
+        };
     }
 
     private static String cut(String s, int max) {
