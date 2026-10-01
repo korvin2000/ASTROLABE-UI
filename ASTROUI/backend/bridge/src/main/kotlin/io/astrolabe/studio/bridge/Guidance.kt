@@ -21,14 +21,17 @@ public object Guidance {
         "When the work is done and checked, reply with a short summary and no tool call: that proposes completion " +
         "(op \"answer\" is only for a request that changes no file). " +
         "If one part cannot be done here (for example opening a browser), finish the rest and say so in that summary instead of stopping as blocked. " +
-        "Commands run without a shell: pass the program and its arguments, not \"sh -c\". " +
+        "The run tool starts a program directly from \"argv\" (program, then its arguments); for shell syntax such as pipes, && or " +
+        "setting a variable use its \"cmd\" form with one command line instead. " +
+        "To keep a fact about this project for later tasks (where a tool lives, how the app is started), add a line to AGENTS.md " +
+        "in the project root: every later task is given that file. " +
         "The user reads what you write in messages: use plain words, say what you changed and how you checked it, " +
         "and leave the ids of requirements, acceptance items and notes out of them."
 
     /** The machine the commands run on: weak models otherwise assume Linux (`python3`, `ls`, `xdg-open`) and stall. */
     @JvmStatic
-    public fun platform(os: String): String = "Commands run on $os without a shell" +
-        (if (os.startsWith("Windows")) ": Unix programs such as python3, ls, which or xdg-open may be missing." else ".")
+    public fun platform(os: String): String = "Commands run on $os" +
+        (if (os.startsWith("Windows")) ": the shell of the \"cmd\" form is cmd.exe, and Unix programs such as python3, ls, which or xdg-open may be missing." else ".")
 
     @JvmStatic
     public fun told(requests: List<String>): Boolean = requests.any { MARK in it }

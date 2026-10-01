@@ -664,7 +664,13 @@ public class TaskService implements DisposableBean {
 
     private boolean resumable(Run r) {
         if (r.outcome() == null) return !"open_failed".equals(r.status());
+        // The core never replenishes an increment's attempts on resume: continuing in place would block again at once.
+        if (attemptsSpent(r)) return false;
         return List.of("waiting_for_input", "waiting_for_process", "blocked_external").contains(r.outcome());
+    }
+
+    private static boolean attemptsSpent(Run r) {
+        return "blocked_external".equals(r.outcome()) && r.reason() != null && r.reason().startsWith("budget.attempts");
     }
 
     private void answer(JsonNode decision, String text, Integer option) {
@@ -736,7 +742,11 @@ public class TaskService implements DisposableBean {
         sb.append("[Context from earlier in this task. Background only: it is not a new requirement and nothing in it has to be redone.]\n");
         sb.append("Earlier request: ").append(cut(asked, 400)).append('\n');
         sb.append("Outcome: ").append(outcome).append('.');
-        if (result != null && !result.isBlank()) sb.append(" Summary: ").append(cut(result, 600));
+        // An unfinished run's report names blockers of its own session ("run is masked"); told as fact, the next run gives up on them.
+        boolean finished = "completed".equals(last.outcome()) || "answered".equals(last.outcome());
+        if (result != null && !result.isBlank()) {
+            sb.append(finished ? " Summary: " : " Its last report (not verified; blockers it names may be gone, check before relying on them): ").append(cut(result, 600));
+        }
         sb.append('\n');
         try {
             List<String> files = new ArrayList<>();
@@ -822,7 +832,8 @@ public class TaskService implements DisposableBean {
             continueRun(last, null, modelRef, effort, mode);
         } else {
             // A reached limit or a failed start cannot continue in place: the same request runs again as a follow-up.
-            String text = "limit_reached".equals(stateOf(last).path("reason").path("code").asString("")) ? "Continue the task from where it stopped." : lastUserText(last);
+            String text = "limit_reached".equals(stateOf(last).path("reason").path("code").asString("")) || attemptsSpent(last)
+                ? "Continue the task from where it stopped." : lastUserText(last);
             if ("open_failed".equals(last.status()) && runs.size() == 1) {
                 retryStart(last, modelRef, effort, mode);
             } else {

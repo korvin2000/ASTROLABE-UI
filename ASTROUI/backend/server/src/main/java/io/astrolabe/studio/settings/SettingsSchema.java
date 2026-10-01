@@ -94,7 +94,7 @@ public final class SettingsSchema {
         f("config.defaults.digestTokensPerRequirement", "budgets", "Digest tokens per requirement", "int", "tokens", null, 0.0, null, "S P", "next-attempt", "editable", null, null);
         num("config.defaults.digestCapCeilingTokens", "budgets", "Digest cap ceiling", "tokens", 1, null);
         num("config.defaults.patchCapTokens", "budgets", "STATE patch cap", "tokens", 1, null);
-        unwired("config.defaults.factLineMaxChars", "budgets", "Fact line max", "int", "chars");
+        num("config.defaults.factLineMaxChars", "budgets", "Fact line max", "chars", 1, null);
         unwired("config.defaults.seedsMaxTokens", "budgets", "Workset seeds per cell", "int", "tokens");
         num("config.defaults.focusNotesMaxTokens", "budgets", "Focus notes max", "tokens", 1, null);
         num("config.defaults.focusZoomMaxTokens", "budgets", "Focus zoom max", "tokens", 1, null);
@@ -112,7 +112,7 @@ public final class SettingsSchema {
         num("config.defaults.writerDepth", "budgets", "Writer depth", "levels", 1, null);
         num("config.defaults.probeDepth", "budgets", "Probe depth", "levels", 1, null);
         num("config.defaults.parallelCells", "budgets", "Parallel cells", "cells", 1, null);
-        unwired("config.defaults.runTimeoutSeconds", "budgets", "Run timeout", "int", "s");
+        num("config.defaults.runTimeoutSeconds", "budgets", "Run timeout", "s", 1, null);
         f("config.defaults.gitDeadlineSeconds", "budgets", "Git deadline", "int", "s", null, 1.0, 3600.0, "S P", "live", "editable", null, "Read live at project open; ≤ 3600");
         num("config.defaults.providerTerminalWaitSeconds", "budgets", "Provider settlement wait", "s", 1, "Bounded wait for a provider terminal after cancel or shutdown");
 
