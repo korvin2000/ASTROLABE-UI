@@ -1,0 +1,2992 @@
+{
+    "schema": 1,
+    "prices": [
+        {
+            "binding": {
+                "provider": "openrouter",
+                "model": "deepseek/deepseek-v4.1-flash",
+                "upstream": "Relace"
+            },
+            "calls": 74,
+            "perMillion": {
+                "UncachedInput": "0.0198",
+                "CacheRead": "0.0198",
+                "CacheWrite": null,
+                "Output": "0.594"
+            },
+            "agreement": "Exact",
+            "maxResidual": "0",
+            "maxRelativeResidual": 0.0,
+            "condition": 2.132077910908956,
+            "sensitivityPerMillion": {
+                "UncachedInput": 1.6340127110930997E-6,
+                "CacheRead": 2.626502472018071E-7,
+                "CacheWrite": null,
+                "Output": 5.07787514023095E-7
+            },
+            "standardErrorPerMillion": {
+                "UncachedInput": 0.0,
+                "CacheRead": 0.0,
+                "CacheWrite": null,
+                "Output": 0.0
+            },
+            "numericallySingular": false
+        },
+        {
+            "binding": {
+                "provider": "openrouter",
+                "model": "z-ai/glm-5.3-flash",
+                "upstream": "GMICloud"
+            },
+            "calls": 38,
+            "perMillion": {
+                "UncachedInput": "0.0891",
+                "CacheRead": "0.01782",
+                "CacheWrite": null,
+                "Output": "0.297"
+            },
+            "agreement": "Exact",
+            "maxResidual": "0",
+            "maxRelativeResidual": 0.0,
+            "condition": 2.3547731211628693,
+            "sensitivityPerMillion": {
+                "UncachedInput": 6.934157521637917E-9,
+                "CacheRead": 4.128084563231464E-9,
+                "CacheWrite": null,
+                "Output": 9.506337787846739E-8
+            },
+            "standardErrorPerMillion": {
+                "UncachedInput": 0.0,
+                "CacheRead": 0.0,
+                "CacheWrite": null,
+                "Output": 0.0
+            },
+            "numericallySingular": false
+        },
+        {
+            "binding": {
+                "provider": "openrouter",
+                "model": "z-ai/glm-5.3-flash",
+                "upstream": "Wafer"
+            },
+            "calls": 38,
+            "perMillion": {
+                "UncachedInput": "0.099",
+                "CacheRead": "0.0594",
+                "CacheWrite": null,
+                "Output": "0.495"
+            },
+            "agreement": "Exact",
+            "maxResidual": "0",
+            "maxRelativeResidual": 0.0,
+            "condition": 2.445538128063092,
+            "sensitivityPerMillion": {
+                "UncachedInput": 1.1374973018962424E-7,
+                "CacheRead": 4.7691454186849254E-8,
+                "CacheWrite": null,
+                "Output": 1.5193465610105454E-7
+            },
+            "standardErrorPerMillion": {
+                "UncachedInput": 0.0,
+                "CacheRead": 0.0,
+                "CacheWrite": null,
+                "Output": 0.0
+            },
+            "numericallySingular": false
+        },
+        {
+            "binding": {
+                "provider": "openrouter",
+                "model": "z-ai/glm-5.3-flash",
+                "upstream": "*"
+            },
+            "calls": 76,
+            "perMillion": {
+                "UncachedInput": "0.09154784738584535753414079267067200",
+                "CacheRead": "0.03162254200883203991438990289101865",
+                "CacheWrite": null,
+                "Output": "0.5214670145162624401570656860148568"
+            },
+            "agreement": "Approximate",
+            "maxResidual": "0.0003624771634612595893051150078618768",
+            "maxRelativeResidual": 0.6250369722883211,
+            "condition": 1.9534490305015275,
+            "sensitivityPerMillion": {
+                "UncachedInput": 2.905001126856978E-8,
+                "CacheRead": 1.3843888936064382E-8,
+                "CacheWrite": null,
+                "Output": 1.315360261085753E-7
+            },
+            "standardErrorPerMillion": {
+                "UncachedInput": 0.005665969642014082,
+                "CacheRead": 0.0034889877478676296,
+                "CacheWrite": null,
+                "Output": 0.05540871810280824
+            },
+            "numericallySingular": false
+        }
+    ],
+    "runs": [
+        {
+            "run": {
+                "source": "runs/api-currency/deepseek_deepseek-v4.1-flash/r1/events.jsonl",
+                "arm": "results-deepseek",
+                "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+                "format": "Bus",
+                "task": "api-currency",
+                "model": "openrouter/deepseek/deepseek-v4.1-flash",
+                "repeat": 1,
+                "turns": 8,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 8,
+                "callsWithUsage": 8,
+                "billedCalls": 8,
+                "currency": "USD",
+                "billed": "0.0048181122",
+                "billedUpstream": "0.00486678",
+                "estimate": "0.0048181122",
+                "basis": "Billed",
+                "total": "0.0048181122",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/deepseek/deepseek-v4.1-flash @ Relace (Exact, 74 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 25351,
+                    "money": "0.0005019498",
+                    "share": 0.10417976567668973,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 55808,
+                    "money": "0.0011049984",
+                    "share": 0.22934260435030965,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 5406,
+                    "money": "0.003211164",
+                    "share": 0.6664776299730006,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 2095,
+                    "money": "0.00124443",
+                    "share": 0.25828165645457574,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.6876378466959918,
+                "cacheReadTokens": 55808,
+                "inputTokens": 81159,
+                "qHat": 0.8834531344991596,
+                "eligibleSteps": 6,
+                "cacheableTokens": 55926,
+                "cachedTokens": 49408,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 4,
+                        "cell": "cell-zlagvcyf4s44vzlodrdq",
+                        "turn": 5,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 9837,
+                            "cached": 7424,
+                            "shortfall": 2413,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0009169578",
+                    "share": 0.19031474609495394,
+                    "calls": 2,
+                    "tokens": null,
+                    "detail": "after call 5 (verify green at turn 6); later 0 calls changed the workspace and 0 verdicts came out green; after the last change (call 5): 2 calls, 0.00091696 (19.0 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.000101673",
+                    "share": 0.021102248303806623,
+                    "calls": 8,
+                    "tokens": 5135,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.0048181122",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.0048181122",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 81159
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0048181122",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 81159
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0048181122",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 81159
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task api-currency (api-change)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): failed×1, passed×1",
+                    "verify (declared checks): passed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": null,
+                "acceptUnverified": false,
+                "acceptanceSurface": [],
+                "testEdits": [],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/api-currency/deepseek_deepseek-v4.1-flash/r2/events.jsonl",
+                "arm": "results-deepseek",
+                "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+                "format": "Bus",
+                "task": "api-currency",
+                "model": "openrouter/deepseek/deepseek-v4.1-flash",
+                "repeat": 2,
+                "turns": 17,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 17,
+                "callsWithUsage": 17,
+                "billedCalls": 17,
+                "currency": "USD",
+                "billed": "0.0097729236",
+                "billedUpstream": "0.00987164",
+                "estimate": "0.0097729236",
+                "basis": "Billed",
+                "total": "0.0097729236",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/deepseek/deepseek-v4.1-flash @ Relace (Exact, 74 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 47946,
+                    "money": "0.0009493308",
+                    "share": 0.09713887459429234,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 161536,
+                    "money": "0.0031984128",
+                    "share": 0.3272728746186044,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 9470,
+                    "money": "0.00562518",
+                    "share": 0.5755882507871033,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 5216,
+                    "money": "0.003098304",
+                    "share": 0.31702938924028834,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.7711211464469501,
+                "cacheReadTokens": 161536,
+                "inputTokens": 209482,
+                "qHat": 0.9279572232412099,
+                "eligibleSteps": 14,
+                "cacheableTokens": 160835,
+                "cachedTokens": 149248,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 16,
+                        "cell": "cell-pjzbyrbrzo6m3tejiqqq",
+                        "turn": 17,
+                        "cause": "Eviction",
+                        "step": {
+                            "cacheable": 12504,
+                            "cached": 5120,
+                            "shortfall": 7384,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0039143016",
+                    "share": 0.40052514070610357,
+                    "calls": 7,
+                    "tokens": null,
+                    "detail": "after call 9 (verify green at turn 10); later 0 calls changed the workspace and 1 verdicts came out green; after the last change (call 9): 7 calls, 0.0039143 (40.1 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 1,
+                    "tokens": 7384,
+                    "detail": "re-paid tokens by turn: 17: 7384; batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0002329866",
+                    "share": 0.02384001037314975,
+                    "calls": 17,
+                    "tokens": 11767,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.0097729236",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.0097729236",
+                        "batches": [
+                            {
+                                "turn": 16,
+                                "trigger": "age",
+                                "stubbed": 18,
+                                "losses": 0,
+                                "freedTokens": 5424
+                            }
+                        ],
+                        "repaidTokens": 5961,
+                        "inputTokens": 209482
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0098803188",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 214906
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0098803188",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 214906
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task api-currency (api-change)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): failed×1, passed×1",
+                    "verify (declared checks): passed×3, unavailable×1"
+                ],
+                "outcome": "completed",
+                "acceptance": null,
+                "acceptUnverified": false,
+                "acceptanceSurface": [],
+                "testEdits": [],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/bugfix-pagination/deepseek_deepseek-v4.1-flash/r1/events.jsonl",
+                "arm": "results-deepseek",
+                "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+                "format": "Bus",
+                "task": "bugfix-pagination",
+                "model": "openrouter/deepseek/deepseek-v4.1-flash",
+                "repeat": 1,
+                "turns": 18,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 17,
+                "callsWithUsage": 17,
+                "billedCalls": 17,
+                "currency": "USD",
+                "billed": "0.005346",
+                "billedUpstream": "0.0054",
+                "estimate": "0.005346",
+                "basis": "Billed",
+                "total": "0.005346",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/deepseek/deepseek-v4.1-flash @ Relace (Exact, 74 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 32186,
+                    "money": "0.0006372828",
+                    "share": 0.1192074074074074,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 123904,
+                    "money": "0.0024532992",
+                    "share": 0.4589037037037037,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 3797,
+                    "money": "0.002255418",
+                    "share": 0.42188888888888887,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 1312,
+                    "money": "0.000779328",
+                    "share": 0.14577777777777778,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.7937984496124031,
+                "cacheReadTokens": 123904,
+                "inputTokens": 156090,
+                "qHat": 0.9389789865589702,
+                "eligibleSteps": 15,
+                "cacheableTokens": 126776,
+                "cachedTokens": 119040,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 16,
+                        "cell": "cell-gydlnu6da74ah4uxiazq",
+                        "turn": 17,
+                        "cause": "Eviction",
+                        "step": {
+                            "cacheable": 9561,
+                            "cached": 4864,
+                            "shortfall": 4697,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0029696634",
+                    "share": 0.5554925925925925,
+                    "calls": 8,
+                    "tokens": null,
+                    "detail": "after call 8 (run tests green at turn 9); later 1 calls changed the workspace and 2 verdicts came out green; after the last change (call 12): 4 calls, 0.0013966 (26.1 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 1,
+                    "tokens": 4697,
+                    "detail": "re-paid tokens by turn: 17: 4697; batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0001545984",
+                    "share": 0.028918518518518517,
+                    "calls": 17,
+                    "tokens": 7808,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.005346",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.005346",
+                        "batches": [
+                            {
+                                "turn": 16,
+                                "trigger": "age",
+                                "stubbed": 17,
+                                "losses": 5,
+                                "freedTokens": 2808
+                            }
+                        ],
+                        "repaidTokens": 4095,
+                        "inputTokens": 156090
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0054015984",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 158898
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0054015984",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 158898
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task bugfix-pagination (bugfix)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): passed×1",
+                    "verify (declared checks): denied×2, passed×2"
+                ],
+                "outcome": "completed",
+                "acceptance": "review no reviewer; acceptance accepted",
+                "acceptUnverified": true,
+                "acceptanceSurface": [
+                    "acceptance surface: tests/test_paging.py · unclassified-weakening-risk — justify it in the packet; a weakened required check needs review"
+                ],
+                "testEdits": [
+                    "tests/test_paging.py"
+                ],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/bugfix-pagination/deepseek_deepseek-v4.1-flash/r2/events.jsonl",
+                "arm": "results-deepseek",
+                "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+                "format": "Bus",
+                "task": "bugfix-pagination",
+                "model": "openrouter/deepseek/deepseek-v4.1-flash",
+                "repeat": 2,
+                "turns": 12,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 11,
+                "callsWithUsage": 11,
+                "billedCalls": 11,
+                "currency": "USD",
+                "billed": "0.003588552",
+                "billedUpstream": "0.0036248",
+                "estimate": "0.003588552",
+                "basis": "Billed",
+                "total": "0.003588552",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/deepseek/deepseek-v4.1-flash @ Relace (Exact, 74 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 21134,
+                    "money": "0.0004184532",
+                    "share": 0.11660781284484661,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 68096,
+                    "money": "0.0013483008",
+                    "share": 0.3757227984992275,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 3067,
+                    "money": "0.001821798",
+                    "share": 0.5076693886559258,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 1121,
+                    "money": "0.000665874",
+                    "share": 0.1855550651070404,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.763151406477642,
+                "cacheReadTokens": 68096,
+                "inputTokens": 89230,
+                "qHat": 0.9210376822571482,
+                "eligibleSteps": 10,
+                "cacheableTokens": 73934,
+                "cachedTokens": 68096,
+                "reliability": 1.0,
+                "breaks": []
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0011563596",
+                    "share": 0.3222357095563893,
+                    "calls": 3,
+                    "tokens": null,
+                    "detail": "after call 7 (verify green at turn 8); later 0 calls changed the workspace and 1 verdicts came out green; after the last change (call 7): 3 calls, 0.0011564 (32.2 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0001056528",
+                    "share": 0.029441624365482234,
+                    "calls": 11,
+                    "tokens": 5336,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.003588552",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.003588552",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 89230
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.003588552",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 89230
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.003588552",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 89230
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task bugfix-pagination (bugfix)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): failed×1",
+                    "verify (declared checks): passed×3"
+                ],
+                "outcome": "completed",
+                "acceptance": "review no reviewer; acceptance accepted",
+                "acceptUnverified": true,
+                "acceptanceSurface": [
+                    "acceptance surface: tests/test_paging.py · unclassified-weakening-risk — justify it in the packet; a weakened required check needs review"
+                ],
+                "testEdits": [
+                    "tests/test_paging.py"
+                ],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/rest-todo/deepseek_deepseek-v4.1-flash/r1/events.jsonl",
+                "arm": "results-deepseek",
+                "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+                "format": "Bus",
+                "task": "rest-todo",
+                "model": "openrouter/deepseek/deepseek-v4.1-flash",
+                "repeat": 1,
+                "turns": 11,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 10,
+                "callsWithUsage": 10,
+                "billedCalls": 10,
+                "currency": "USD",
+                "billed": "0.0154942524",
+                "billedUpstream": "0.01565076",
+                "estimate": "0.0154942524",
+                "basis": "Billed",
+                "total": "0.0154942524",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/deepseek/deepseek-v4.1-flash @ Relace (Exact, 74 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 45094,
+                    "money": "0.0008928612",
+                    "share": 0.0576253165980438,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 118784,
+                    "money": "0.0023519232",
+                    "share": 0.15179326754739067,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 20622,
+                    "money": "0.012249468",
+                    "share": 0.7905814158545655,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 14241,
+                    "money": "0.008459154",
+                    "share": 0.5459543178733812,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.724831887135552,
+                "cacheReadTokens": 118784,
+                "inputTokens": 163878,
+                "qHat": 0.862788144895719,
+                "eligibleSteps": 8,
+                "cacheableTokens": 116608,
+                "cachedTokens": 100608,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 3,
+                        "cell": "cell-wdmiqkmtackqszxv343a",
+                        "turn": 4,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 12269,
+                            "cached": 6144,
+                            "shortfall": 6125,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    },
+                    {
+                        "call": 5,
+                        "cell": "cell-wdmiqkmtackqszxv343a",
+                        "turn": 6,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 18177,
+                            "cached": 12800,
+                            "shortfall": 5377,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.008758629",
+                    "share": 0.5652824527371195,
+                    "calls": 7,
+                    "tokens": null,
+                    "detail": "after call 2 (run tests green at turn 3); later 2 calls changed the workspace and 3 verdicts came out green; after the last change (call 5): 4 calls, 0.0029761 (19.2 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0001357488",
+                    "share": 0.00876123587608525,
+                    "calls": 10,
+                    "tokens": 6856,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.0154942524",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.0154942524",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 163878
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0154942524",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 163878
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0154942524",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 163878
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task rest-todo (greenfield)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): passed×3",
+                    "verify (declared checks): passed×1, unavailable×1"
+                ],
+                "outcome": "completed",
+                "acceptance": "review no reviewer; acceptance accepted",
+                "acceptUnverified": true,
+                "acceptanceSurface": [
+                    "acceptance surface: tests/test_todos.py · deleted-test — justify it in the packet; a weakened required check needs review"
+                ],
+                "testEdits": [
+                    "tests/test_todos.py",
+                    "tests/api_checks.py"
+                ],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/rest-todo/deepseek_deepseek-v4.1-flash/r2/events.jsonl",
+                "arm": "results-deepseek",
+                "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+                "format": "Bus",
+                "task": "rest-todo",
+                "model": "openrouter/deepseek/deepseek-v4.1-flash",
+                "repeat": 2,
+                "turns": 12,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 11,
+                "callsWithUsage": 11,
+                "billedCalls": 11,
+                "currency": "USD",
+                "billed": "0.0155707992",
+                "billedUpstream": "0.01572808",
+                "estimate": "0.0155707992",
+                "basis": "Billed",
+                "total": "0.0155707992",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/deepseek/deepseek-v4.1-flash @ Relace (Exact, 74 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 45970,
+                    "money": "0.000910206",
+                    "share": 0.05845595902360619,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 143104,
+                    "money": "0.0028334592",
+                    "share": 0.1819726247577581,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 19911,
+                    "money": "0.011827134",
+                    "share": 0.7595714162186357,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 12835,
+                    "money": "0.00762399",
+                    "share": 0.4896338268879609,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.7568676814368978,
+                "cacheReadTokens": 143104,
+                "inputTokens": 189074,
+                "qHat": 0.8960801502817783,
+                "eligibleSteps": 10,
+                "cacheableTokens": 159700,
+                "cachedTokens": 143104,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 3,
+                        "cell": "cell-554af7tz5nq2675oxmdq",
+                        "turn": 4,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 16120,
+                            "cached": 6144,
+                            "shortfall": 9976,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    },
+                    {
+                        "call": 8,
+                        "cell": "cell-554af7tz5nq2675oxmdq",
+                        "turn": 9,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 20759,
+                            "cached": 17664,
+                            "shortfall": 3095,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.008648343",
+                    "share": 0.5554206234963199,
+                    "calls": 7,
+                    "tokens": null,
+                    "detail": "after call 3 (run tests green at turn 4); later 2 calls changed the workspace and 3 verdicts came out green; after the last change (call 6): 4 calls, 0.002475 (15.9 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.000153747",
+                    "share": 0.009874059643643724,
+                    "calls": 11,
+                    "tokens": 7765,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.0155707992",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.0155707992",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 189074
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0155707992",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 189074
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0155707992",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 189074
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task rest-todo (greenfield)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): passed×3",
+                    "verify (declared checks): passed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": "review no reviewer; acceptance accepted",
+                "acceptUnverified": true,
+                "acceptanceSurface": [
+                    "acceptance surface: tests/test_todos.py · unclassified-weakening-risk — justify it in the packet; a weakened required check needs review"
+                ],
+                "testEdits": [
+                    "tests/test_todos.py"
+                ],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/api-currency/z-ai_glm-5.3-flash/r1/events.jsonl",
+                "arm": "results-glm",
+                "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+                "format": "Bus",
+                "task": "api-currency",
+                "model": "openrouter/z-ai/glm-5.3-flash",
+                "repeat": 1,
+                "turns": 17,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 17,
+                "callsWithUsage": 17,
+                "billedCalls": 17,
+                "currency": "USD",
+                "billed": "0.00888704388",
+                "billedUpstream": "0.008976812",
+                "estimate": "0.00888704388",
+                "basis": "Billed",
+                "total": "0.00888704388",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/z-ai/glm-5.3-flash @ GMICloud (Exact, 38 calls)",
+                    "fitted openrouter/z-ai/glm-5.3-flash @ Wafer (Exact, 38 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 67347,
+                    "money": "0.0060711354",
+                    "share": 0.6831445283693142,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 88064,
+                    "money": "0.00156930048",
+                    "share": 0.17658295617642433,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 4184,
+                    "money": "0.001246608",
+                    "share": 0.1402725154542615,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 1076,
+                    "money": "0.00031977",
+                    "share": 0.03598159346547527,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.5666522961695118,
+                "cacheReadTokens": 88064,
+                "inputTokens": 155411,
+                "qHat": 0.7388017234371189,
+                "eligibleSteps": 13,
+                "cacheableTokens": 110709,
+                "cachedTokens": 81792,
+                "reliability": 0.7692307692307693,
+                "breaks": [
+                    {
+                        "call": 1,
+                        "cell": "cell-2zklukct2ario6jmuiaq",
+                        "turn": 2,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 4874,
+                            "cached": 0,
+                            "shortfall": 4874,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.00034741872"
+                    },
+                    {
+                        "call": 4,
+                        "cell": "cell-2zklukct2ario6jmuiaq",
+                        "turn": 5,
+                        "cause": "Upstream",
+                        "step": {
+                            "cacheable": 6435,
+                            "cached": 0,
+                            "shortfall": 6435,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.000254826"
+                    },
+                    {
+                        "call": 8,
+                        "cell": "cell-2zklukct2ario6jmuiaq",
+                        "turn": 9,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 7061,
+                            "cached": 0,
+                            "shortfall": 7061,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.00050330808"
+                    },
+                    {
+                        "call": 9,
+                        "cell": "cell-2zklukct2ario6jmuiaq",
+                        "turn": 10,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 8805,
+                            "cached": 0,
+                            "shortfall": 8805,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.0006276204"
+                    },
+                    {
+                        "call": 16,
+                        "cell": "cell-2zklukct2ario6jmuiaq",
+                        "turn": 17,
+                        "cause": "Eviction",
+                        "step": {
+                            "cacheable": 10017,
+                            "cached": 0,
+                            "shortfall": 10017,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.00071401176"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0010411632",
+                    "share": 0.11715517713861001,
+                    "calls": 1,
+                    "tokens": null,
+                    "detail": "after call 15 (verify green at turn 16); later 0 calls changed the workspace and 0 verdicts came out green; after the last change (call 15): 1 calls, 0.0010412 (11.7 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0.00071401176",
+                    "share": 0.08034299927412984,
+                    "calls": 1,
+                    "tokens": 10017,
+                    "detail": "re-paid tokens by turn: 17: 10017; batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0008424108",
+                    "share": 0.09479089012892328,
+                    "calls": 17,
+                    "tokens": 9399,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.00888704388",
+                "calibrationError": "-0.00026202528",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.0086250186",
+                        "batches": [
+                            {
+                                "turn": 16,
+                                "trigger": "age",
+                                "stubbed": 13,
+                                "losses": 3,
+                                "freedTokens": 2529
+                            }
+                        ],
+                        "repaidTokens": 6024,
+                        "inputTokens": 155411
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0083332161",
+                        "batches": [],
+                        "repaidTokens": 1298,
+                        "inputTokens": 157940
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0083332161",
+                        "batches": [],
+                        "repaidTokens": 1298,
+                        "inputTokens": 157940
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task api-currency (api-change)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "verify (declared checks): denied×1, passed×1, unavailable×1",
+                    "run tests (model): failed×2, passed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": null,
+                "acceptUnverified": false,
+                "acceptanceSurface": [],
+                "testEdits": [],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/api-currency/z-ai_glm-5.3-flash/r2/events.jsonl",
+                "arm": "results-glm",
+                "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+                "format": "Bus",
+                "task": "api-currency",
+                "model": "openrouter/z-ai/glm-5.3-flash",
+                "repeat": 2,
+                "turns": 15,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 15,
+                "callsWithUsage": 15,
+                "billedCalls": 15,
+                "currency": "USD",
+                "billed": "0.00529409628",
+                "billedUpstream": "0.005347572",
+                "estimate": "0.00529409628",
+                "basis": "Billed",
+                "total": "0.00529409628",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/z-ai/glm-5.3-flash @ GMICloud (Exact, 38 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 26206,
+                    "money": "0.0023349546",
+                    "share": 0.44104876007279564,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 109824,
+                    "money": "0.00195706368",
+                    "share": 0.3696690759843907,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 3374,
+                    "money": "0.001002078",
+                    "share": 0.18928216394281366,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 1163,
+                    "money": "0.000345411",
+                    "share": 0.0652445633270576,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.8073513195618613,
+                "cacheReadTokens": 109824,
+                "inputTokens": 136030,
+                "qHat": 0.9187077230244927,
+                "eligibleSteps": 14,
+                "cacheableTokens": 116198,
+                "cachedTokens": 106752,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 8,
+                        "cell": "cell-dmweuc5ulteuvzltjnca",
+                        "turn": 9,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 9335,
+                            "cached": 7040,
+                            "shortfall": 2295,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001635876"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.00158984694",
+                    "share": 0.30030563403353894,
+                    "calls": 4,
+                    "tokens": null,
+                    "detail": "after call 10 (run tests green at turn 11); later 0 calls changed the workspace and 2 verdicts came out green; after the last change (call 10): 4 calls, 0.0015898 (30.0 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0007408665",
+                    "share": 0.13994201480597177,
+                    "calls": 15,
+                    "tokens": 8315,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.00529409628",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.00529409628",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 136030
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.00529409628",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 136030
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.00529409628",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 136030
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task api-currency (api-change)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): passed×1",
+                    "verify (declared checks): passed×2"
+                ],
+                "outcome": "completed",
+                "acceptance": null,
+                "acceptUnverified": false,
+                "acceptanceSurface": [],
+                "testEdits": [],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/bugfix-pagination/z-ai_glm-5.3-flash/r1/events.jsonl",
+                "arm": "results-glm",
+                "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+                "format": "Bus",
+                "task": "bugfix-pagination",
+                "model": "openrouter/z-ai/glm-5.3-flash",
+                "repeat": 1,
+                "turns": 10,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 9,
+                "callsWithUsage": 9,
+                "billedCalls": 9,
+                "currency": "USD",
+                "billed": "0.0053619786",
+                "billedUpstream": "0.00541614",
+                "estimate": "0.0053619786",
+                "basis": "Billed",
+                "total": "0.0053619786",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/z-ai/glm-5.3-flash @ Wafer (Exact, 38 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 20208,
+                    "money": "0.002000592",
+                    "share": 0.3731070467159268,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 43264,
+                    "money": "0.0025698816",
+                    "share": 0.47927860062701483,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 1599,
+                    "money": "0.000791505",
+                    "share": 0.14761435265705836,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 743,
+                    "money": "0.000367785",
+                    "share": 0.06859128456797646,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.6816233929921856,
+                "cacheReadTokens": 43264,
+                "inputTokens": 63472,
+                "qHat": 0.8377514861646302,
+                "eligibleSteps": 8,
+                "cacheableTokens": 51643,
+                "cachedTokens": 43264,
+                "reliability": 0.875,
+                "breaks": [
+                    {
+                        "call": 1,
+                        "cell": "cell-pavwwsb74p3h7u6fjwra",
+                        "turn": 2,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 4774,
+                            "cached": 0,
+                            "shortfall": 4774,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.0001890504"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0020332026",
+                    "share": 0.37918886882539965,
+                    "calls": 3,
+                    "tokens": null,
+                    "detail": "after call 5 (run tests green at turn 6); later 0 calls changed the workspace and 1 verdicts came out green; after the last change (call 5): 3 calls, 0.0020332 (37.9 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.000358776",
+                    "share": 0.06691112120440018,
+                    "calls": 9,
+                    "tokens": 3624,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.0053619786",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.0053619786",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 63472
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.0053619786",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 63472
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.0053619786",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 63472
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task bugfix-pagination (bugfix)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): passed×1",
+                    "verify (declared checks): passed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": "review no reviewer; acceptance accepted",
+                "acceptUnverified": true,
+                "acceptanceSurface": [
+                    "acceptance surface: tests/test_paging.py · unclassified-weakening-risk — justify it in the packet; a weakened required check needs review"
+                ],
+                "testEdits": [
+                    "tests/test_paging.py"
+                ],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/bugfix-pagination/z-ai_glm-5.3-flash/r2/events.jsonl",
+                "arm": "results-glm",
+                "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+                "format": "Bus",
+                "task": "bugfix-pagination",
+                "model": "openrouter/z-ai/glm-5.3-flash",
+                "repeat": 2,
+                "turns": 10,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 9,
+                "callsWithUsage": 9,
+                "billedCalls": 9,
+                "currency": "USD",
+                "billed": "0.004890303",
+                "billedUpstream": "0.0049397",
+                "estimate": "0.004890303",
+                "basis": "Billed",
+                "total": "0.004890303",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/z-ai/glm-5.3-flash @ Wafer (Exact, 38 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 10987,
+                    "money": "0.001087713",
+                    "share": 0.2224224143166589,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 52800,
+                    "money": "0.00313632",
+                    "share": 0.6413344939976112,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 1346,
+                    "money": "0.00066627",
+                    "share": 0.1362430916857299,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 378,
+                    "money": "0.00018711",
+                    "share": 0.038261432880539306,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.8277548716823178,
+                "cacheReadTokens": 52800,
+                "inputTokens": 63787,
+                "qHat": 0.9293476159170888,
+                "eligibleSteps": 8,
+                "cacheableTokens": 51718,
+                "cachedTokens": 48064,
+                "reliability": 1.0,
+                "breaks": []
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0019826532",
+                    "share": 0.4054254306941717,
+                    "calls": 3,
+                    "tokens": null,
+                    "detail": "after call 5 (run tests green at turn 6); later 0 calls changed the workspace and 1 verdicts came out green; after the last change (call 5): 3 calls, 0.0019827 (40.5 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.000370656",
+                    "share": 0.07579407656335405,
+                    "calls": 9,
+                    "tokens": 3744,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.004890303",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.004890303",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 63787
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.004890303",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 63787
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.004890303",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 63787
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task bugfix-pagination (bugfix)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): passed×1",
+                    "verify (declared checks): passed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": "review no reviewer; acceptance accepted",
+                "acceptUnverified": true,
+                "acceptanceSurface": [
+                    "acceptance surface: tests/test_paging.py · unclassified-weakening-risk — justify it in the packet; a weakened required check needs review"
+                ],
+                "testEdits": [
+                    "tests/test_paging.py"
+                ],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/rest-todo/z-ai_glm-5.3-flash/r1/events.jsonl",
+                "arm": "results-glm",
+                "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+                "format": "Bus",
+                "task": "rest-todo",
+                "model": "openrouter/z-ai/glm-5.3-flash",
+                "repeat": 1,
+                "turns": 10,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 10,
+                "callsWithUsage": 10,
+                "billedCalls": 10,
+                "currency": "USD",
+                "billed": "0.010516671",
+                "billedUpstream": "0.0106229",
+                "estimate": "0.010516671",
+                "basis": "Billed",
+                "total": "0.010516671",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/z-ai/glm-5.3-flash @ Wafer (Exact, 38 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 38620,
+                    "money": "0.00382338",
+                    "share": 0.36355420836118196,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 75840,
+                    "money": "0.004504896",
+                    "share": 0.42835760479718343,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 4421,
+                    "money": "0.002188395",
+                    "share": 0.20808818684163458,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 1122,
+                    "money": "0.00055539",
+                    "share": 0.05281043782771183,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.6625895509348244,
+                "cacheReadTokens": 75840,
+                "inputTokens": 114460,
+                "qHat": 0.7841831218699904,
+                "eligibleSteps": 8,
+                "cacheableTokens": 80471,
+                "cachedTokens": 63104,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 2,
+                        "cell": "cell-qv6jpt2isiohahtlphua",
+                        "turn": 3,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 5918,
+                            "cached": 3776,
+                            "shortfall": 2142,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0000848232"
+                    },
+                    {
+                        "call": 3,
+                        "cell": "cell-qv6jpt2isiohahtlphua",
+                        "turn": 4,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 9161,
+                            "cached": 5888,
+                            "shortfall": 3273,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001296108"
+                    },
+                    {
+                        "call": 4,
+                        "cell": "cell-qv6jpt2isiohahtlphua",
+                        "turn": 5,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 9372,
+                            "cached": 5888,
+                            "shortfall": 3484,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001379664"
+                    },
+                    {
+                        "call": 5,
+                        "cell": "cell-qv6jpt2isiohahtlphua",
+                        "turn": 6,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 12253,
+                            "cached": 9344,
+                            "shortfall": 2909,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001151964"
+                    },
+                    {
+                        "call": 6,
+                        "cell": "cell-qv6jpt2isiohahtlphua",
+                        "turn": 7,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 12375,
+                            "cached": 9344,
+                            "shortfall": 3031,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001200276"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0077248512",
+                    "share": 0.7345338843441998,
+                    "calls": 7,
+                    "tokens": null,
+                    "detail": "after call 2 (verify green at turn 3); later 3 calls changed the workspace and 0 verdicts came out green; after the last change (call 8): 1 calls, 0.001171 (11.1 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.000655182",
+                    "share": 0.06229937211119374,
+                    "calls": 10,
+                    "tokens": 6618,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.010516671",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.010516671",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 114460
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.010516671",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 114460
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.010516671",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 114460
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task rest-todo (greenfield)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "verify (declared checks): passed×1",
+                    "run tests (model): failed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": null,
+                "acceptUnverified": false,
+                "acceptanceSurface": [],
+                "testEdits": [],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        },
+        {
+            "run": {
+                "source": "runs/rest-todo/z-ai_glm-5.3-flash/r2/events.jsonl",
+                "arm": "results-glm",
+                "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+                "format": "Bus",
+                "task": "rest-todo",
+                "model": "openrouter/z-ai/glm-5.3-flash",
+                "repeat": 2,
+                "turns": 16,
+                "unreadableLines": 0
+            },
+            "anatomy": {
+                "calls": 16,
+                "callsWithUsage": 16,
+                "billedCalls": 16,
+                "currency": "USD",
+                "billed": "0.01595139678",
+                "billedUpstream": "0.016112522",
+                "estimate": "0.01595139678",
+                "basis": "Billed",
+                "total": "0.01595139678",
+                "complete": true,
+                "prices": [
+                    "fitted openrouter/z-ai/glm-5.3-flash @ Wafer (Exact, 38 calls)",
+                    "fitted openrouter/z-ai/glm-5.3-flash @ GMICloud (Exact, 38 calls)"
+                ],
+                "pricesEstimated": false,
+                "uncachedInput": {
+                    "tokens": 81503,
+                    "money": "0.0075612735",
+                    "share": 0.47401952344890513,
+                    "reported": true
+                },
+                "cacheRead": {
+                    "tokens": 141312,
+                    "money": "0.00534428928",
+                    "share": 0.3350358187253367,
+                    "reported": true
+                },
+                "cacheWrite": {
+                    "tokens": 0,
+                    "money": "0",
+                    "share": 0.0,
+                    "reported": false
+                },
+                "output": {
+                    "tokens": 6940,
+                    "money": "0.003045834",
+                    "share": 0.19094465782575812,
+                    "reported": true
+                },
+                "reasoning": {
+                    "tokens": 2015,
+                    "money": "0.000800415",
+                    "share": 0.05017836438020069,
+                    "reported": true
+                },
+                "unexplained": "0"
+            },
+            "cache": {
+                "hitShare": 0.63421223885286,
+                "cacheReadTokens": 141312,
+                "inputTokens": 222815,
+                "qHat": 0.7483113432005686,
+                "eligibleSteps": 13,
+                "cacheableTokens": 161815,
+                "cachedTokens": 121088,
+                "reliability": 1.0,
+                "breaks": [
+                    {
+                        "call": 3,
+                        "cell": "cell-4pftwpxlt5ybcar5jibq",
+                        "turn": 4,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 9124,
+                            "cached": 5888,
+                            "shortfall": 3236,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001281456"
+                    },
+                    {
+                        "call": 7,
+                        "cell": "cell-4pftwpxlt5ybcar5jibq",
+                        "turn": 8,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 13472,
+                            "cached": 9984,
+                            "shortfall": 3488,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001381248"
+                    },
+                    {
+                        "call": 8,
+                        "cell": "cell-4pftwpxlt5ybcar5jibq",
+                        "turn": 9,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 13900,
+                            "cached": 9984,
+                            "shortfall": 3916,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.0001550736"
+                    },
+                    {
+                        "call": 9,
+                        "cell": "cell-4pftwpxlt5ybcar5jibq",
+                        "turn": 10,
+                        "cause": "Upstream",
+                        "step": {
+                            "cacheable": 15314,
+                            "cached": 0,
+                            "shortfall": 15314,
+                            "broken": true,
+                            "fullMiss": true
+                        },
+                        "cost": "0.00109158192"
+                    },
+                    {
+                        "call": 10,
+                        "cell": "cell-4pftwpxlt5ybcar5jibq",
+                        "turn": 11,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 16070,
+                            "cached": 3072,
+                            "shortfall": 12998,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.00092649744"
+                    },
+                    {
+                        "call": 11,
+                        "cell": "cell-4pftwpxlt5ybcar5jibq",
+                        "turn": 12,
+                        "cause": "Provider",
+                        "step": {
+                            "cacheable": 16449,
+                            "cached": 3072,
+                            "shortfall": 13377,
+                            "broken": true,
+                            "fullMiss": false
+                        },
+                        "cost": "0.00095351256"
+                    }
+                ]
+            },
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0019564281",
+                    "share": 0.12264932826779072,
+                    "calls": 4,
+                    "tokens": null,
+                    "detail": "after call 11 (run tests green at turn 12); later 0 calls changed the workspace and 1 verdicts came out green; after the last change (call 11): 4 calls, 0.0019564 (12.3 %)",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": "batches inferred from the k=8 cadence",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.001041282",
+                    "share": 0.06527842134210896,
+                    "calls": 16,
+                    "tokens": 11046,
+                    "detail": "harness-estimated tokens",
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ],
+            "residency": {
+                "observedK": 8,
+                "observedCost": "0.01595139678",
+                "calibrationError": "0",
+                "loggedBatches": null,
+                "scenarios": [
+                    {
+                        "label": "k=8",
+                        "k": 8,
+                        "cost": "0.01595139678",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 222815
+                    },
+                    {
+                        "label": "k=17",
+                        "k": 17,
+                        "cost": "0.01595139678",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 222815
+                    },
+                    {
+                        "label": "off",
+                        "k": 1000000,
+                        "cost": "0.01595139678",
+                        "batches": [],
+                        "repaidTokens": 0,
+                        "inputTokens": 222815
+                    }
+                ],
+                "unmeasured": null
+            },
+            "provenance": {
+                "requirements": [
+                    "task rest-todo (greenfield)"
+                ],
+                "verification": "tests (declared): python -m unittest discover -s tests",
+                "checks": [
+                    "run tests (model): failed×2, passed×2",
+                    "verify (declared checks): passed×1"
+                ],
+                "outcome": "completed",
+                "acceptance": null,
+                "acceptUnverified": false,
+                "acceptanceSurface": [],
+                "testEdits": [],
+                "external": "passed (exit 0)",
+                "extra": {}
+            }
+        }
+    ],
+    "groups": [
+        {
+            "group": "results-deepseek · openrouter/deepseek/deepseek-v4.1-flash",
+            "runs": 6,
+            "calls": 74,
+            "externallyAccepted": 6,
+            "acceptUnverified": 4,
+            "billed": "0.0545906394",
+            "estimate": "0.0545906394",
+            "total": "0.0545906394",
+            "complete": true,
+            "uncachedInput": {
+                "tokens": 217681,
+                "money": "0.0043100838",
+                "share": 0.07895279936948311,
+                "reported": true
+            },
+            "cacheRead": {
+                "tokens": 671232,
+                "money": "0.0132903936",
+                "share": 0.243455540108585,
+                "reported": true
+            },
+            "cacheWrite": {
+                "tokens": 0,
+                "money": "0",
+                "share": 0.0,
+                "reported": false
+            },
+            "output": {
+                "tokens": 62273,
+                "money": "0.036990162",
+                "share": 0.6775916605219319,
+                "reported": true
+            },
+            "reasoning": {
+                "tokens": 36820,
+                "money": "0.02187108",
+                "share": 0.4006379159574379,
+                "reported": true
+            },
+            "hitShare": 0.755115517491588,
+            "qHat": 0.9073552240699128,
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.0263642544",
+                    "share": 0.48294459800740125,
+                    "calls": 34,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 2,
+                    "tokens": 12081,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "unmeasured in 6 of 6 runs: the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0008844066",
+                    "share": 0.016200700517898677,
+                    "calls": 74,
+                    "tokens": 44667,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ]
+        },
+        {
+            "group": "results-glm · openrouter/z-ai/glm-5.3-flash",
+            "runs": 6,
+            "calls": 76,
+            "externallyAccepted": 6,
+            "acceptUnverified": 2,
+            "billed": "0.05090148954",
+            "estimate": "0.05090148954",
+            "total": "0.05090148954",
+            "complete": true,
+            "uncachedInput": {
+                "tokens": 244871,
+                "money": "0.0228790485",
+                "share": 0.4494769938317998,
+                "reported": true
+            },
+            "cacheRead": {
+                "tokens": 511104,
+                "money": "0.01908175104",
+                "share": 0.3748760834396596,
+                "reported": true
+            },
+            "cacheWrite": {
+                "tokens": 0,
+                "money": "0",
+                "share": 0.0,
+                "reported": false
+            },
+            "output": {
+                "tokens": 21864,
+                "money": "0.00894069",
+                "share": 0.17564692272854066,
+                "reported": true
+            },
+            "reasoning": {
+                "tokens": 6497,
+                "money": "0.002575881",
+                "share": 0.05060521849710884,
+                "reported": true
+            },
+            "hitShare": 0.6760858493997818,
+            "qHat": 0.8105156893498255,
+            "wastes": [
+                {
+                    "waste": "TailAfterResult",
+                    "money": "0.01632814524",
+                    "share": 0.32077932075384213,
+                    "calls": 22,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "BackgroundPolls",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "CadenceEviction",
+                    "money": "0.00071401176",
+                    "share": 0.014027325456535157,
+                    "calls": 1,
+                    "tokens": 10017,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "PrefixMiss",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "WrittenBodies",
+                    "money": null,
+                    "share": null,
+                    "calls": null,
+                    "tokens": null,
+                    "detail": null,
+                    "unmeasured": "unmeasured in 6 of 6 runs: the log keeps no tool arguments (Studio's journal.call does)"
+                },
+                {
+                    "waste": "AnchorTail",
+                    "money": "0.0040091733",
+                    "share": 0.07876337875828693,
+                    "calls": 76,
+                    "tokens": 42746,
+                    "detail": null,
+                    "unmeasured": null
+                },
+                {
+                    "waste": "ImmediateStubs",
+                    "money": "0",
+                    "share": 0.0,
+                    "calls": 0,
+                    "tokens": 0,
+                    "detail": null,
+                    "unmeasured": null
+                }
+            ]
+        }
+    ]
+}
