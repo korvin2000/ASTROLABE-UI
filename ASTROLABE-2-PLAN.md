@@ -783,6 +783,7 @@ Codex).**
 | 2026-10-02 | Решения владельца №1, №9, №10, №11; §8.7 (ветки, возобновляемость, DoD), §16, приложение A | Opus 5.5 |
 | 2026-10-02 | P8 — обычная плановая фаза, а не out-of-order (поправка владельца); строка-указатель на план в `ASTROLABE/CLAUDE.md` и `AGENTS.md` | Opus 5.5 |
 | 2026-10-02 | S1, сверка с кодом (прав код): (1) D-356 `phase0/next-from-cursor` **уже предок `main`** — в A6 пункт сводится к проверке; (2) классов тестов из §6 нет: `ResponseTranslatorTest` → `TranslationTest`, `ProfileBindingTest`/`AiGateProfilesTest` → `AiGateAdapterTest`/`QualificationTest`, `ToolSchemasTest` → `ToolContractsTest`, тесты `EffectPolicy` → `BoundaryTest`/`CeilingTest`/`DiskContainmentTest`, событий → `EventsTest`/`SpansTest`; (3) по владению файлами: flaky FX-22 (`RunTest`) — в A5, не A6; A3 стартует после слияния A5 (схема `run` в `ToolSchemas.kt`); (4) номера задач P8 — `P8.<волна-буква>.<n>`, счёт: `rg -c '^#### P8\..*· DONE' TODO.md` | Opus 5.5 (S1) |
+| 2026-10-02 | Указание владельца (S1): наиболее критичные и сложные изменения каждой волны проверяются независимо — **Codex** для вычислений, математики и алгоритмов (учёт резерва A1, цены A2b, статистика BL/B4/D5, оценщики E1, правила F), **Fable** для взаимосвязанных задач, где важны архитектура и логика (A3, A4+A5, A6, протокол D, E2); ревью — при слиянии линии, до шлюза. Статус CI ядра читается без учётных данных (репозиторий публичный): `curl -s https://api.github.com/repos/korvin2000/ASTROLABE/actions/runs?branch=main` | Opus 5.5 (S1) |
 
 ---
 
