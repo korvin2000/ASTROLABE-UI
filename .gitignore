@@ -159,3 +159,6 @@ devtools/
 ASTROUI/.idea/
 diags/
 ideas/
+
+# ASTROLABE 2.0 live-run distributions and results (plan §8.5)
+bench/
