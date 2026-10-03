@@ -4,7 +4,7 @@ import { Api, errorInfo } from '../../core/api';
 import { Approach, Card, Effort, ErrorInfo, Limits, Mode, Task } from '../../core/model';
 import { AppStore } from '../../state/app.store';
 import { TaskStore } from '../../state/task.store';
-import { AcceptanceDecision, acceptanceBody } from './acceptance';
+import { AcceptanceDecision, ReviewDecision, acceptanceBody, reviewBody } from './acceptance';
 
 export type PanelTab = 'changes' | 'progress' | 'output';
 
@@ -69,6 +69,13 @@ export class TaskActions {
   /** Answers an acceptance card: the task is done, or it needs rework (with the user's words, if any). */
   async settle(card: Card, decision: AcceptanceDecision, text?: string): Promise<boolean> {
     const task = await this.run(() => this.api.post<Task>(this.path() + '/cards/' + encodeURIComponent(card.id), acceptanceBody(decision, text)));
+    this.took(task);
+    return !!task;
+  }
+
+  /** C11: answers a review card with the user's verdict on a test change. */
+  async review(card: Card, decision: ReviewDecision, text?: string): Promise<boolean> {
+    const task = await this.run(() => this.api.post<Task>(this.path() + '/cards/' + encodeURIComponent(card.id), reviewBody(decision, text)));
     this.took(task);
     return !!task;
   }

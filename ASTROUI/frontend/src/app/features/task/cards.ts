@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, afterNextRender, computed, inject, input, signal } from '@angular/core';
 import { I18n, TPipe } from '../../i18n/i18n';
 import { AppStore } from '../../state/app.store';
@@ -6,19 +7,19 @@ import { CardItem, ChecksItem, ErrorItem, ResultItem } from '../../timeline/time
 import { sentence } from '../../ui/error-line';
 import { MarkdownPipe } from '../../ui/markdown';
 import { usageText } from '../../ui/units';
-import { AcceptanceDecision, acceptanceChoices, reworkable, verifiedOf } from './acceptance';
+import { AcceptanceDecision, ReviewDecision, acceptanceChoices, modelVerdictKey, reviewChoices, reworkable, testChanges, verifiedOf } from './acceptance';
 import { ActionId, actionsOf } from './error-actions';
 import { limitKindOf } from './limits';
 import { TaskActions } from './task-actions';
 
-// The cards of the conversation (section 7.5, 7.8, 10): question, approval, suggestion, checks, error and result.
+// The cards of the conversation (section 7.5, 7.8, 10): question, approval, suggestion, review, checks, error and result.
 // A waiting card takes the focus when it appears; keys 1–9 choose an option once the card has the focus.
 
 /** Question, approval or suggestion; collapsed to one line once it is answered. */
 @Component({
   selector: 'as-ask-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TPipe],
+  imports: [TPipe, NgTemplateOutlet],
   template: `
     @if (item().status === 'pending') {
       <section class="card attn" tabindex="-1" role="group" [attr.aria-label]="('card.' + card().kind) | t">
@@ -52,8 +53,20 @@ import { TaskActions } from './task-actions';
               <button class="btn" [disabled]="actions.busy()" (click)="actions.decide(card(), 'decline')"><kbd>2</kbd>{{ 'action.decline' | t }}</button>
             </div>
           }
+          @case ('review') {
+            <h3>{{ (card().variant === 'integrity' ? 'card.integrity_title' : 'card.review_title') | t }}</h3>
+            <ng-container *ngTemplateOutlet="changed" />
+            <div class="row">
+              @for (c of reviewChoices; track c.decision) {
+                <button class="btn" [class.pri]="c.primary" [disabled]="actions.busy() || sent()" (click)="answerReview(c.decision)"><kbd>{{ $index + 1 }}</kbd>{{ c.label | t }}</button>
+              }
+            </div>
+          }
           @case ('acceptance') {
-            @if (card().variant === 'rejected') {
+            @if (card().variant === 'integrity') {
+              <h3>{{ 'card.integrity_title' | t }}</h3>
+              <ng-container *ngTemplateOutlet="changed" />
+            } @else if (card().variant === 'rejected') {
               <h3>{{ 'card.acceptance_rejected' | t }}</h3>
               <ul class="findings">
                 @for (f of findings(); track $index) {
@@ -76,16 +89,44 @@ import { TaskActions } from './task-actions';
     } @else {
       <div class="done">
         <span class="muted">{{ ('card.' + card().kind) | t }}:</span>
-        @if (card().kind !== 'acceptance') { <span>{{ card().kind === 'approval' ? card().command : card().text }}</span> }
+        @if (card().kind === 'review') { <span>{{ paths() }}</span> }
+        @else if (card().kind !== 'acceptance') { <span>{{ card().kind === 'approval' ? card().command : card().text }}</span> }
         <span class="muted">— {{ outcome() }}</span>
       </div>
-    }`,
+    }
+    <!-- C11: the changed tests, the checks they affect, the agent's reason and the model's verdict beside them. -->
+    <ng-template #changed>
+      <ul class="tests">
+        @for (t of tests(); track t.path) {
+          <li>
+            <code>{{ t.path }}</code>
+            @if (t.checks.length) { <div class="muted small">{{ 'card.integrity_checks' | t: { checks: t.checks.join(', ') } }}</div> }
+            @if (t.reason) { <div class="muted small">{{ 'card.integrity_reason' | t: { reason: t.reason } }}</div> }
+          </li>
+        }
+      </ul>
+      @if (card().model; as m) {
+        <p class="muted small">{{ modelKey() | t }}@if (m.summary) { {{ m.summary }} }</p>
+        @if (modelFindings().length) {
+          <ul class="findings">
+            @for (f of modelFindings(); track $index) {
+              <li><span class="sev" [class.bad]="f.severity === 'blocker'">{{ f.label }}</span>@if (f.location) { <code>{{ f.location }}</code> }<span>{{ f.issue }}</span></li>
+            }
+          </ul>
+        }
+      } @else if (attached()) {
+        <p class="muted small">{{ 'card.model.attached' | t }}</p>
+      }
+      <p class="muted small">{{ 'card.integrity_note' | t }}</p>
+    </ng-template>`,
   styles: [`
     .done { margin: 10px 0; padding-left: 10px; border-left: 2px solid var(--border); font-size: 13px; }
     .done span + span { margin-left: 5px; }
     .findings { margin: 0 0 12px; padding-left: 18px; font-size: 13px; }
     .findings li + li { margin-top: 4px; }
     .findings li > * + * { margin-left: 6px; }
+    .tests { margin: 0 0 10px; padding-left: 18px; font-size: 13px; }
+    .tests li + li { margin-top: 4px; }
     .sev { font-weight: 600; color: var(--warn); }
     .sev.bad { color: var(--bad); }
   `],
@@ -105,19 +146,36 @@ export class AskCard {
 
   readonly choices = computed(() => acceptanceChoices(this.card()));
   readonly reasons = computed(() => (this.card().items ?? []).map(i => i.reason).filter(Boolean).join('; '));
-  readonly findings = computed(() => {
+  readonly findings = computed(() => this.labelled((this.card().items ?? []).flatMap(i => i.findings ?? [])));
+  readonly reviewChoices = reviewChoices();
+  readonly tests = computed(() => testChanges(this.card()));
+  readonly paths = computed(() => this.tests().map(t => t.path).join(', '));
+  readonly modelKey = computed(() => modelVerdictKey(this.card().model?.outcome));
+  readonly modelFindings = computed(() => this.labelled(this.card().model?.findings ?? []));
+  /** A model's verdict the agent's runtime attached to an item (its signer is internal; the user sees that one exists). */
+  readonly attached = computed(() => (this.card().items ?? []).some(i => !!i.by));
+
+  private labelled(findings: { severity: string; location: string; issue: string }[]) {
     this.i18n.lang();
-    return (this.card().items ?? []).flatMap(i => i.findings ?? []).map(f => {
+    return findings.map(f => {
       const key = 'card.severity.' + f.severity;
       return { ...f, label: this.i18n.has(key) ? this.i18n.t(key) : f.severity };
     });
-  });
+  }
 
   readonly outcome = computed(() => {
     this.version();
     const item = this.item();
     if (item.status === 'expired' || item.status === 'superseded') return this.i18n.t('card.expired');
     if (item.card.kind === 'question') return item.answer ?? this.i18n.t('card.no_answer');
+    if (item.card.kind === 'review') {
+      return this.i18n.t(item.decision === 'approved' ? 'card.approved_change' : item.decision === 'rejected' ? 'card.rejected_change' : 'card.no_answer');
+    }
+    if (item.card.kind === 'acceptance' && item.card.variant === 'integrity') {
+      if (item.decision === 'done') return this.i18n.t('card.approved_change');
+      if (item.decision === 'rework') return item.answer ? this.i18n.t('card.acceptance_rework_text', { text: item.answer }) : this.i18n.t('card.rejected_change');
+      return this.i18n.t('card.expired');
+    }
     if (item.card.kind === 'acceptance') {
       if (item.decision === 'done') return this.i18n.t('card.acceptance_done');
       if (item.decision !== 'rework') return this.i18n.t('card.expired');
@@ -138,6 +196,12 @@ export class AskCard {
   accept(): void {
     if (this.card().relaxes && !this.armed()) { this.armed.set(true); return; }
     void this.actions.decide(this.card(), 'accept', this.armed());
+  }
+
+  async answerReview(decision: ReviewDecision): Promise<void> {
+    if (this.sent()) return;
+    this.sent.set(true);
+    if (!(await this.actions.review(this.card(), decision))) this.sent.set(false);
   }
 
   async settle(decision: AcceptanceDecision): Promise<void> {
@@ -162,6 +226,9 @@ export class AskCard {
     } else if (card.kind === 'acceptance') {
       const c = this.choices()[n - 1];
       if (c) { ev.preventDefault(); void this.settle(c.decision); }
+    } else if (card.kind === 'review') {
+      const c = this.reviewChoices[n - 1];
+      if (c) { ev.preventDefault(); void this.answerReview(c.decision); }
     } else if (n === 1) { ev.preventDefault(); this.accept(); }
     else if (n === 2) { ev.preventDefault(); void this.actions.decide(card, 'decline'); }
   }

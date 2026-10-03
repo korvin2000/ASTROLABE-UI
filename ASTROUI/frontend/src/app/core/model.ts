@@ -39,7 +39,7 @@ export type Effort = 'low' | 'medium' | 'high';
 export interface Card {
   id: string;
   workId: string;
-  kind: 'question' | 'approval' | 'suggestion' | 'acceptance';
+  kind: 'question' | 'approval' | 'suggestion' | 'acceptance' | 'review';
   status: string;
   createdAt: string;
   text?: string;
@@ -50,11 +50,19 @@ export interface Card {
   detail?: string;
   pattern?: string;
   relaxes?: boolean;
-  /** Acceptance: the result could not be checked (`unverified`) or a review rejected it after one rework round. */
-  variant?: 'unverified' | 'rejected';
-  items?: { reason: string; status: string; findings: { severity: string; location: string; issue: string }[] }[];
+  /**
+   * Acceptance: the result could not be checked (`unverified`), a review rejected it after one rework round, or (C11) the
+   * agent changed tests only the user may approve (`integrity`). Review: `integrity`, or a plain `review`.
+   */
+  variant?: 'unverified' | 'rejected' | 'integrity' | 'review';
+  /** C11: a changed test has its `path` and the required `checks` it affects; on a review card `reason` is the agent's. */
+  items?: { reason?: string; status?: string; findings?: Finding[]; path?: string; checks?: string[]; humanOnly?: boolean; by?: string }[];
+  /** C11: the model's verdict attached to the user's card as information, never as the answer. */
+  model?: { outcome: string; summary?: string; findings: Finding[] };
   summary?: string;
 }
+
+export interface Finding { severity: string; location: string; issue: string; }
 
 export interface TaskRun {
   workId: string;

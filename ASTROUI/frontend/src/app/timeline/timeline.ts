@@ -24,7 +24,7 @@ export interface CardItem {
   /** `pending`, then how it ended: answered, declined, expired or superseded. */
   status: string;
   answer?: string;
-  decision?: 'allowed' | 'denied' | 'accepted' | 'declined' | 'done' | 'rework';
+  decision?: 'allowed' | 'denied' | 'accepted' | 'declined' | 'done' | 'rework' | 'approved' | 'rejected';
 }
 export interface ErrorItem { type: 'error'; id: string; at: string; error: ErrorInfo; state: TaskState; workId: string; }
 export interface ResultItem { type: 'result'; id: string; at: string; workId: string; summary: string; }
@@ -244,6 +244,10 @@ export class Timeline {
           // The reply's text is the core's reason, not the user's words; those arrive as a `studio.user_message` answer.
           const said = str(reply['kind']);
           entry.decision = said === 'accept' ? 'done' : said === 'rework' ? 'rework' : undefined;
+        } else if (entry.card.kind === 'review') {
+          // C11: the user's verdict on a test change; no reply is no answer.
+          const outcome = str(reply['outcome']);
+          entry.decision = outcome === 'Approve' ? 'approved' : outcome ? 'rejected' : undefined;
         } else {
           entry.decision = str(reply['outcome']) === 'Accepted' ? 'accepted' : 'declined';
         }
@@ -471,6 +475,9 @@ export class Timeline {
       this.pushAhead({ type: 'notice', id, at: item.at, text: { key: verdict === 'accepted' ? 'notice.suggestion_accepted' : 'notice.suggestion_declined', params: { text: str(card['text']) } } });
     } else if (kind === 'acceptance' && verdict === 'accepted') {
       this.pushAhead({ type: 'notice', id, at: item.at, text: { key: 'notice.auto_accepted_unverified' } });
+    } else if (kind === 'review' && obj(d['request'])['humanOnly'] === true) {
+      // C11: the model looked at a test change only the user may approve; its word is on the user's card, not a result.
+      this.technical.push(item);
     } else if (kind === 'review') {
       this.stage = Math.max(this.stage, 3);
       const key = verdict === 'approve' ? 'notice.review_passed' : verdict === 'unavailable' ? 'notice.review_unavailable' : 'notice.review_revise';

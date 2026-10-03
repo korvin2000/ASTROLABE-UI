@@ -36,6 +36,8 @@ const ACTIONS: Record<string, ActionId[]> = {
   // The run waits for the user's word on its result: the acceptance card answers it, never Continue.
   acceptance_decision: ['copy_details'],
   review_rejected: ['copy_details'],
+  // C11: a test change waits for the user's approval on its card.
+  integrity_review: ['copy_details'],
 };
 
 /** The actions of [code]; a code nobody knows is an agent error (section 10 rule 3). */
