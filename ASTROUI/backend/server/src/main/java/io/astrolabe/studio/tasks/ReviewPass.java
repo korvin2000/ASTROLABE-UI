@@ -165,6 +165,8 @@ public class ReviewPass implements DisposableBean {
         verdict.set("reviewedCandidate", request.get("candidate"));
         verdict.put("confidence", 0.7);
         verdict.put("signedBy", signedBy);
+        // D-397: the review pass is a model; its approval is agent evidence, never independent verification.
+        verdict.put("reviewer", "model");
         ArrayNode findings = verdict.putArray("findings");
         String missing = null;
         switch (answer) {

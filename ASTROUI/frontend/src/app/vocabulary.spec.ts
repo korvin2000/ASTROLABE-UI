@@ -53,7 +53,8 @@ function attributes(html: string): string[] {
 const KEY = /^[a-z_]+(\.[a-z0-9_-]+)+$/;
 const FAMILIES = ['action', 'gate', 'banner', 'error', 'sidebar', 'demo', 'dialog', 'folder', 'connect', 'signin', 'welcome', 'picker', 'price', 'effort', 'mode', 'composer',
   'new', 'example', 'card', 'effect', 'checks', 'verified', 'result', 'state', 'step', 'now', 'notice', 'group', 'flow', 'rail', 'progress', 'plan', 'output', 'changes', 'commit',
-  'undo', 'panel', 'watchdog', 'settings', 'theme', 'account', 'confirm', 'empty', 'time', 'usage', 'count', 'notify', 'task'];
+  'undo', 'panel', 'watchdog', 'settings', 'theme', 'account', 'confirm', 'empty', 'time', 'usage', 'count', 'notify', 'task',
+  'preset', 'limit', 'meter', 'provenance'];
 /** Names of events and topics that look like keys. */
 const NOT_KEYS = new Set(['task.updated', 'task.deleted', 'task.done', 'task.failed', 'task.paused', 'notice.', 'accounts.changed']);
 

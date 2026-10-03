@@ -416,7 +416,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return complete(decisionId, p, "declined", payload, actor, reason);
     }
 
-    private ObjectNode buildReply(String kind, JsonNode request, JsonNode reply, String actor) {
+    ObjectNode buildReply(String kind, JsonNode request, JsonNode reply, String actor) {
         ObjectNode o = Json.obj();
         int revision = request.get("contractRevision").asInt();
         switch (kind) {
@@ -444,6 +444,8 @@ public class DecisionService implements AuthorityPort, PolicyListener {
                 o.put("contractRevision", revision);
                 if (!o.hasNonNull("reviewedCandidate") && request.hasNonNull("candidate")) o.set("reviewedCandidate", request.get("candidate"));
                 o.put("signedBy", "user:" + actor);
+                // D-397/D-400: only a person's verdict is independent verification; the core reads a verdict without it as a model's.
+                o.put("reviewer", "human");
             }
             default -> {
                 String outcome = Json.text(reply, "outcome", "Accepted");

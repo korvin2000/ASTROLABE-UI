@@ -1,6 +1,7 @@
 import { parseEnvelope, splitResult } from '../core/envelope';
 import { Card, ErrorInfo, StudioItem, TaskState } from '../core/model';
 import { Text } from '../i18n/translate';
+import { Meter } from './meter';
 import { Step, ToolCall, describe, hidden, nodeOf, opOf, statusOf, working } from './steps';
 
 /** Run outcomes that end a task done: verified work, or an answer that changed nothing (core D-344). */
@@ -71,7 +72,8 @@ export class Timeline {
   lastEventAt = 0;
   tokens = 0;
   modelCalls = 0;
-  limitTokens = 0;
+  /** C4: what the current run spent against its limits. */
+  readonly meter = new Meter();
   /** The last start was acknowledged by the agent (section 7.7: a start without it becomes E-15 after 30 seconds). */
   acknowledged = true;
   requestedAt = 0;
@@ -98,6 +100,7 @@ export class Timeline {
       run.lastSeq = item.seq;
     }
     try {
+      this.meter.apply(item.kind, item.data ?? {}, item.at);
       this.reduce(item, run);
     } catch {
       // A malformed item must never break the timeline (FE-6); it is kept for the technical view.
@@ -182,7 +185,6 @@ export class Timeline {
         if (str(d['status']) === 'running') this.now({ key: 'now.starting' }, item);
         return;
       case 'studio.opened':
-        this.limitTokens = num(d['tokens']);
         this.acknowledged = true;
         return;
       case 'studio.verification': {

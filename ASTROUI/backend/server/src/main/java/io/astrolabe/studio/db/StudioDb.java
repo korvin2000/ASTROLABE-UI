@@ -29,7 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class StudioDb {
     private static final Logger log = LoggerFactory.getLogger(StudioDb.class);
 
-    static final List<List<String>> MIGRATIONS = List.of(
+    public static final List<List<String>> MIGRATIONS = List.of(
         List.of(
             "CREATE TABLE project (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL, demo INTEGER NOT NULL DEFAULT 0, " +
                 "state_root TEXT, repo_identity TEXT, added_at TEXT NOT NULL, opened_at TEXT, pinned INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0)",
@@ -84,6 +84,18 @@ public class StudioDb {
             "ALTER TABLE llm_request ADD COLUMN error_code TEXT",
             "ALTER TABLE llm_request ADD COLUMN attempts_detail TEXT",
             "ALTER TABLE llm_request ADD COLUMN tags TEXT"
+        ),
+        // ASTROLABE 2.0 C4: the limits and approach of each run; the token limit becomes limits in money, minutes and
+        // requests — a money limit the user set is kept as is, `auto` and `tokens` take the new defaults.
+        List.of(
+            "ALTER TABLE campaign_index ADD COLUMN limits_json TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN preset TEXT",
+            // A money limit above the new maximum becomes the maximum, never the default: the user sees what applies.
+            "INSERT OR IGNORE INTO preference (key, json, updated_at) SELECT 'taskLimits', " +
+                "json_object('moneyUsd', CASE WHEN CAST(json_extract(json, '$.value') AS REAL) > 10000 THEN '10000.00' " +
+                "ELSE CAST(json_extract(json, '$.value') AS TEXT) END, 'minutes', 480, 'requests', 3000), updated_at " +
+                "FROM preference WHERE key = 'limit' AND json_extract(json, '$.kind') = 'money'",
+            "DELETE FROM preference WHERE key = 'limit'"
         )
     );
 

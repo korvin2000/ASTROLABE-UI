@@ -11,6 +11,7 @@ import { ErrorLine } from '../../ui/error-line';
 import { ConnectDialog } from '../accounts/connect-dialog';
 import { ModelPicker } from '../accounts/model-picker';
 import { FolderDialog } from '../welcome/folder-dialog';
+import { LimitKind, parseLimit } from '../task/limits';
 import { SECTIONS, SETTINGS, Section } from './setting-list';
 
 type Confirm =
@@ -63,7 +64,10 @@ export class Settings {
   checks: Record<'test' | 'build' | 'lint', string> = { test: '', build: '', lint: '' };
   allowNew = '';
   protectNew = '';
-  limitValue = '';
+  /** Setting 13 (C4): the default limits of a new task; an empty field is no limit. */
+  limitFields: Record<LimitKind, string> = { money: '', minutes: '', requests: '' };
+  readonly limitKinds: LimitKind[] = ['money', 'minutes', 'requests'];
+  readonly limitInvalid = signal(false);
 
   readonly current = computed<Section>(() => (SECTIONS.includes(this.section() as Section) ? (this.section() as Section) : 'general'));
   readonly prefs = computed<Preferences | null>(() => this.app.preferences());
@@ -103,8 +107,8 @@ export class Settings {
     effect(() => { if (this.choose()) untracked(() => this.choosing.set(true)); });
     effect(() => { if (this.current() === 'advanced') untracked(() => this.advancedOpen.set(true)); });
     effect(() => {
-      const limit = this.prefs()?.limit;
-      untracked(() => { this.limitValue = limit?.value ?? ''; });
+      const l = this.prefs()?.taskLimits;
+      untracked(() => { this.limitFields = { money: l?.moneyUsd ?? '', minutes: l?.minutes?.toString() ?? '', requests: l?.requests?.toString() ?? '' }; });
     });
   }
 
@@ -293,18 +297,13 @@ export class Settings {
 
   // ------------------------------------------------------------------------------------------------ advanced
 
-  limit(kind: 'auto' | 'tokens' | 'money'): void {
-    if (kind === 'auto') { this.set('limit', { kind }); return; }
-    const fallback = kind === 'tokens' ? '2000000' : '5';
-    const value = this.prefs()?.limit.kind === kind && this.limitValue ? this.limitValue : fallback;
-    this.limitValue = value;
-    this.set('limit', { kind, value });
-  }
-
-  saveLimit(): void {
-    const kind = this.prefs()?.limit.kind;
-    const value = this.limitValue.trim().replace(',', '.');
-    if (kind && kind !== 'auto' && value) this.set('limit', { kind, value });
+  saveLimits(): void {
+    const money = parseLimit('money', this.limitFields.money);
+    const minutes = parseLimit('minutes', this.limitFields.minutes);
+    const requests = parseLimit('requests', this.limitFields.requests);
+    this.limitInvalid.set(money === undefined || minutes === undefined || requests === undefined);
+    if (this.limitInvalid()) return;
+    this.set('taskLimits', { moneyUsd: money as string | null, minutes: minutes as number | null, requests: requests as number | null });
   }
 
   async copyPath(): Promise<void> {

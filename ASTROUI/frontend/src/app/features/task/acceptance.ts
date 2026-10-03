@@ -1,4 +1,5 @@
-import { Card, Task } from '../../core/model';
+import { Card, ProvenanceClass, Task } from '../../core/model';
+import { limitKindOf } from './limits';
 
 // The acceptance card (B3) and the "Verified" line of the result: which answers the user has, and how a result was
 // checked. Pure, so the rules are tested without a view.
@@ -25,14 +26,20 @@ export function reworkable(kind: Task['verified'] | string | undefined): boolean
   return kind === 'unverified' || kind === 'user';
 }
 
-/** A done task whose result no check passed (F5): it reads "Done · not verified", never a plain "Done". */
-export function doneUnverified(state: string | undefined, kind: Task['verified'] | string | undefined): boolean {
+/**
+ * A done task whose result no check passed (F5): it reads "Done · not verified", never a plain "Done". With the core's
+ * provenance class (C4) only an independent check counts: the agent's own test or a model judge's approval does not.
+ */
+export function doneUnverified(state: string | undefined, kind: Task['verified'] | string | undefined, provenance?: ProvenanceClass): boolean {
+  if (provenance) return state === 'done' && provenance !== 'independent';
   return state === 'done' && kind !== 'answer' && !verifiedOf(kind).ok;
 }
 
-/** The catalog key of a task's state, with the "not verified" qualifier of [doneUnverified]. */
-export function stateKey(state: string | undefined, kind: Task['verified'] | string | undefined): string {
-  return doneUnverified(state, kind) ? 'state.done_unverified' : 'state.' + state;
+/** The catalog key of a task's state, with the qualifiers of [doneUnverified] and of a stop at the user's limit. */
+export function stateKey(state: string | undefined, kind: Task['verified'] | string | undefined, provenance?: ProvenanceClass, reason?: string): string {
+  if (state === 'paused' && limitKindOf(reason)) return 'state.paused_limit';
+  if (state === 'done' && provenance === 'agent_test') return 'state.done_agent_test';
+  return doneUnverified(state, kind, provenance) ? 'state.done_unverified' : 'state.' + state;
 }
 
 /** How the result was checked: the catalog key, whether it counts as verified (✓), whether it has an output. */

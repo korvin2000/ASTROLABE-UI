@@ -114,8 +114,9 @@ public class CampaignService {
                 "title = coalesce(campaign_index.title, excluded.title), updated_at = max(campaign_index.updated_at, excluded.updated_at)",
             work, projectId, firstLine(title), "stored", Json.text(c, "phase"), Json.text(c, "outcome"), state == null ? null : Json.text(state, "reason"),
             contract == null ? null : Json.text(contract, "shape"), contract == null ? null : Json.text(contract, "mode"), Json.text(c, "fingerprint"), created, updated,
-            state == null ? null : Json.text(state, "stopCode"));
+            state == null ? null : io.astrolabe.studio.bridge.StopCodes.wire(Json.text(state, "stopCode", Json.text(state, "budgetStop"))));
     }
+
 
     /** Re-reads one campaign from its store into the index and notifies clients (R-SHL-01). */
     public void refresh(String workId) {
@@ -284,7 +285,7 @@ public class CampaignService {
             text, tokens,
             costAmount == null ? null : Json.text(options, "costCurrency", "USD"), costAmount,
             options != null && Json.bool(options, "resumeExpected", false),
-            (int) (options != null && options.hasNonNull("maxCells") ? options.get("maxCells").asLong() : runtime.path("maxCells").asLong(12)),
+            (int) (options != null && options.hasNonNull("maxCells") ? options.get("maxCells").asLong() : runtime.path("maxCells").asLong(48)),
             runtime.path("leaseMinutes").asLong(480),
             options != null && options.hasNonNull("effort") ? Json.text(options, "effort") : Json.text(runtime, "effort", "Medium"),
             runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null);
@@ -332,6 +333,11 @@ public class CampaignService {
         opening.add(r.workId());
         pipeline.expect(r.workId(), r.projectId());
         changed(r.workId(), true);
+    }
+
+    /** ASTROLABE 2.0 C4: the limits and the approach of a run, kept with it; a raised limit replaces its limits. */
+    public void setBudget(String workId, String limitsJson, String preset) {
+        jdbc.update("UPDATE campaign_index SET limits_json = ?, preset = coalesce(?, preset) WHERE work_id = ?", limitsJson, preset, workId);
     }
 
     /** Opens and starts a registered run; the caller turns a failure into a normalised error. */
@@ -410,6 +416,12 @@ public class CampaignService {
         if (ref.getStopReason() != null) o.put("stopReason", ref.getStopReason());
         if (ref.getStopCode() != null) o.put("stopCode", ref.getStopCode());
         o.put("tokens", spec.getTokens());
+        // C4: the run's limits for the live meter (null fields are no limit) and its approach.
+        ObjectNode limits = o.putObject("limits");
+        limits.put("moneyUsd", spec.getLimits().getMoneyUsd());
+        limits.put("minutes", spec.getLimits().getMinutes());
+        limits.put("requests", spec.getLimits().getRequests());
+        o.put("preset", spec.getPreset());
         o.put("maxCells", spec.getMaxCells());
         o.put("leaseMinutes", spec.getLeaseMinutes());
         o.put("effort", spec.getEffort());
@@ -430,7 +442,7 @@ public class CampaignService {
         pipeline.runEnded(workId, data);
         markEnded(workId);
         refresh(workId);
-        jdbc.update("UPDATE campaign_index SET stop_code = ? WHERE work_id = ?", "waiting_for_input".equals(outcome) ? stopCode : null, workId);
+        jdbc.update("UPDATE campaign_index SET stop_code = ? WHERE work_id = ?", "waiting_for_input".equals(outcome) || "budget_exhausted".equals(outcome) ? stopCode : null, workId);
         try {
             runEnded.ended(workId, outcome, reason, stopCode, failure);
         } catch (RuntimeException e) {
@@ -462,7 +474,7 @@ public class CampaignService {
         }
         if (amendment != null && !amendment.isBlank()) host().amend(projectId, workId, amendment.strip());
         ObjectNode runtime = settings.runtime(projectId);
-        StartSpec spec = new StartSpec("resume", 1, null, null, false, runtime.path("maxCells").asInt(12), runtime.path("leaseMinutes").asLong(480),
+        StartSpec spec = new StartSpec("resume", 1, null, null, false, runtime.path("maxCells").asInt(48), runtime.path("leaseMinutes").asLong(480),
             Json.text(runtime, "effort", "Medium"), runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null);
         opening.add(workId);
         changed(workId, true);

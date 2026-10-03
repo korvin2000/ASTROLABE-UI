@@ -56,7 +56,7 @@ public class SettingsService {
 
     public static final ObjectNode RUNTIME_DEFAULTS = Json.obj()
         .put("leaseMinutes", 480)
-        .put("maxCells", 12)
+        .put("maxCells", 48)
         .put("autoResumeOnLateAnswer", false)
         .put("decisionReminderMinutes", 15)
         .put("maxConcurrentCampaigns", 3)

@@ -8,6 +8,7 @@ import { MarkdownPipe } from '../../ui/markdown';
 import { usageText } from '../../ui/units';
 import { AcceptanceDecision, acceptanceChoices, reworkable, verifiedOf } from './acceptance';
 import { ActionId, actionsOf } from './error-actions';
+import { limitKindOf } from './limits';
 import { TaskActions } from './task-actions';
 
 // The cards of the conversation (section 7.5, 7.8, 10): question, approval, suggestion, checks, error and result.
@@ -205,8 +206,10 @@ export class ChecksCard {
   imports: [TPipe],
   template: `
     <section class="card" [class.err]="item().state === 'failed'" [class.attn]="item().state !== 'failed'" role="alert">
-      <div class="k">{{ ('state.' + (item().state === 'failed' ? 'failed' : 'paused')) | t }}</div>
+      <div class="k">{{ (limited() ? 'state.paused_limit' : 'state.' + (item().state === 'failed' ? 'failed' : 'paused')) | t }}</div>
       <p>{{ text() }}</p>
+      @if (best(); as b) { <p class="muted">{{ ('limit.best.' + b) | t }}</p> }
+      @if (limited() && latest()) { <p class="muted">{{ 'limit.new_run_note' | t }}</p> }
       @if (said(); as words) { <blockquote class="said">{{ words }}</blockquote> }
       @if (latest()) {
         <div class="row">
@@ -235,8 +238,18 @@ export class ErrorCard {
   readonly latest = input(true);
   readonly copied = signal(false);
 
-  readonly text = computed(() => { this.i18n.lang(); return sentence(this.i18n, this.item().error); });
+  readonly text = computed(() => {
+    this.i18n.lang();
+    const e = this.item().error;
+    // A time limit of two hours or more reads in hours, as the limits menu writes it.
+    const minutes = Number(e.params?.['limit']);
+    if (e.code === 'limit_minutes' && minutes >= 120) return this.i18n.t('error.limit_hours', { limit: Math.round((minutes / 60) * 10) / 10 });
+    return sentence(this.i18n, e);
+  });
   readonly acts = computed<ActionId[]>(() => actionsOf(this.item().error.code));
+  /** C4: a stop at the user's limit, and — on the last card — where the best verified result is. */
+  readonly limited = computed(() => limitKindOf(this.item().error.code) !== null);
+  readonly best = computed(() => (this.limited() && this.latest() ? this.store.task()?.limit?.best ?? null : null));
   /** Why the agent stopped, in its own words: the user has to read them to answer (section 10, `blocked`). */
   readonly said = computed(() => {
     const e = this.item().error;
@@ -272,6 +285,7 @@ export class ErrorCard {
       case 'show_output': this.actions.show({ panel: 'output' }); break;
       case 'copy_details': void this.copy(); break;
       case 'stop': void this.actions.stop(); break;
+      case 'raise_limit': this.actions.show({ dialog: 'limits' }); break;
       default: void this.actions.resume();
     }
   }
@@ -296,7 +310,7 @@ export class ErrorCard {
             } @else { <span class="muted">{{ 'empty.changes' | t }}</span><span></span> }
           } @else { <span class="muted">…</span><span></span> }
           <span class="l">{{ 'result.verified' | t }}</span>
-          <span>@if (verified().ok) { <span class="ok" aria-hidden="true">✓</span> } {{ verified().text }}</span>
+          <span>@if (verified().ok) { <span class="ok" aria-hidden="true">✓</span> } {{ verified().text }}@if (judge()) { · <span class="muted">{{ 'provenance.judge' | t }}</span> }</span>
           @if (verified().output) { <button class="lnk" (click)="actions.show({ panel: 'output' })">{{ 'action.show_output' | t }}</button> } @else { <span></span> }
           <span class="l">{{ 'result.used' | t }}</span><span>{{ used() }}</span><span></span>
         </div>
@@ -306,6 +320,16 @@ export class ErrorCard {
             @for (s of skipped(); track s.id) {
               <div class="row"><code class="grow ellipsis">{{ s.command }}</code><button class="btn sm" [disabled]="actions.busy()" (click)="actions.allowSkipped(s)">{{ 'action.allow_and_continue' | t }}</button></div>
             }
+          </div>
+        }
+        @if (offer(); as command) {
+          <div class="skipped">
+            <div class="l">{{ 'result.check_offer' | t }}</div>
+            <code class="cmd">{{ command }}</code>
+            <div class="row">
+              <button class="btn sm" [disabled]="actions.busy()" (click)="actions.adoptCheck(command)">{{ 'action.make_project_check' | t }}</button>
+              <button class="btn ghost sm" (click)="notNow()">{{ 'action.not_now' | t }}</button>
+            </div>
           </div>
         }
         @if ((changes()?.files ?? 0) > 0 || rework()) {
@@ -326,6 +350,7 @@ export class ErrorCard {
     .skipped { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
     .skipped .l { font-size: 13px; margin-bottom: 6px; }
     .skipped .row { flex-wrap: nowrap; margin-top: 4px; }
+    .skipped .cmd { display: block; font-family: var(--mono, monospace); margin: 2px 0 6px; white-space: pre-wrap; word-break: break-all; }
     .tag { font-size: 10px; font-weight: 600; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; }
   `],
 })
@@ -347,9 +372,42 @@ export class ResultCard {
 
   files(n: number): string { return this.i18n.n('count.files', n); }
 
-  /** The "Verified" line (section 7.8), honest about how the result was checked. */
+  /** C1b/C4: the agent's own test offered as the project's check, until the user says "Not now" for this task. */
+  private readonly dismissed = signal(0);
+  readonly offer = computed(() => {
+    this.dismissed();
+    const task = this.task();
+    const command = task?.checkOffer?.command;
+    if (!task || !command) return null;
+    try { if (localStorage.getItem('studio.checkOffer.' + task.id) === command) return null; } catch { /* storage may be unavailable */ }
+    return command;
+  });
+
+  notNow(): void {
+    const task = this.task();
+    if (!task?.checkOffer) return;
+    try { localStorage.setItem('studio.checkOffer.' + task.id, task.checkOffer.command); } catch { /* storage may be unavailable */ }
+    this.dismissed.update(n => n + 1);
+  }
+
+  /** D-397: a model judge's approval is shown beside the class, never as independent verification. */
+  readonly judge = computed(() => !!this.task()?.provenance?.judge);
+
+  /**
+   * The "Verified" line (section 7.8), honest about how the result was checked. With the core's provenance class (C4)
+   * the class leads and ✓ marks only an independent check; the detail follows.
+   */
   readonly verified = computed<{ ok: boolean; text: string; output: boolean }>(() => {
     this.i18n.lang();
+    const task = this.task();
+    const cls = task?.provenance?.class;
+    const plain = this.plain();
+    if (!cls) return plain;
+    const detail = ['tests', 'user', 'unverified'].includes(task?.verified ?? '') ? ' · ' + plain.text : '';
+    return { ok: cls === 'independent', text: this.i18n.t('provenance.' + cls) + detail, output: plain.output };
+  });
+
+  private plain(): { ok: boolean; text: string; output: boolean } {
     const task = this.task();
     const kind = task?.verified ?? 'none';
     if (kind === 'tests') {
@@ -360,5 +418,5 @@ export class ResultCard {
     }
     const v = verifiedOf(kind);
     return { ok: v.ok, text: this.i18n.t(v.key), output: v.output };
-  });
+  }
 }

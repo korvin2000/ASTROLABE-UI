@@ -22,3 +22,13 @@
 .send.stop { background: var(--text); }
 .send .sq { width: 10px; height: 10px; border-radius: 2px; background: var(--bg); display: block; }
 @media (max-width: 560px) { .pill { max-width: 120px; } }
+.limits { width: 330px; max-height: 460px; padding-bottom: 8px; }
+.limits button { align-items: flex-start; white-space: normal; }
+.limits b { display: block; font-weight: 500; }
+.limits small { display: block; color: var(--muted); font-size: 12px; }
+.limits .k { padding: 6px 10px 2px; font-size: 12px; color: var(--muted); }
+.limits .note { padding: 2px 10px; }
+.limits .bad { color: var(--bad); }
+.limits .lim { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 10px; font-size: 13px; }
+.limits .lim .input { width: 110px; }
+.limits .lnk, .limits .btn { margin: 4px 10px 0; }

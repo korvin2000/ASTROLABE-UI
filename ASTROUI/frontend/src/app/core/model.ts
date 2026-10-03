@@ -66,6 +66,13 @@ export interface TaskRun {
   reason?: ErrorInfo;
 }
 
+/** ASTROLABE 2.0 C4: how a run spends — the approach of its attempt. */
+export type Approach = 'economy' | 'balanced' | 'thorough';
+/** The user's limits of one run; null is no limit. */
+export interface Limits { moneyUsd: string | null; minutes: number | null; requests: number | null; }
+/** Who verified a result (core §4.4 C2): an independent check, only the agent's own test, or nothing. */
+export type ProvenanceClass = 'independent' | 'agent_test' | 'unverified';
+
 export interface Verification { kind: 'tests' | 'review' | string; source: string; command?: string | null; }
 
 export interface Task {
@@ -87,6 +94,14 @@ export interface Task {
   changes?: { files: number; added: number; removed: number };
   usage?: { tokens: number; cost?: { amount: string; currency: string }; elapsedMs: number };
   skipped?: Card[];
+  preset?: Approach;
+  limits?: Limits;
+  /** A completed run with a receipt: its class and whether a model judge approved an item. */
+  provenance?: { class: ProvenanceClass; judge: boolean };
+  /** A run stopped at the user's limit: which, and where its best verified result is. */
+  limit?: { kind: 'money' | 'minutes' | 'requests'; best: 'current' | 'earlier' | 'none' };
+  /** C1b: the agent's own test that could become the project's check. */
+  checkOffer?: { command: string };
 }
 
 export interface Project {
@@ -146,7 +161,8 @@ export interface Preferences {
   defaultModel: string | null;
   defaultEffort: Effort;
   defaultMode: Mode;
-  limit: { kind: 'auto' | 'tokens' | 'money'; value?: string };
+  taskLimits: Limits;
+  defaultPreset: Approach;
   maxTasks: number;
   demoMode: boolean;
   lastProject: string | null;

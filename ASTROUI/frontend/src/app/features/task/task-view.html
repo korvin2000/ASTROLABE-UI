@@ -4,7 +4,7 @@
       <span class="crumb ellipsis">{{ project()?.name }} ›</span>
       <h1 class="title ellipsis">{{ task()?.title }}</h1>
       @if (task(); as t) {
-        <span class="state"><as-state-mark [state]="store.state()" [unverified]="unverified()" />{{ stateKey(store.state(), t.verified) | t }}</span>
+        <span class="state"><as-state-mark [state]="store.state()" [unverified]="unverified()" />{{ stateKey(store.state(), t.verified, t.provenance?.class, t.reason?.code) | t }}</span>
         @if (t.demo) { <span class="tag">{{ 'demo.tag' | t }}</span> }
       }
       <span class="grow"></span>
@@ -85,9 +85,14 @@
         @if (store.status(); as s) {
           <div class="status" role="status"><span class="dot work"></span><span class="ellipsis">{{ s.text | t }}</span><span class="grow"></span><span>{{ clock(s.seconds) }}</span></div>
         }
+        @if (meter(); as m) {
+          <div class="status meter" [class.near]="m.near" [attr.aria-label]="'meter.label' | t" [title]="'meter.label' | t"><span class="ellipsis">{{ m.text }}</span></div>
+        }
         <as-composer #composer [placeholder]="placeholder()" [projectId]="task()?.projectId ?? null" [projectFixed]="true" [model]="model()" [effort]="effort()" [mode]="mode()"
           [working]="store.state() === 'working'" [busy]="actions.busy()"
-          (send)="send($event)" (stop)="actions.stop()" (modelChange)="choose({ model: $event })" (effortChange)="choose({ effort: $event })" (modeChange)="choose({ mode: $event })" />
+          (send)="send($event)" (stop)="actions.stop()" (modelChange)="choose({ model: $event })" (effortChange)="choose({ effort: $event })" (modeChange)="choose({ mode: $event })"
+          [approach]="approach()" [limits]="limits()" [raise]="raising()" [reached]="task()?.limits ?? null"
+          (approachChange)="choose({ preset: $event })" (limitsChange)="choose({ limits: $event })" (raiseConfirm)="raiseAndContinue()" (limitsClosed)="leaveRaise()" />
       </div>
     }
   </div>

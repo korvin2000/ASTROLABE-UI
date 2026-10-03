@@ -96,7 +96,6 @@ describe('a task with a question and an approval', () => {
   it('counts tokens and model calls', () => {
     expect(t.modelCalls).toBeGreaterThan(3);
     expect(t.tokens).toBeGreaterThan(1000);
-    expect(t.limitTokens).toBeGreaterThan(t.tokens);
   });
 });
 

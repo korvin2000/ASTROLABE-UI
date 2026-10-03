@@ -257,8 +257,7 @@ public class StudioHost @JvmOverloads public constructor(
                 leaseDuration = Duration.ofMinutes(spec.leaseMinutes.coerceAtLeast(1)),
                 estimators = estimators,
             )
-            val cost = if (spec.costCurrency != null && spec.costAmount != null) Money(spec.costCurrency, BigDecimal(spec.costAmount)) else null
-            val policy = CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected)
+            val policy = corePolicy(spec)
             val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text)
             var opened = controller.open(p.project, request, policy)
             val fresh = opened.contract.version == 1
@@ -311,6 +310,7 @@ public class StudioHost @JvmOverloads public constructor(
                 stopReason = opened.stop?.reason,
                 verification = verification,
                 stopCode = opened.stop?.code?.wire,
+                budgetStop = opened.state?.takeIf { it.phase == io.astrolabe.campaign.CampaignPhase.Ended }?.budgetStop?.wire,
             )
             campaign.job = scope.launch(CoroutineName("campaign-${work.value}")) {
                 var outcome: String? = null
@@ -322,7 +322,7 @@ public class StudioHost @JvmOverloads public constructor(
                     campaign.run = run
                     outcome = run.outcome?.wire ?: opened.stop?.outcome?.wire
                     reason = run.state?.reason ?: opened.stop?.reason
-                    code = (run.state?.stopCode ?: opened.stop?.code)?.wire
+                    code = (run.state?.stopCode ?: opened.stop?.code)?.wire ?: run.budgetStop?.wire
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     reason = "run job cancelled by the host (resumable)"
                     throw cancelled
@@ -349,6 +349,20 @@ public class StudioHost @JvmOverloads public constructor(
             runCatching { adapter.close() }
             throw failure
         }
+    }
+
+    /**
+     * The one point the run's limits and approach meet the core's C3 API (D-401). Named limits — raised ones included —
+     * replace the stored ones (all fields null is [io.astrolabe.budget.TaskLimits.NONE]); `null` keeps what is stored with
+     * the campaign. The approach is frozen with the attempt by the core.
+     */
+    internal fun corePolicy(spec: StartSpec): CampaignPolicy {
+        val cost = if (spec.costCurrency != null && spec.costAmount != null) Money(spec.costCurrency, BigDecimal(spec.costAmount)) else null
+        val limits = spec.limits?.let { l ->
+            io.astrolabe.budget.TaskLimits(l.moneyUsd?.let { Money("USD", BigDecimal(it)) }, l.minutes, l.requests)
+        }
+        val balance = io.astrolabe.BalanceProfile.entries.firstOrNull { it.wire == spec.preset } ?: io.astrolabe.BalanceProfile.Balanced
+        return CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected, limits = limits, balance = balance)
     }
 
     /** How an opened contract is verified: by its declared or saved tests, or by a review pass. */

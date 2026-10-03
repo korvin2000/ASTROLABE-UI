@@ -261,7 +261,8 @@ public class SimpleApi {
 
     @PostMapping("/tasks")
     public ResponseEntity<String> start(@RequestBody JsonNode body) {
-        return Raw.json(tasks.start(Json.text(body, "projectId"), Json.text(body, "text"), Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode")));
+        return Raw.json(tasks.start(Json.text(body, "projectId"), Json.text(body, "text"), Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode"),
+            Json.text(body, "preset"), body.get("limits")));
     }
 
     @GetMapping("/tasks/{id}")
@@ -275,7 +276,13 @@ public class SimpleApi {
 
     @PostMapping("/tasks/{id}/messages")
     public ResponseEntity<String> message(@PathVariable String id, @RequestBody JsonNode body) {
-        return Raw.json(tasks.message(id, Json.text(body, "text"), Json.text(body, "questionId"), Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode")));
+        return Raw.json(tasks.message(id, Json.text(body, "text"), Json.text(body, "questionId"), Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode"),
+            Json.text(body, "preset"), body.get("limits")));
+    }
+
+    @PostMapping("/tasks/{id}/project-check")
+    public ResponseEntity<String> projectCheck(@PathVariable String id, @RequestBody JsonNode body) {
+        return Raw.json(tasks.adoptCheck(id, Json.text(body, "command")));
     }
 
     @PostMapping("/tasks/{id}/stop")
@@ -283,7 +290,7 @@ public class SimpleApi {
 
     @PostMapping("/tasks/{id}/continue")
     public ResponseEntity<String> resume(@PathVariable String id, @RequestBody(required = false) JsonNode body) {
-        return Raw.json(tasks.resume(id, Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode")));
+        return Raw.json(tasks.resume(id, Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode"), body == null ? null : body.get("limits")));
     }
 
     @PostMapping("/tasks/{id}/cards/{cardId}")

@@ -129,4 +129,12 @@ class AcceptanceDecisionsTest {
         s.closeAcceptance("W-1", "the run ended completed");
         assertNull(s.openAcceptance("W-1"));
     }
+
+    @org.junit.jupiter.api.Test
+    void theUsersVerdictIsMarkedAPersonsReview() {
+        var request = Json.parse("{\"id\":\"review-1\",\"contractRevision\":2,\"candidate\":{\"digest\":\"ab\"}}");
+        var verdict = service().buildReply("review", request, Json.parse("{\"outcome\":\"Approve\",\"findings\":[]}"), "local");
+        assertEquals("human", Json.text(verdict, "reviewer"));
+        assertEquals("user:local", Json.text(verdict, "signedBy"));
+    }
 }

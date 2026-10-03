@@ -1,16 +1,17 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Effort, Mode, Project, UsableModel } from '../../core/model';
-import { TPipe } from '../../i18n/i18n';
+import { Approach, Effort, Limits, Mode, Project, UsableModel } from '../../core/model';
+import { I18n, TPipe } from '../../i18n/i18n';
 import { AppStore } from '../../state/app.store';
 import { Icon } from '../../ui/icon';
 import { ModelPicker } from '../accounts/model-picker';
 import { sends } from './keys';
 import { fitEffort } from './effort';
+import { APPROACHES, DEFAULT_LIMITS, LimitKind, NO_LIMITS, limitsText, parseLimit, raises } from './limits';
 
 /**
- * The composer (section 7.1): text and four controls — project, model and effort, mode, send. Send becomes Stop while
- * the task works. Nothing else lives here.
+ * The composer (section 7.1): text and five controls — project, model and effort, mode, approach and limits (C4),
+ * send. Send becomes Stop while the task works. Nothing else lives here.
  */
 @Component({
   selector: 'as-composer',
@@ -42,8 +43,30 @@ export class Composer {
   readonly effortChange = output<Effort>();
   readonly modeChange = output<Mode>();
   readonly openFolder = output<void>();
+  /** C4: the approach and the limits of the next run; in a task, the reached limit being raised. */
+  readonly approach = input<Approach>('balanced');
+  readonly limits = input<Limits>(DEFAULT_LIMITS);
+  readonly raise = input<LimitKind | null>(null);
+  /** The limits the raise is measured against: the stopped run's. */
+  readonly reached = input<Limits | null>(null);
+  readonly approachChange = output<Approach>();
+  readonly limitsChange = output<Limits>();
+  readonly raiseConfirm = output<void>();
+  /** The limits menu closed: a raise not confirmed by then is dropped. */
+  readonly limitsClosed = output<void>();
 
-  readonly open = signal<'project' | 'model' | 'mode' | null>(null);
+  readonly open = signal<'project' | 'model' | 'mode' | 'limits' | null>(null);
+  readonly approaches = APPROACHES;
+  readonly kinds: LimitKind[] = ['money', 'minutes', 'requests'];
+  readonly invalid = signal(false);
+  private readonly i18n = inject(I18n);
+  readonly budgetText = computed(() => { this.i18n.lang(); return limitsText((k, p) => this.i18n.t(k, p), this.limits()); });
+  /** A raise is confirmed only once the reached limit is raised or cleared (no spend on one click without a number). */
+  readonly raiseReady = computed(() => {
+    const kind = this.raise();
+    const before = this.reached();
+    return !!kind && !!before && raises(this.limits(), before, kind);
+  });
   text = '';
 
   readonly project = computed<Project | null>(() => this.app.project(this.projectId()));
@@ -88,14 +111,37 @@ export class Composer {
     queueMicrotask(() => this.grow());
   }
 
-  toggle(menu: 'project' | 'model' | 'mode', ev: Event): void {
+  /** The text of a limit field: empty is no limit. */
+  field(kind: LimitKind): string {
+    const l = this.limits();
+    const v = kind === 'money' ? l.moneyUsd : kind === 'minutes' ? l.minutes : l.requests;
+    return v === null ? '' : String(v);
+  }
+
+  setLimit(kind: LimitKind, text: string): void {
+    const v = parseLimit(kind, text);
+    this.invalid.set(v === undefined);
+    if (v === undefined) return;
+    const key = kind === 'money' ? 'moneyUsd' : kind;
+    this.limitsChange.emit({ ...this.limits(), [key]: v });
+  }
+
+  noLimits(): void {
+    this.invalid.set(false);
+    this.limitsChange.emit({ ...NO_LIMITS });
+  }
+
+  toggle(menu: 'project' | 'model' | 'mode' | 'limits', ev: Event): void {
     ev.stopPropagation();
     this.open.update(o => (o === menu ? null : menu));
   }
 
   @HostListener('document:click')
   @HostListener('document:keydown.escape')
-  close(): void { this.open.set(null); }
+  close(): void {
+    if (this.open() === 'limits') this.limitsClosed.emit();
+    this.open.set(null);
+  }
 
   pickProject(p: Project): void {
     this.projectChange.emit(p.id);

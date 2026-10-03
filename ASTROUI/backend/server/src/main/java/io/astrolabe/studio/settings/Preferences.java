@@ -25,7 +25,10 @@ public class Preferences {
     public static final String DEFAULT_MODEL = "defaultModel";
     public static final String DEFAULT_EFFORT = "defaultEffort";
     public static final String DEFAULT_MODE = "defaultMode";
-    public static final String LIMIT = "limit";
+    /** ASTROLABE 2.0 C4: the default limits of a new task's run (money, minutes, requests); they replace the token `limit`. */
+    public static final String TASK_LIMITS = "taskLimits";
+    /** The approach chosen at the last start (`economy` · `balanced` · `thorough`); no row in the settings, like `lastProject`. */
+    public static final String DEFAULT_PRESET = "defaultPreset";
     public static final String MAX_TASKS = "maxTasks";
     public static final String DEMO_MODE = "demoMode";
     /** Environment variables the user allowed, by provider id (§6.3). */
@@ -35,7 +38,7 @@ public class Preferences {
     public static final String LAST_PROJECT = "lastProject";
     public static final String FIRST_TASK_DONE = "firstTaskDone";
 
-    private static final Set<String> KEYS = Set.of(THEME, NOTIFY, SEND_WITH, LANGUAGE, DEFAULT_MODEL, DEFAULT_EFFORT, DEFAULT_MODE, LIMIT, MAX_TASKS,
+    private static final Set<String> KEYS = Set.of(THEME, NOTIFY, SEND_WITH, LANGUAGE, DEFAULT_MODEL, DEFAULT_EFFORT, DEFAULT_MODE, TASK_LIMITS, DEFAULT_PRESET, MAX_TASKS,
         DEMO_MODE, ENV_KEYS, LOCAL_SERVERS, LAST_PROJECT, FIRST_TASK_DONE);
 
     private final JdbcTemplate jdbc;
@@ -51,7 +54,8 @@ public class Preferences {
         o.putNull(DEFAULT_MODEL);
         o.put(DEFAULT_EFFORT, "medium");
         o.put(DEFAULT_MODE, "ask");
-        o.putObject(LIMIT).put("kind", "auto");
+        o.set(TASK_LIMITS, io.astrolabe.studio.tasks.Limits.DEFAULTS.json());
+        o.put(DEFAULT_PRESET, "balanced");
         o.put(MAX_TASKS, 3);
         o.put(DEMO_MODE, false);
         o.putObject(ENV_KEYS);
@@ -101,17 +105,11 @@ public class Preferences {
             case MAX_TASKS -> {
                 if (v == null || !v.isIntegralNumber() || v.asInt() < 1 || v.asInt() > 5) throw ApiException.invalid("maxTasks is a number from 1 to 5");
             }
-            case LIMIT -> {
-                String kind = Json.text(v, "kind", "");
-                if (!List.of("auto", "tokens", "money").contains(kind)) throw ApiException.invalid("limit.kind is auto, tokens or money");
-                if (!kind.equals("auto")) {
-                    try {
-                        if (new java.math.BigDecimal(Json.text(v, "value", "")).signum() <= 0) throw new NumberFormatException();
-                    } catch (NumberFormatException e) {
-                        throw ApiException.invalid("limit.value is a positive number");
-                    }
-                }
+            case TASK_LIMITS -> {
+                if (v == null || !v.isObject()) throw ApiException.invalid("taskLimits is an object {moneyUsd, minutes, requests}");
+                io.astrolabe.studio.tasks.Limits.parse(v, null);
             }
+            case DEFAULT_PRESET -> oneOf(key, v, List.of("economy", "balanced", "thorough"));
             default -> { }
         }
     }

@@ -183,6 +183,15 @@ public class ProjectSettings {
         put(projectId, Json.obj().set("allowed", next), actor);
     }
 
+    /** C4: [command] becomes the project's [slot] check (`test` · `build` · `lint`); the other saved checks stay. */
+    public void saveCheck(String projectId, String slot, String command, String actor) {
+        ObjectNode checks = Json.obj();
+        JsonNode current = stored(projectId).path("checks");
+        for (String k : List.of("test", "build", "lint")) if (Json.text(current, k) != null) checks.put(k, Json.text(current, k));
+        checks.put(slot, command);
+        put(projectId, Json.obj().set("checks", checks), actor);
+    }
+
     /** The protected files when the user changed them, else null (the core's default applies). */
     public List<String> protectedOverride(String projectId) {
         JsonNode p = stored(projectId).get("protectedFiles");

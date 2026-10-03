@@ -30,7 +30,7 @@ export class Sidebar {
   private readonly api = inject(Api);
   private readonly router = inject(Router);
   /** F5: a done task that no check verified says so in its mark. */
-  readonly unverified = (t: Task): boolean => doneUnverified(t.state, t.verified);
+  readonly unverified = (t: Task): boolean => doneUnverified(t.state, t.verified, t.provenance?.class);
 
   readonly narrow = signal(this.stored().narrow === true);
   readonly closed = signal<Record<string, boolean>>(this.stored().closed ?? {});

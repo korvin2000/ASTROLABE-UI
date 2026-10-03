@@ -27,6 +27,7 @@ class ReviewPassTest {
         assertEquals("evidence-1", Json.text(a.verdict(), "requestId"));
         assertEquals(2, a.verdict().path("contractRevision").asInt());
         assertEquals("studio:review-pass(demo/model)", Json.text(a.verdict(), "signedBy"));
+        assertEquals("model", Json.text(a.verdict(), "reviewer"));
     }
 
     @Test
