@@ -67,6 +67,7 @@
           <hr>
           <div class="k">{{ 'limit.title' | t }}</div>
           <small class="faint note">{{ 'limit.help' | t }}</small>
+          @if (projectFixed() && !raise()) { <small class="faint note">{{ 'limit.next_run' | t }}</small> }
           @for (kind of kinds; track kind) {
             <label class="lim"><span>{{ ('limit.' + kind) | t }}</span>
               <input class="input num" inputmode="decimal" [value]="field(kind)" (change)="setLimit(kind, $any($event.target).value)"

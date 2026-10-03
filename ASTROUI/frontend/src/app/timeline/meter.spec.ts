@@ -41,4 +41,22 @@ describe('meter', () => {
     m.apply('studio.opened', { limits }, '2026-10-03T12:00:00Z');
     expect(m.view(0, false)).toBeNull();
   });
+
+  it('draws the time of a continued run from its open, not across the pause (review P2)', () => {
+    const m = new Meter();
+    m.apply('studio.opened', { limits }, '2026-10-03T10:00:00Z');
+    m.apply('budget.spent', spent(10, '1.00', 60_000), '2026-10-03T10:01:00Z');
+    m.apply('studio.opened', { limits, resumed: true }, '2026-10-03T15:00:00Z');
+    expect(m.view(Date.parse('2026-10-03T15:00:10Z'), true)!.time.ms).toBe(70_000);
+  });
+
+  it('stops the last run on a follow-up until the new run reports', () => {
+    const m = new Meter();
+    m.apply('studio.opened', { limits }, '2026-10-03T10:00:00Z');
+    m.apply('budget.spent', spent(10, '1.00', 60_000), '2026-10-03T10:01:00Z');
+    m.apply('studio.user_message', { role: 'message' }, '2026-10-03T10:02:00Z');
+    expect(m.view(0, false)).not.toBeNull();
+    m.apply('studio.user_message', { role: 'follow_up' }, '2026-10-03T12:00:00Z');
+    expect(m.view(Date.parse('2026-10-03T12:00:30Z'), true)).toBeNull();
+  });
 });

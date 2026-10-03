@@ -35,8 +35,16 @@ export class Meter {
       case 'studio.opened': {
         const l = rec(data['limits']);
         this.limits = data['limits'] ? { moneyUsd: (l['moneyUsd'] as string | null) ?? null, minutes: (l['minutes'] as number | null) ?? null, requests: (l['requests'] as number | null) ?? null } : null;
-        // A new run counts from zero; a run continued in place keeps what it spent (the core reports it again).
+        // A new run counts from zero; a run continued in place keeps what it spent, and the time between the runs is
+        // no work: it is drawn on from this open, not from the last report.
         if (!data['resumed']) this.reset();
+        else this.reportedAt = Date.parse(at) || 0;
+        return;
+      }
+      case 'studio.user_message': {
+        // A request or a follow-up starts a new run: the last run's meter stops until the new run reports.
+        const role = String(data['role'] ?? '');
+        if (role === 'request' || role === 'follow_up') this.reset();
         return;
       }
       case 'budget.spent': {

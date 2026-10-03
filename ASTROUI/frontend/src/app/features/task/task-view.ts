@@ -257,10 +257,16 @@ export class TaskView {
   }
 
   async raiseAndContinue(): Promise<void> {
-    if (await this.actions.resume(this.limits())) {
-      this.raising.set(null);
-      this.actions.next.update(n => ({ ...n, limits: undefined }));
-    }
+    const limits = this.limits();
+    this.leaveRaise();
+    await this.actions.resume(limits);
+  }
+
+  /** The raise ends — confirmed or left: the doubled limits never stay behind for the next message. */
+  leaveRaise(): void {
+    if (!this.raising()) return;
+    this.raising.set(null);
+    this.actions.next.update(n => ({ ...n, limits: undefined }));
   }
 
   rename(): void {

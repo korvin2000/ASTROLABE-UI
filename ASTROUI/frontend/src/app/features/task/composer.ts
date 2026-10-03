@@ -52,6 +52,8 @@ export class Composer {
   readonly approachChange = output<Approach>();
   readonly limitsChange = output<Limits>();
   readonly raiseConfirm = output<void>();
+  /** The limits menu closed: a raise not confirmed by then is dropped. */
+  readonly limitsClosed = output<void>();
 
   readonly open = signal<'project' | 'model' | 'mode' | 'limits' | null>(null);
   readonly approaches = APPROACHES;
@@ -136,7 +138,10 @@ export class Composer {
 
   @HostListener('document:click')
   @HostListener('document:keydown.escape')
-  close(): void { this.open.set(null); }
+  close(): void {
+    if (this.open() === 'limits') this.limitsClosed.emit();
+    this.open.set(null);
+  }
 
   pickProject(p: Project): void {
     this.projectChange.emit(p.id);

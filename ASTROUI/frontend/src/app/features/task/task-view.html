@@ -92,7 +92,7 @@
           [working]="store.state() === 'working'" [busy]="actions.busy()"
           (send)="send($event)" (stop)="actions.stop()" (modelChange)="choose({ model: $event })" (effortChange)="choose({ effort: $event })" (modeChange)="choose({ mode: $event })"
           [approach]="approach()" [limits]="limits()" [raise]="raising()" [reached]="task()?.limits ?? null"
-          (approachChange)="choose({ preset: $event })" (limitsChange)="choose({ limits: $event })" (raiseConfirm)="raiseAndContinue()" />
+          (approachChange)="choose({ preset: $event })" (limitsChange)="choose({ limits: $event })" (raiseConfirm)="raiseAndContinue()" (limitsClosed)="leaveRaise()" />
       </div>
     }
   </div>

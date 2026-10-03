@@ -209,6 +209,7 @@ export class ChecksCard {
       <div class="k">{{ (limited() ? 'state.paused_limit' : 'state.' + (item().state === 'failed' ? 'failed' : 'paused')) | t }}</div>
       <p>{{ text() }}</p>
       @if (best(); as b) { <p class="muted">{{ ('limit.best.' + b) | t }}</p> }
+      @if (limited() && latest()) { <p class="muted">{{ 'limit.new_run_note' | t }}</p> }
       @if (said(); as words) { <blockquote class="said">{{ words }}</blockquote> }
       @if (latest()) {
         <div class="row">
@@ -237,7 +238,14 @@ export class ErrorCard {
   readonly latest = input(true);
   readonly copied = signal(false);
 
-  readonly text = computed(() => { this.i18n.lang(); return sentence(this.i18n, this.item().error); });
+  readonly text = computed(() => {
+    this.i18n.lang();
+    const e = this.item().error;
+    // A time limit of two hours or more reads in hours, as the limits menu writes it.
+    const minutes = Number(e.params?.['limit']);
+    if (e.code === 'limit_minutes' && minutes >= 120) return this.i18n.t('error.limit_hours', { limit: Math.round((minutes / 60) * 10) / 10 });
+    return sentence(this.i18n, e);
+  });
   readonly acts = computed<ActionId[]>(() => actionsOf(this.item().error.code));
   /** C4: a stop at the user's limit, and — on the last card — where the best verified result is. */
   readonly limited = computed(() => limitKindOf(this.item().error.code) !== null);
@@ -316,7 +324,8 @@ export class ErrorCard {
         }
         @if (offer(); as command) {
           <div class="skipped">
-            <div class="l">{{ 'result.check_offer' | t: { command } }}</div>
+            <div class="l">{{ 'result.check_offer' | t }}</div>
+            <code class="cmd">{{ command }}</code>
             <div class="row">
               <button class="btn sm" [disabled]="actions.busy()" (click)="actions.adoptCheck(command)">{{ 'action.make_project_check' | t }}</button>
               <button class="btn ghost sm" (click)="notNow()">{{ 'action.not_now' | t }}</button>
@@ -341,6 +350,7 @@ export class ErrorCard {
     .skipped { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
     .skipped .l { font-size: 13px; margin-bottom: 6px; }
     .skipped .row { flex-wrap: nowrap; margin-top: 4px; }
+    .skipped .cmd { display: block; font-family: var(--mono, monospace); margin: 2px 0 6px; white-space: pre-wrap; word-break: break-all; }
     .tag { font-size: 10px; font-weight: 600; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 4px; }
   `],
 })
