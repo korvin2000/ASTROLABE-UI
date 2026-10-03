@@ -98,7 +98,10 @@ public class TaskService implements DisposableBean {
 
     private record Run(String workId, String projectId, String taskId, String parentWork, String title, String customTitle, String status, String phase,
                        String outcome, String reason, String modelRef, String effort, String mode, String requestText, JsonNode verification,
-                       JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt, String stopCode) { }
+                       JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt, String stopCode, String limitsJson, String preset) {
+        /** C4: the run's limits; a run stored before them takes the user's defaults. */
+        Limits limits(Limits defaults) { return Limits.of(limitsJson, defaults); }
+    }
 
     List<Run> runs(String taskId) {
         return jdbc.query("SELECT * FROM campaign_index WHERE task_id = ? AND hidden = 0 ORDER BY created_at, rowid", (rs, i) -> new Run(
@@ -107,7 +110,8 @@ public class TaskService implements DisposableBean {
             rs.getString("model_ref"), rs.getString("effort"), rs.getString("task_mode"), rs.getString("request_text"),
             rs.getString("verification_json") == null ? null : Json.parse(rs.getString("verification_json")),
             rs.getString("reason_json") == null ? null : Json.parse(rs.getString("reason_json")),
-            rs.getInt("demo") != 0, rs.getString("created_at"), rs.getString("updated_at"), rs.getString("ended_at"), rs.getString("stop_code")), taskId);
+            rs.getInt("demo") != 0, rs.getString("created_at"), rs.getString("updated_at"), rs.getString("ended_at"), rs.getString("stop_code"),
+            rs.getString("limits_json"), rs.getString("preset")), taskId);
     }
 
     private List<Run> require(String taskId) {
@@ -220,6 +224,8 @@ public class TaskService implements DisposableBean {
         model.put("name", ref == null ? null : ref.model());
         model.put("effort", last.effort());
         o.put("mode", last.mode() == null ? "ask" : last.mode());
+        o.put("preset", last.preset() == null ? "balanced" : last.preset());
+        o.set("limits", last.limits(defaultLimits()).json());
         o.put("demo", last.demo());
         o.put("lastRun", last.workId());
         o.put("createdAt", first.createdAt());
@@ -379,20 +385,41 @@ public class TaskService implements DisposableBean {
 
     /** `POST /tasks` (§7.2): returns the task id at once; the preflight and the run follow on the server. */
     public ObjectNode start(String projectId, String text, String modelRef, String effort, String mode) {
+        return start(projectId, text, modelRef, effort, mode, null, null);
+    }
+
+    /** `POST /tasks` with the run's approach and limits (C4); absent ones take the user's defaults. */
+    public ObjectNode start(String projectId, String text, String modelRef, String effort, String mode, String preset, JsonNode limits) {
         if (text == null || text.isBlank()) throw ApiException.invalid("a task needs a request");
         var project = projects.row(projectId).orElseThrow(() -> StudioError.of(StudioError.PROJECT_NOT_FOUND, Json.obj().put("path", String.valueOf(projectId)), "no project " + projectId));
         String model = modelRef != null && !modelRef.isBlank() ? modelRef : models.ensureDefault(accounts.usable());
         String chosenEffort = models.fitEffort(model, normalise(effort, List.of("low", "medium", "high"), preferences.text(Preferences.DEFAULT_EFFORT)));
         String chosenMode = normalise(mode, List.of("ask", "auto"), preferences.text(Preferences.DEFAULT_MODE));
+        String chosenPreset = normalise(preset, PRESETS, preferences.text(Preferences.DEFAULT_PRESET));
+        Limits chosenLimits = Limits.parse(limits, defaultLimits());
         String workId = hosts.host().newWorkId();
         TaskRun run = new TaskRun(workId, projectId, workId, null, text, text.strip(), model, chosenEffort, chosenMode, model != null && model.startsWith(FixtureBrain.PROVIDER + "/"));
         campaigns.register(run);
+        campaigns.setBudget(workId, Json.write(chosenLimits.json()), chosenPreset);
         pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text.strip()).put("role", "request"));
         preferences.set(Preferences.LAST_PROJECT, Json.MAPPER.valueToTree(project.id()));
         if (modelRef != null && !modelRef.isBlank()) remember(modelRef, chosenEffort, chosenMode);
+        // R4: the approach chosen at a start is remembered; a limit changed for one task is not.
+        if (preset != null && PRESETS.contains(preset)) preferences.set(Preferences.DEFAULT_PRESET, Json.MAPPER.valueToTree(chosenPreset));
         publish(workId);
         executor.execute(() -> launch(run, text.strip(), false));
         return Json.obj().put("taskId", workId).put("workId", workId);
+    }
+
+    private static final List<String> PRESETS = List.of("economy", "balanced", "thorough");
+
+    /** The user's default limits of a new task (setting 13). */
+    private Limits defaultLimits() {
+        try {
+            return Limits.parse(preferences.get(Preferences.TASK_LIMITS), Limits.DEFAULTS);
+        } catch (RuntimeException e) {
+            return Limits.DEFAULTS;
+        }
     }
 
     private void remember(String modelRef, String effort, String mode) {
@@ -548,22 +575,26 @@ public class TaskService implements DisposableBean {
         return Json.write(config);
     }
 
-    private StartSpec spec(TaskRun r, String requestText, ModelService.Bound bound) {
-        JsonNode limit = preferences.get(Preferences.LIMIT);
-        String kind = Json.text(limit, "kind", "auto");
-        long automatic = bound.contextTokens() * 12;
-        long tokens = kind.equals("tokens") ? new java.math.BigDecimal(Json.text(limit, "value", "0")).longValue() : automatic;
-        String cost = kind.equals("money") ? Json.text(limit, "value") : null;
+    /**
+     * C4: the run's limits and approach go to the core; the token budget and the cell cap stay technical guards that
+     * must not stop a run before the user's limits do (owner 2026-10-03): tokens = window × max(12, requests or 10000).
+     */
+    StartSpec spec(TaskRun r, String requestText, ModelService.Bound bound) {
+        Run row = run(r.workId());
+        Limits limits = row == null ? defaultLimits() : row.limits(defaultLimits());
+        String preset = row == null || row.preset() == null ? "balanced" : row.preset();
+        long tokens = bound.contextTokens() * Math.max(12L, limits.requests() == null ? 10_000L : limits.requests());
         ObjectNode runtime = settings.runtime(r.projectId());
         String effort = switch (r.effort() == null ? "medium" : r.effort()) {
             case "low" -> "Low";
             case "high" -> "High";
             default -> "Medium";
         };
-        return new StartSpec(requestText, Math.max(tokens, 1), cost == null ? null : "USD", cost, false,
-            runtime.path("maxCells").asInt(12), runtime.path("leaseMinutes").asLong(480), effort,
+        return new StartSpec(requestText, Math.max(tokens, 1), null, null, false,
+            runtime.path("maxCells").asInt(48), runtime.path("leaseMinutes").asLong(480), effort,
             runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null,
-            true, projectSettings.savedChecks(r.projectId()), true, projectSettings.protectedOverride(r.projectId()));
+            true, projectSettings.savedChecks(r.projectId()), true, projectSettings.protectedOverride(r.projectId()),
+            limits.toBridge(), preset);
     }
 
     // ------------------------------------------------------------------------------------------------ run end
@@ -609,6 +640,11 @@ public class TaskService implements DisposableBean {
 
     /** `POST /tasks/{id}/messages` (§7.6): one action in the composer; the situation decides what the message does. */
     public ObjectNode message(String taskId, String text, String questionId, String modelRef, String effort, String mode) {
+        return message(taskId, text, questionId, modelRef, effort, mode, null, null);
+    }
+
+    /** C4: [preset] and [limits] apply to a follow-up run it starts; a run continued in place keeps its own. */
+    public ObjectNode message(String taskId, String text, String questionId, String modelRef, String effort, String mode, String preset, JsonNode limits) {
         if (text == null || text.isBlank()) throw ApiException.invalid("a message needs text");
         List<Run> runs = require(taskId);
         Run last = runs.getLast();
@@ -658,7 +694,7 @@ public class TaskService implements DisposableBean {
             return result.put("effect", "continued");
         }
         // Done, stopped, failed, or paused on something a continue cannot lift: a follow-up run in the same task.
-        String follow = followUp(runs, body, modelRef, effort, mode);
+        String follow = followUp(runs, body, modelRef, effort, mode, preset, limits);
         return result.put("effect", "follow_up").put("workId", follow);
     }
 
@@ -706,6 +742,11 @@ public class TaskService implements DisposableBean {
     }
 
     private String followUp(List<Run> runs, String text, String modelRef, String effort, String mode) {
+        return followUp(runs, text, modelRef, effort, mode, null, null);
+    }
+
+    /** A new run of the task; its approach and limits are the ones given, else the last run's (R2: it counts from zero). */
+    private String followUp(List<Run> runs, String text, String modelRef, String effort, String mode, String preset, JsonNode limits) {
         Run first = runs.getFirst();
         Run last = runs.getLast();
         String model = modelFor(modelRef, last);
@@ -716,6 +757,8 @@ public class TaskService implements DisposableBean {
         TaskRun run = new TaskRun(workId, first.projectId(), first.taskId(), last.workId(), first.title(), request, model, nextEffort, nextMode,
             model != null && model.startsWith(FixtureBrain.PROVIDER + "/"));
         campaigns.register(run);
+        campaigns.setBudget(workId, Json.write(Limits.parse(limits, last.limits(defaultLimits())).json()),
+            normalise(preset, PRESETS, last.preset() != null ? last.preset() : preferences.text(Preferences.DEFAULT_PRESET)));
         pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text).put("role", "follow_up"));
         if (last.modelRef() != null && model != null && !last.modelRef().equals(model)) pipeline.studioItem(workId, "studio.notice", Json.obj().put("code", "model_changed").put("model", model));
         publish(first.taskId());

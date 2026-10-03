@@ -23,7 +23,8 @@ public data class StartSpec @JvmOverloads constructor(
     val costCurrency: String? = null,
     val costAmount: String? = null,
     val resumeExpected: Boolean = false,
-    val maxCells: Int = 12,
+    /** A technical guard (owner, C4): it must not stop a task before the user's own limits do. */
+    val maxCells: Int = 48,
     val leaseMinutes: Long = 480,
     val effort: String = "Medium",
     val maxOutputTokens: Int? = null,
@@ -34,6 +35,20 @@ public data class StartSpec @JvmOverloads constructor(
     val hostAuthority: Boolean = false,
     /** Studio 2 §9 setting 9: the project's protected files when they differ from the default; null keeps the contract's. */
     val protectedPaths: List<String>? = null,
+    /** ASTROLABE 2.0 C4: the user's limits on this run; every field null is no limit. */
+    val limits: TaskLimits = TaskLimits(),
+    /** ASTROLABE 2.0 C4: the approach of the run (`economy` · `balanced` · `thorough`), frozen with its attempt. */
+    val preset: String = "balanced",
+)
+
+/**
+ * The user's hard limits of one run (ASTROLABE 2.0 C3/C4): [moneyUsd] a decimal in US dollars, [minutes] of active
+ * work, [requests] to the model; `null` is no limit.
+ */
+public data class TaskLimits @JvmOverloads constructor(
+    val moneyUsd: String? = null,
+    val minutes: Int? = null,
+    val requests: Int? = null,
 )
 
 /** A campaign the bridge opened (or reopened) and started. */
@@ -55,7 +70,9 @@ public data class CampaignRef(
 
 /**
  * Called once when a campaign's run returns, fails, or its job is cancelled (host shutdown). [stopCode] is the core's
- * machine-readable reason a `waiting_for_input` campaign waits (D-339): `acceptance_decision` or `review_rejected`.
+ * machine-readable reason a `waiting_for_input` campaign waits (D-339): `acceptance_decision` or `review_rejected`; for
+ * `budget_exhausted` it is the typed budget stop (D-401): `task_limit_money` · `task_limit_minutes` ·
+ * `task_limit_requests` · `cell_cap` · `contract_budget`.
  */
 public fun interface RunListener {
     public fun onEnded(workId: String, outcome: String?, reason: String?, stopCode: String?, failure: Throwable?)
