@@ -31,6 +31,13 @@ public class StudioError extends ApiException {
     public static final String START_TIMEOUT = "start_timeout";
     public static final String AGENT_ERROR = "agent_error";
     public static final String LIMIT_REACHED = "limit_reached";
+    /**
+     * C14 (D-405): the run's own contract budget holds it and no reopen continues it — a stop recorded before the core
+     * named its cause, its money, or a call of unknown size. Not resumable: the task says so, with no Continue.
+     */
+    public static final String CONTRACT_BUDGET = "contract_budget";
+    public static final String CONTRACT_BUDGET_COST = "contract_budget_cost";
+    public static final String CONTRACT_BUDGET_UNKNOWN_USAGE = "contract_budget_unknown_usage";
     public static final String COMMAND_TIMEOUT = "command_timeout";
     public static final String CONTEXT_TOO_LARGE = "context_too_large";
     /** Not errors of §10 but reasons of a paused or unverified task; they have sentences in the catalog too. */

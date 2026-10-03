@@ -285,14 +285,16 @@ public class StudioHost @JvmOverloads public constructor(
                 }
             }
             if (protectedPaths != null) notes += protectedRule(protectedPaths)
-            if (notes.isNotEmpty() || opened.state == null) opened = controller.open(p.project, request, policy.copy(hostNotes = notes))
+            // C14: a campaign this open could not free stays stopped and runs nothing, so the notes change nothing: a second
+            // open would only journal and announce the same hold again — one open per action.
+            if ((notes.isNotEmpty() || opened.state == null) && opened.limitHold == null) {
+                opened = controller.open(p.project, request, policy.copy(hostNotes = notes))
+            }
             // The frozen attempt configuration is the truth for this attempt (invariant 12); its main profile is read live.
             val frozen = opened.attempt.config
             val main = config.profiles[frozen.profileRoles.main] ?: frozen.profiles[frozen.profileRoles.main]
                 ?: config.mainProfile ?: throw IllegalStateException("no profile '${frozen.profileRoles.main}' for the main routing function")
-            val effort = runCatching { Effort.valueOf(spec.effort) }.getOrDefault(Effort.Medium)
-            val headroom = AutoProfiles.outputHeadroom(main.capabilities.contextLimitTokens, main.capabilities.outputLimitTokens, spec.maxOutputTokens)
-            val model = CellModel(adapter, main, estimators.estimatorFor(main), effort, headroom)
+            val model = cellModel(adapter, main, estimators.estimatorFor(main), spec)
             val authority: Authority = if (frozen.mode == Mode.Autonomous && !spec.hostAuthority) {
                 RecordingAutonomousAuthority(work.value, AutonomousPolicy(autonomous.acceptNonWeakening, autonomous.reviewer), policyListener)
             } else {
@@ -310,7 +312,7 @@ public class StudioHost @JvmOverloads public constructor(
                 stopReason = opened.stop?.reason,
                 verification = verification,
                 stopCode = opened.stop?.code?.wire,
-                budgetStop = opened.state?.takeIf { it.phase == io.astrolabe.campaign.CampaignPhase.Ended }?.budgetStop?.wire,
+                limitHold = opened.limitHold?.let { json.encodeToString(io.astrolabe.campaign.LimitHold.serializer(), it) },
             )
             campaign.job = scope.launch(CoroutineName("campaign-${work.value}")) {
                 var outcome: String? = null
@@ -363,6 +365,16 @@ public class StudioHost @JvmOverloads public constructor(
         }
         val balance = io.astrolabe.BalanceProfile.entries.firstOrNull { it.wire == spec.preset } ?: io.astrolabe.BalanceProfile.Balanced
         return CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected, limits = limits, balance = balance)
+    }
+
+    /**
+     * The model side of the run's cells. C14 (D-405): an effort the user chose is explicit — the approach never steps it;
+     * a default effort is left to the approach.
+     */
+    internal fun cellModel(adapter: io.astrolabe.provider.ProviderAdapter, main: io.astrolabe.provider.Profile, estimator: io.astrolabe.provider.TokenEstimator, spec: StartSpec): CellModel {
+        val effort = runCatching { Effort.valueOf(spec.effort) }.getOrDefault(Effort.Medium)
+        val headroom = AutoProfiles.outputHeadroom(main.capabilities.contextLimitTokens, main.capabilities.outputLimitTokens, spec.maxOutputTokens)
+        return CellModel(adapter, main, estimator, effort, headroom, effortExplicit = spec.effortExplicit)
     }
 
     /** How an opened contract is verified: by its declared or saved tests, or by a review pass. */

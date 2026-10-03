@@ -108,15 +108,29 @@ public class CampaignService {
         String now = Json.now();
         String created = Json.text(c, "createdAt", now);
         String updated = Json.text(c, "updatedAt", created);
-        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, phase, outcome, reason, shape, mode, fingerprint, created_at, updated_at, stop_code) " +
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET phase = excluded.phase, outcome = excluded.outcome, reason = excluded.reason, stop_code = excluded.stop_code, " +
+        String stopCode = stopCodeOf(state);
+        // C14: the cause of a contract budget stop says whether a reopen may continue it.
+        JsonNode contractStop = state == null ? null : state.get("contractStop");
+        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, phase, outcome, reason, shape, mode, fingerprint, created_at, updated_at, stop_code, contract_stop_json) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET phase = excluded.phase, outcome = excluded.outcome, reason = excluded.reason, stop_code = excluded.stop_code, " +
+                "contract_stop_json = excluded.contract_stop_json, " +
                 "shape = coalesce(excluded.shape, campaign_index.shape), mode = coalesce(excluded.mode, campaign_index.mode), fingerprint = coalesce(excluded.fingerprint, campaign_index.fingerprint), " +
                 "title = coalesce(campaign_index.title, excluded.title), updated_at = max(campaign_index.updated_at, excluded.updated_at)",
             work, projectId, firstLine(title), "stored", Json.text(c, "phase"), Json.text(c, "outcome"), state == null ? null : Json.text(state, "reason"),
             contract == null ? null : Json.text(contract, "shape"), contract == null ? null : Json.text(contract, "mode"), Json.text(c, "fingerprint"), created, updated,
-            state == null ? null : io.astrolabe.studio.bridge.StopCodes.wire(Json.text(state, "stopCode", Json.text(state, "budgetStop"))));
+            stopCode, contractStop == null || !contractStop.isObject() ? null : Json.write(contractStop));
     }
 
+
+    /**
+     * The stop code of a stored core state as a wire word. C14: a state names its budget stop by the wire word, one
+     * stored before by the constant's name; a `StopCode` still by the constant's name.
+     */
+    static String stopCodeOf(JsonNode state) {
+        if (state == null) return null;
+        String code = Json.text(state, "stopCode");
+        return code != null ? io.astrolabe.studio.bridge.StopCodes.wire(code) : io.astrolabe.studio.bridge.StopCodes.budgetStop(Json.text(state, "budgetStop"));
+    }
 
     /** Re-reads one campaign from its store into the index and notifies clients (R-SHL-01). */
     public void refresh(String workId) {
@@ -274,21 +288,16 @@ public class CampaignService {
         String mainId = config.path("profileRoles").path("main").asString("");
         JsonNode main = config.path("profiles").path(mainId);
         if (main.isMissingNode()) throw new ApiException("config_invalid", 422, "no profile '" + mainId + "' is configured for the main routing function (Settings › Models & routing)");
-        long cells = config.path("defaults").path("campaignCells").asLong(12);
-        long tokens = options != null && options.hasNonNull("tokens") ? options.get("tokens").asLong()
-            : runtime.hasNonNull("defaultTokens") ? runtime.get("defaultTokens").asLong()
-            : main.path("capabilities").path("contextLimitTokens").asLong(128_000) * cells;
+        long tokens = startTokens(options, config, runtime);
         String text = annex == null || annex.isBlank() ? request.strip()
             : request.strip() + "\n\n--- astrolabe-studio annex v1 · hints, not contract items ---\n" + annex.strip();
         String costAmount = options != null ? Json.text(options, "costAmount") : null;
-        StartSpec spec = new StartSpec(
+        StartSpec spec = legacySpec(
             text, tokens,
             costAmount == null ? null : Json.text(options, "costCurrency", "USD"), costAmount,
             options != null && Json.bool(options, "resumeExpected", false),
             (int) (options != null && options.hasNonNull("maxCells") ? options.get("maxCells").asLong() : runtime.path("maxCells").asLong(48)),
-            runtime.path("leaseMinutes").asLong(480),
-            options != null && options.hasNonNull("effort") ? Json.text(options, "effort") : Json.text(runtime, "effort", "Medium"),
-            runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null);
+            runtime.path("leaseMinutes").asLong(480), options, runtime);
         boolean demo = FixtureBrain.PROVIDER.equals(main.path("provider").asString(""));
         String workId = host().newWorkId();
         String now = Json.now();
@@ -303,7 +312,7 @@ public class CampaignService {
                 new AutonomousPolicyOptions(runtime.path("acceptNonWeakening").asBoolean(false), Json.text(runtime, "reviewer")),
                 (w, outcome, reason, code, failure) -> onRunEnded(w, outcome, reason, code, failure));
             opening.remove(workId);
-            jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ? WHERE work_id = ?", ref.getShape(), ref.getFingerprint(), workId);
+            jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ?, limit_hold_json = ? WHERE work_id = ?", ref.getShape(), ref.getFingerprint(), ref.getLimitHold(), workId);
             pipeline.studioItem(workId, "studio.opened", opened(ref, spec, demo));
             refresh(workId);
             return summary(workId);
@@ -321,15 +330,21 @@ public class CampaignService {
 
     /** One run of a task: the first run, a follow-up, or the same run continued. */
     public record TaskRun(String workId, String projectId, String taskId, String parentWork, String title, String requestText,
-                          String modelRef, String effort, String mode, boolean demo) { }
+                          String modelRef, String effort, String mode, boolean demo, boolean effortExplicit) {
+        /** A run whose effort is a default ([effortExplicit] false): the approach may step it (C14). */
+        public TaskRun(String workId, String projectId, String taskId, String parentWork, String title, String requestText,
+                       String modelRef, String effort, String mode, boolean demo) {
+            this(workId, projectId, taskId, parentWork, title, requestText, modelRef, effort, mode, demo, false);
+        }
+    }
 
     /** Records the run before anything can fail, so the user's message is never lost (§7.2). */
     public void register(TaskRun r) {
         String now = Json.now();
-        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, mode, demo, parent_work, task_id, model_ref, effort, task_mode, request_text, created_at, updated_at) " +
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        jdbc.update("INSERT INTO campaign_index (work_id, project_id, title, status, mode, demo, parent_work, task_id, model_ref, effort, effort_explicit, task_mode, request_text, created_at, updated_at) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             r.workId(), r.projectId(), firstLine(r.title()), "opening", "auto".equals(r.mode()) ? "Autonomous" : "Interactive", r.demo() ? 1 : 0,
-            r.parentWork(), r.taskId(), r.modelRef(), r.effort(), r.mode(), r.requestText(), now, now);
+            r.parentWork(), r.taskId(), r.modelRef(), r.effort(), r.effortExplicit() ? 1 : 0, r.mode(), r.requestText(), now, now);
         opening.add(r.workId());
         pipeline.expect(r.workId(), r.projectId());
         changed(r.workId(), true);
@@ -352,8 +367,9 @@ public class CampaignService {
                 : host().start(r.projectId(), r.workId(), spec, configJson, transport.llm(), decisions, decisions, policy, (w, outcome, reason, code, failure) -> onRunEnded(w, outcome, reason, code, failure));
             var v = ref.getVerification();
             String verification = v == null ? null : Json.write(Json.obj().put("kind", v.getKind()).put("source", v.getSource()).put("command", v.getCommandText()));
-            jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ?, verification_json = coalesce(?, verification_json), reason_json = NULL, outcome = NULL, ended_at = NULL WHERE work_id = ?",
-                ref.getShape(), ref.getFingerprint(), verification, r.workId());
+            // C14: what the core says still holds the run after this open; null once it continued.
+            jdbc.update("UPDATE campaign_index SET status = 'started', shape = ?, fingerprint = ?, verification_json = coalesce(?, verification_json), limit_hold_json = ?, reason_json = NULL, outcome = NULL, ended_at = NULL WHERE work_id = ?",
+                ref.getShape(), ref.getFingerprint(), verification, ref.getLimitHold(), r.workId());
             ObjectNode data = opened(ref, spec, r.demo());
             if (resume) data.put("resumed", true);
             pipeline.studioItem(r.workId(), "studio.opened", data);
@@ -416,11 +432,13 @@ public class CampaignService {
         if (ref.getStopReason() != null) o.put("stopReason", ref.getStopReason());
         if (ref.getStopCode() != null) o.put("stopCode", ref.getStopCode());
         o.put("tokens", spec.getTokens());
-        // C4: the run's limits for the live meter (null fields are no limit) and its approach.
+        // C4: the run's limits for the live meter (null fields are no limit) and its approach; a spec that names none
+        // (the campaign API, a run stored before limits) keeps the stored ones and shows none.
         ObjectNode limits = o.putObject("limits");
-        limits.put("moneyUsd", spec.getLimits().getMoneyUsd());
-        limits.put("minutes", spec.getLimits().getMinutes());
-        limits.put("requests", spec.getLimits().getRequests());
+        io.astrolabe.studio.bridge.TaskLimits named = spec.getLimits() == null ? new io.astrolabe.studio.bridge.TaskLimits() : spec.getLimits();
+        limits.put("moneyUsd", named.getMoneyUsd());
+        limits.put("minutes", named.getMinutes());
+        limits.put("requests", named.getRequests());
         o.put("preset", spec.getPreset());
         o.put("maxCells", spec.getMaxCells());
         o.put("leaseMinutes", spec.getLeaseMinutes());
@@ -474,8 +492,10 @@ public class CampaignService {
         }
         if (amendment != null && !amendment.isBlank()) host().amend(projectId, workId, amendment.strip());
         ObjectNode runtime = settings.runtime(projectId);
-        StartSpec spec = new StartSpec("resume", 1, null, null, false, runtime.path("maxCells").asInt(48), runtime.path("leaseMinutes").asLong(480),
-            Json.text(runtime, "effort", "Medium"), runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null);
+        JsonNode options = startOptions(workId);
+        // C14: the budget the campaign was launched with, never a placeholder (the core keeps the larger of the two).
+        StartSpec spec = legacySpec("resume", launchTokens(jdbc, workId, options, config, runtime), null, null, false,
+            runtime.path("maxCells").asInt(48), runtime.path("leaseMinutes").asLong(480), options, runtime);
         opening.add(workId);
         changed(workId, true);
         pipeline.expect(workId, projectId);
@@ -494,6 +514,46 @@ public class CampaignService {
             changed(workId, true);
             throw ErrorHandling.translate(e);
         }
+    }
+
+    /**
+     * The campaign API's start spec. C14 (D-405): an effort named in the campaign's options is the user's choice, which
+     * the approach never steps; the runtime setting's effort (by default `Medium`) is a default the approach may move.
+     */
+    static StartSpec legacySpec(String text, long tokens, String costCurrency, String costAmount, boolean resumeExpected, int maxCells, long leaseMinutes,
+                                JsonNode options, JsonNode runtime) {
+        boolean chosen = options != null && options.hasNonNull("effort");
+        String effort = chosen ? Json.text(options, "effort") : Json.text(runtime, "effort", "Medium");
+        return new StartSpec(text, tokens, costCurrency, costAmount, resumeExpected, maxCells, leaseMinutes, effort,
+            runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null,
+            false, new io.astrolabe.studio.bridge.SavedChecks(), false, null, null, "balanced", chosen);
+    }
+
+    /** The options a campaign was started with (`campaign.start`), or null. */
+    private JsonNode startOptions(String workId) {
+        List<String> rows = jdbc.queryForList("SELECT options_json FROM campaign_index WHERE work_id = ?", String.class, workId);
+        return rows.isEmpty() || rows.getFirst() == null ? null : Json.parse(rows.getFirst());
+    }
+
+    /**
+     * C14: the token budget [workId] was launched with (its last `studio.opened`), else the one its start would compute:
+     * the options' tokens, the runtime default, or the main context times the cells per campaign.
+     */
+    static long launchTokens(JdbcTemplate jdbc, String workId, JsonNode options, JsonNode config, JsonNode runtime) {
+        for (String payload : jdbc.queryForList("SELECT payload FROM event_log WHERE work_id = ? AND kind = 'studio.opened' ORDER BY seq DESC", String.class, workId)) {
+            JsonNode tokens = Json.parse(payload).path("data").path("tokens");
+            // A resume before C14 recorded its placeholder of 1: not a budget anyone chose.
+            if (tokens.isIntegralNumber() && tokens.asLong() > 1) return tokens.asLong();
+        }
+        return startTokens(options, config, runtime);
+    }
+
+    static long startTokens(JsonNode options, JsonNode config, JsonNode runtime) {
+        long cells = config.path("defaults").path("campaignCells").asLong(12);
+        JsonNode main = config.path("profiles").path(config.path("profileRoles").path("main").asString(""));
+        return options != null && options.hasNonNull("tokens") ? options.get("tokens").asLong()
+            : runtime.hasNonNull("defaultTokens") ? runtime.get("defaultTokens").asLong()
+            : main.path("capabilities").path("contextLimitTokens").asLong(128_000) * cells;
     }
 
     /** `campaign.cancel`: through the cancellation token — the outcome is final (R-CMP-06, AS-11). */
