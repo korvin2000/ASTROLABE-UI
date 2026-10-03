@@ -114,14 +114,9 @@ public class CampaignService {
                 "title = coalesce(campaign_index.title, excluded.title), updated_at = max(campaign_index.updated_at, excluded.updated_at)",
             work, projectId, firstLine(title), "stored", Json.text(c, "phase"), Json.text(c, "outcome"), state == null ? null : Json.text(state, "reason"),
             contract == null ? null : Json.text(contract, "shape"), contract == null ? null : Json.text(contract, "mode"), Json.text(c, "fingerprint"), created, updated,
-            state == null ? null : wire(Json.text(state, "stopCode", Json.text(state, "budgetStop"))));
+            state == null ? null : io.astrolabe.studio.bridge.StopCodes.wire(Json.text(state, "stopCode", Json.text(state, "budgetStop"))));
     }
 
-    /** A core stop code as its wire word: the stored state names the enum constant (`TaskLimitMoney` → `task_limit_money`). */
-    static String wire(String code) {
-        if (code == null || code.indexOf('_') >= 0) return code;
-        return code.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(java.util.Locale.ROOT);
-    }
 
     /** Re-reads one campaign from its store into the index and notifies clients (R-SHL-01). */
     public void refresh(String workId) {

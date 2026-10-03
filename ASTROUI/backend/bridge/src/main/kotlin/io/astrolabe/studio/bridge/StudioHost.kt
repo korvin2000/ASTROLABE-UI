@@ -310,6 +310,7 @@ public class StudioHost @JvmOverloads public constructor(
                 stopReason = opened.stop?.reason,
                 verification = verification,
                 stopCode = opened.stop?.code?.wire,
+                budgetStop = opened.state?.takeIf { it.phase == io.astrolabe.campaign.CampaignPhase.Ended }?.budgetStop?.wire,
             )
             campaign.job = scope.launch(CoroutineName("campaign-${work.value}")) {
                 var outcome: String? = null
@@ -351,18 +352,15 @@ public class StudioHost @JvmOverloads public constructor(
     }
 
     /**
-     * The one point the run's limits and approach meet the core's C3 API (D-401). The limits are always named — none is
-     * [io.astrolabe.budget.TaskLimits.NONE] — so the Studio's stored limits of the run, raised ones included, are the
-     * truth on every open and reopen; the approach is frozen with the attempt by the core.
+     * The one point the run's limits and approach meet the core's C3 API (D-401). Named limits — raised ones included —
+     * replace the stored ones (all fields null is [io.astrolabe.budget.TaskLimits.NONE]); `null` keeps what is stored with
+     * the campaign. The approach is frozen with the attempt by the core.
      */
     internal fun corePolicy(spec: StartSpec): CampaignPolicy {
         val cost = if (spec.costCurrency != null && spec.costAmount != null) Money(spec.costCurrency, BigDecimal(spec.costAmount)) else null
-        val l = spec.limits
-        val limits = io.astrolabe.budget.TaskLimits(
-            l.moneyUsd?.let { Money("USD", BigDecimal(it)) },
-            l.minutes,
-            l.requests,
-        )
+        val limits = spec.limits?.let { l ->
+            io.astrolabe.budget.TaskLimits(l.moneyUsd?.let { Money("USD", BigDecimal(it)) }, l.minutes, l.requests)
+        }
         val balance = io.astrolabe.BalanceProfile.entries.firstOrNull { it.wire == spec.preset } ?: io.astrolabe.BalanceProfile.Balanced
         return CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected, limits = limits, balance = balance)
     }

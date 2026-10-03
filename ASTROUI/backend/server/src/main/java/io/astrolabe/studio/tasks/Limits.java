@@ -20,27 +20,32 @@ public record Limits(String moneyUsd, Integer minutes, Integer requests) {
     public static final Limits NONE = new Limits(null, null, null);
 
     /**
-     * [n] as limits: absent or JSON null is [fallback]; an object names all three fields, a missing or null field is no
-     * limit. Money is a decimal above 0 and at most 10000; minutes 1…10080; requests 1…100000.
+     * [n] as limits: absent or JSON null is [fallback]; in an object a JSON null field is no limit and a missing one
+     * keeps [fallback]'s (none without a fallback), so a partial object never lifts the others silently. Money is a
+     * decimal above 0 after rounding to at most four places and at most 10000; minutes 1…10080; requests 1…100000.
      */
     public static Limits parse(JsonNode n, Limits fallback) {
         if (n == null || n.isNull() || n.isMissingNode()) return fallback;
         if (!n.isObject()) throw ApiException.invalid("limits is an object {moneyUsd, minutes, requests}");
-        String money = null;
+        String money = fallback == null ? null : fallback.moneyUsd();
         JsonNode m = n.get("moneyUsd");
+        if (m != null) money = null;
         if (m != null && !m.isNull() && !(m.isString() && m.asString().isBlank())) {
             try {
                 BigDecimal v = new BigDecimal(m.isNumber() ? m.decimalValue().toPlainString() : m.asString().strip());
-                if (v.signum() <= 0 || v.compareTo(BigDecimal.valueOf(10_000)) > 0) throw new NumberFormatException();
-                money = v.setScale(Math.max(2, Math.min(v.scale(), 4)), java.math.RoundingMode.HALF_UP).toPlainString();
+                BigDecimal rounded = v.setScale(Math.max(2, Math.min(v.scale(), 4)), java.math.RoundingMode.HALF_UP);
+                if (rounded.signum() <= 0 || rounded.compareTo(BigDecimal.valueOf(10_000)) > 0) throw new NumberFormatException();
+                money = rounded.toPlainString();
             } catch (NumberFormatException | ArithmeticException e) {
                 throw ApiException.invalid("limits.moneyUsd is a decimal above 0 and at most 10000");
             }
         }
-        return new Limits(money, whole(n, "minutes", 10_080), whole(n, "requests", 100_000));
+        return new Limits(money, whole(n, "minutes", 10_080, fallback == null ? null : fallback.minutes()),
+            whole(n, "requests", 100_000, fallback == null ? null : fallback.requests()));
     }
 
-    private static Integer whole(JsonNode n, String field, int max) {
+    private static Integer whole(JsonNode n, String field, int max, Integer kept) {
+        if (!n.has(field)) return kept;
         JsonNode v = n.get(field);
         if (v == null || v.isNull()) return null;
         if (!v.isIntegralNumber() || v.asLong() < 1 || v.asLong() > max) throw ApiException.invalid("limits." + field + " is a whole number from 1 to " + max);

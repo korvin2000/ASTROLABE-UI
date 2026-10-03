@@ -64,8 +64,10 @@ class ProvenanceTest {
     void theBestVerifiedResultOfALimitStop() {
         assertNull(Provenance.best(Json.parse("{\"provenanceClass\":\"unverified\"}")));
         assertEquals("none", Provenance.best(Json.parse("{\"limit\":{\"bestCandidate\":null,\"workingTree\":false}}")));
-        assertEquals("current", Provenance.best(Json.parse("{\"limit\":{\"bestCandidate\":\"c1\",\"workingTree\":true}}")));
-        assertEquals("earlier", Provenance.best(Json.parse("{\"limit\":{\"bestCandidate\":\"c1\",\"workingTree\":false}}")));
+        assertEquals("earlier", Provenance.best(Json.parse("{\"limit\":{\"bestCandidate\":\"c1\",\"workingTree\":false,\"verifiedEarlier\":[\"R-1\"]}}")));
+        assertEquals("current", Provenance.best(Json.parse("{\"limit\":{\"bestCandidate\":\"c1\",\"workingTree\":true,\"verified\":[\"R-1\"]}}")));
+        // Review P1: a best state that was only accepted without a check is never "the best verified result".
+        assertEquals("accepted", Provenance.best(Json.parse("{\"limit\":{\"bestCandidate\":\"c1\",\"workingTree\":true,\"verified\":[],\"verifiedEarlier\":[],\"accepted\":[\"R-1\"]}}")));
         assertEquals("money", Provenance.limitKind("task_limit_money"));
         assertNull(Provenance.limitKind("cell_cap"));
     }
@@ -86,5 +88,17 @@ class ProvenanceTest {
         assertNull(offer("\"passed\"", "\"Tests\"", "\"web\"", "none"));
         assertNull(offer("\"passed\"", "\"Tests\"", "null", "detected"));
         assertNull(Provenance.checkOffer(Json.parse("{\"outcome\":\"budget_exhausted\",\"checksRun\":[]}"), "none"));
+    }
+
+    @Test
+    void anOfferedCommandReadsBackAsTheArgvThatPassed() {
+        assertEquals("pytest -q \"tests/a b.py\"", Provenance.line(java.util.List.of("pytest", "-q", "tests/a b.py")));
+        assertEquals(java.util.List.of("pytest", "-q", "tests/a b.py"), io.astrolabe.studio.bridge.Verification.argv("pytest -q \"tests/a b.py\""));
+        assertNull(Provenance.line(java.util.List.of("npm", "test", "--", "-t", "it's")));
+        assertNull(Provenance.line(java.util.List.of("echo", "\"x\"")));
+        assertNull(Provenance.line(java.util.List.of("npm", "")));
+        assertNull(Provenance.line(java.util.List.of("npm", "te\u202Est")));
+        assertNull(Provenance.line(java.util.List.of("npm", "a\u0007b")));
+        assertNull(Provenance.line(java.util.List.of()));
     }
 }

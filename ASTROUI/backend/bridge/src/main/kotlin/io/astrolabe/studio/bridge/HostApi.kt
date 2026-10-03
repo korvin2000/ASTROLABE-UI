@@ -35,8 +35,11 @@ public data class StartSpec @JvmOverloads constructor(
     val hostAuthority: Boolean = false,
     /** Studio 2 §9 setting 9: the project's protected files when they differ from the default; null keeps the contract's. */
     val protectedPaths: List<String>? = null,
-    /** ASTROLABE 2.0 C4: the user's limits on this run; every field null is no limit. */
-    val limits: TaskLimits = TaskLimits(),
+    /**
+     * ASTROLABE 2.0 C4: the user's limits on this run. `null` keeps the limits stored with the campaign (a reopen that
+     * names none, a run older than the limits); a value with every field null removes them all.
+     */
+    val limits: TaskLimits? = null,
     /** ASTROLABE 2.0 C4: the approach of the run (`economy` · `balanced` · `thorough`), frozen with its attempt. */
     val preset: String = "balanced",
 )
@@ -66,7 +69,21 @@ public data class CampaignRef(
     val verification: VerificationSetup? = null,
     /** The core's machine-readable reason a stopped campaign waits (D-339): `acceptance_decision` · `review_rejected`. */
     val stopCode: String? = null,
+    /** C4: the typed budget stop (`task_limit_money` …) when the open left the campaign `budget_exhausted` — a raised limit did not free it. */
+    val budgetStop: String? = null,
 )
+
+/** Core stop codes as their wire words (D-339, D-401), whatever form a stored state names them in. */
+public object StopCodes {
+    /** `TaskLimitMoney` or `task_limit_money` → `task_limit_money`; `AcceptanceDecision` → `acceptance_decision`; unknown stays as it is. */
+    @JvmStatic
+    public fun wire(code: String?): String? {
+        if (code == null) return null
+        io.astrolabe.campaign.BudgetStop.entries.firstOrNull { it.name == code || it.wire == code }?.let { return it.wire }
+        io.astrolabe.verify.StopCode.entries.firstOrNull { it.name == code || it.wire == code }?.let { return it.wire }
+        return code
+    }
+}
 
 /**
  * Called once when a campaign's run returns, fails, or its job is cancelled (host shutdown). [stopCode] is the core's

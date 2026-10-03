@@ -90,8 +90,10 @@ public class StudioDb {
         List.of(
             "ALTER TABLE campaign_index ADD COLUMN limits_json TEXT",
             "ALTER TABLE campaign_index ADD COLUMN preset TEXT",
+            // A money limit above the new maximum becomes the maximum, never the default: the user sees what applies.
             "INSERT OR IGNORE INTO preference (key, json, updated_at) SELECT 'taskLimits', " +
-                "json_object('moneyUsd', CAST(json_extract(json, '$.value') AS TEXT), 'minutes', 480, 'requests', 3000), updated_at " +
+                "json_object('moneyUsd', CASE WHEN CAST(json_extract(json, '$.value') AS REAL) > 10000 THEN '10000.00' " +
+                "ELSE CAST(json_extract(json, '$.value') AS TEXT) END, 'minutes', 480, 'requests', 3000), updated_at " +
                 "FROM preference WHERE key = 'limit' AND json_extract(json, '$.kind') = 'money'",
             "DELETE FROM preference WHERE key = 'limit'"
         )

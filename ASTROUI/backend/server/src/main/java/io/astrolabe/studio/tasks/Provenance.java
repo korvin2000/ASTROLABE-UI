@@ -71,13 +71,14 @@ final class Provenance {
 
     /**
      * Where the best verified result of a run stopped at a limit is (core `LimitStop`): `current` — the project files;
-     * `earlier` — an earlier state, the files hold later unverified changes; `none` — nothing is verified. Null without
-     * a limit stop in the receipt.
+     * `earlier` — an earlier state, the files hold later unverified changes; `accepted` — the best state was only
+     * accepted without a check (I7), nothing is verified; `none` — nothing at all. Null without a limit stop.
      */
     static String best(JsonNode receipt) {
         JsonNode limit = receipt == null ? null : receipt.get("limit");
         if (limit == null || limit.isNull()) return null;
         if (!limit.hasNonNull("bestCandidate")) return "none";
+        if (limit.path("verified").size() == 0 && limit.path("verifiedEarlier").size() == 0) return "accepted";
         return limit.path("workingTree").asBoolean(false) ? "current" : "earlier";
     }
 
@@ -87,7 +88,12 @@ final class Provenance {
      * `none`: the next task then applies the saved one). Its command as one line, or null.
      */
     static String checkOffer(JsonNode receipt, String testSource) {
-        if (receipt == null || !"completed".equals(Json.text(receipt, "outcome")) || !"none".equals(testSource)) return null;
+        return "none".equals(testSource) ? checkCandidate(receipt) : null;
+    }
+
+    /** The agent's test [checkOffer] would offer, before the project is asked whether it has a command of its own. */
+    static String checkCandidate(JsonNode receipt) {
+        if (receipt == null || !"completed".equals(Json.text(receipt, "outcome"))) return null;
         String offer = null;
         for (JsonNode c : Json.each(receipt.get("checksRun"))) {
             boolean model = Json.text(c, "checkId", "").startsWith("CHK-model-") || "model".equals(Json.text(c.path("checkOrigin"), "type"));
@@ -96,10 +102,31 @@ final class Provenance {
             if (!model || !"tests".equalsIgnoreCase(Json.text(c, "evidenceKind", "")) || !"passed".equals(Json.text(c, "outcome"))
                 || !(cwd == null || cwd.isEmpty() || cwd.equals("."))) continue;
             List<String> argv = new java.util.ArrayList<>();
-            for (JsonNode a : Json.each(command.get("argv"))) argv.add(a.asString().chars().anyMatch(Character::isWhitespace) ? "\"" + a.asString() + "\"" : a.asString());
-            if (!argv.isEmpty() && !argv.getFirst().isBlank()) offer = String.join(" ", argv);
+            for (JsonNode a : Json.each(command.get("argv"))) argv.add(a.asString());
+            String line = line(argv);
+            if (line != null) offer = line;
         }
         return offer;
+    }
+
+    /**
+     * [argv] as the one line the project's settings keep, or null when the line would not read back as the same argv
+     * (`Verification.argv` takes `'` and `"` as quotes) or holds a character the user could not see — an empty word,
+     * a quote, a control or a bidirectional mark. Such a check is not offered: the saved command must be the one that passed.
+     */
+    static String line(List<String> argv) {
+        if (argv.isEmpty() || argv.getFirst().isBlank()) return null;
+        List<String> words = new java.util.ArrayList<>();
+        for (String a : argv) {
+            if (a.isEmpty() || a.indexOf('"') >= 0 || a.indexOf('\'') >= 0) return null;
+            for (int i = 0; i < a.length(); i++) {
+                int t = Character.getType(a.charAt(i));
+                if (t == Character.CONTROL || t == Character.FORMAT || t == Character.LINE_SEPARATOR || t == Character.PARAGRAPH_SEPARATOR) return null;
+            }
+            words.add(a.chars().anyMatch(Character::isWhitespace) ? "\"" + a + "\"" : a);
+        }
+        String line = String.join(" ", words);
+        return io.astrolabe.studio.bridge.Verification.argv(line).equals(argv) ? line : null;
     }
 
     /** The kind of a task limit from the core's budget stop code (D-401), or null for any other stop. */

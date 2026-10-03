@@ -61,11 +61,21 @@ class TaskLimitsTest {
                 assertEquals("budget_exhausted", first.outcome, first.reason)
                 assertEquals("task_limit_requests", first.code, first.reason)
 
+                // A reopen that does not raise the reached limit leaves the campaign stopped, and the ref says so.
+                val again = Ended()
+                val still = host.resume("p1", ref.workId, spec, configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
+                    again.outcome = o; again.code = c; again.reason = r ?: f?.toString(); again.latch.countDown()
+                }
+                assertEquals("task_limit_requests", still.budgetStop)
+                kotlin.test.assertTrue(again.latch.await(180, TimeUnit.SECONDS), "unchanged reopen ended")
+                assertEquals("budget_exhausted", again.outcome, again.reason)
+
                 val servedAtStop = brain.served()
                 val second = Ended()
-                host.resume("p1", ref.workId, spec.copy(limits = TaskLimits(requests = 500)), configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
+                val raisedRef = host.resume("p1", ref.workId, spec.copy(limits = TaskLimits(requests = 500)), configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
                     second.outcome = o; second.code = c; second.reason = r ?: f?.toString(); second.latch.countDown()
                 }
+                kotlin.test.assertNull(raisedRef.budgetStop)
                 kotlin.test.assertTrue(second.latch.await(180, TimeUnit.SECONDS), "continued run ended")
                 // The fixture brain's script does not replay a stopped cell, so how the continued run ends is the
                 // script's; what C4 owns is that the raised limit lets the same work call the model again.
@@ -73,5 +83,26 @@ class TaskLimitsTest {
                 kotlin.test.assertTrue(brain.served() > servedAtStop, "the continued run called the model")
             }
         }
+    }
+
+    @Test
+    fun `a spec without limits keeps the stored ones and cleared limits remove them`() {
+        StudioHost().use { host ->
+            kotlin.test.assertNull(host.corePolicy(StartSpec("x", 1)).limits)
+            assertEquals(io.astrolabe.budget.TaskLimits.NONE, host.corePolicy(StartSpec("x", 1, limits = TaskLimits())).limits)
+            val named = host.corePolicy(StartSpec("x", 1, limits = TaskLimits("7.50", 90, null), preset = "thorough"))
+            assertEquals(java.math.BigDecimal("7.50"), named.limits?.maxCost?.amount)
+            assertEquals(90, named.limits?.maxMinutes)
+            assertEquals(io.astrolabe.BalanceProfile.Thorough, named.balance)
+        }
+    }
+
+    @Test
+    fun `stop codes read as wire words whatever form names them`() {
+        assertEquals("task_limit_money", StopCodes.wire("TaskLimitMoney"))
+        assertEquals("cell_cap", StopCodes.wire("cell_cap"))
+        assertEquals("acceptance_decision", StopCodes.wire("AcceptanceDecision"))
+        assertEquals("something_else", StopCodes.wire("something_else"))
+        kotlin.test.assertNull(StopCodes.wire(null))
     }
 }
