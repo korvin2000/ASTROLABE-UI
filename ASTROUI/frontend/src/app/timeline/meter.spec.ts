@@ -4,7 +4,8 @@ import { Meter } from './meter';
 // The live meter (C4): the core's budget.spent is the truth; a new run starts from zero, a continued one does not.
 
 const limits = { moneyUsd: '10.00', minutes: 60, requests: 100 };
-const spent = (requests: number, amount: string | null, elapsedMillis: number, basis = 'Billed') =>
+// C14: the core's costBasis is a wire word (`billed` · `estimated` · `mixed` · `none`).
+const spent = (requests: number, amount: string | null, elapsedMillis: number, basis = 'billed') =>
   ({ status: { requests, cost: amount === null ? null : { currency: 'USD', amount, unknown: false }, costBasis: basis, elapsedMillis } });
 
 describe('meter', () => {
@@ -31,7 +32,7 @@ describe('meter', () => {
   it('marks an estimate and keeps the spend of a continued run, not of a new one', () => {
     const m = new Meter();
     m.apply('studio.opened', {}, '2026-10-03T10:00:00Z');
-    m.apply('budget.spent', spent(3, '0.10', 1_000, 'Estimated'), '2026-10-03T10:00:10Z');
+    m.apply('budget.spent', spent(3, '0.10', 1_000, 'estimated'), '2026-10-03T10:00:10Z');
     const v = m.view(0, false)!;
     expect(v.money.estimated).toBe(true);
     expect(v.money.limit).toBeNull();
@@ -40,6 +41,15 @@ describe('meter', () => {
     expect(m.view(0, false)!.requests).toEqual({ n: 3, limit: 100 });
     m.apply('studio.opened', { limits }, '2026-10-03T12:00:00Z');
     expect(m.view(0, false)).toBeNull();
+  });
+
+  it('reads the cost basis as a wire word and in the form stored before C14', () => {
+    const m = new Meter();
+    m.apply('studio.opened', { limits }, '2026-10-03T10:00:00Z');
+    for (const [basis, estimated] of [['billed', false], ['mixed', true], ['none', true], ['Billed', false], ['Estimated', true]] as const) {
+      m.apply('budget.spent', spent(1, '0.10', 1_000, basis), '2026-10-03T10:00:10Z');
+      expect(m.view(0, false)!.money.estimated, basis).toBe(estimated);
+    }
   });
 
   it('draws the time of a continued run from its open, not across the pause (review P2)', () => {

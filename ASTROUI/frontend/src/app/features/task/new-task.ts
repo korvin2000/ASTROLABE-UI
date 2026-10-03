@@ -104,7 +104,8 @@ export class NewTask {
     this.busy.set(true);
     this.failure.set(null);
     try {
-      const r = await this.api.post<{ taskId: string }>('/tasks', { projectId, text, model: this.model(), effort: this.effort(), mode: this.mode(),
+      // C14: only an effort chosen here is the user's; without one the server takes the default, which the approach may step.
+      const r = await this.api.post<{ taskId: string }>('/tasks', { projectId, text, model: this.model(), effort: this.chosenEffort() ?? undefined, mode: this.mode(),
         preset: this.approach(), limits: this.limits() });
       void this.router.navigate(['/t', r.taskId]);
     } catch (e) {
