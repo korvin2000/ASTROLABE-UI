@@ -4,22 +4,22 @@
 (`611dbad`); первая сдача `0cbbd17`; ревью круг 1 (Codex 6 P1 + 3 P2, Fable 3 P1 + 5 P2) — `faa183d`, `2077aac`,
 `81303fe`, `b1863ec` (слияние C11), `3b69d6b` (ABI); ревью круг 2 (Codex 6 P1 + 4 P2 + 1 P3) — `51d8ea0` (код и
 тесты), `1cd4adb` (docs), `a413b14` (слияние main); круг 3 (Codex 6 P1 + 2 P2, решение оркестратора — упростить правило)
-— `ed3ace6` (код и тесты), `77db412` (docs). K = core/src/main/kotlin/io/astrolabe.
+— `ed3ace6` (код и тесты), `77db412` (docs), `5a58e19` (слияние C14), `f7cf280` (ABI); круг 4 (контрольная
+проверка) — см. «Ревью, круг 4». K = core/src/main/kotlin/io/astrolabe.
 
-## Итоговое правило (после круга 3, одним абзацем)
+## Итоговое правило (после круга 4, одним абзацем)
 Красное `CHK-tests-blast` / `CHK-types-touched` не оставляет следа только одним способом: идентичность теста сообщена ровно
-один раз и как passed eligible-прогоном на текущем дереве, который завершился с полной записью (не обрезанной и прочитанной
-целиком). До этого каждое падение, сообщённое любым прогоном попытки (в т. ч. зависшим или прочитанным частично), держится;
-посчитанные, но не идентифицированные или обрезанные — всю попытку. Квитанции хранят только идентичность (дайджест +
-редактированное имя) и статус; текст падений не сравнивается. Stop перезапускает команду каждой красной за удержанием, не
-показанной на этом дереве (с её замыканием, один раз на определение и штамп, маркер до запуска, срок урезан), и запускает
-один baseline на проверку и попытку (маркер до запуска, остаток времени перечитывается перед стартом процесса). **New**
-(жёсткий отказ, «fix and rerun `<команда>`», `Open` не снимает) — только если eligible-прогон на этом дереве сообщает
-падение, а завершённый baseline (eligible, полная запись, то же окружение) сообщил идентичность на s0 ровно один раз как
-passed. **Было красным до изменений** — тот baseline сообщил её как failed (в любом виде): runtime признаёт сам, `Open` не
-нужна, строка «failed before the change too: <имя>». **Неизвестно** — всё остальное: D-400 (`Open`, пока текущий eligible
-красный прогон; признание по id квитанции переживает pending-решение, commit, финальный `reaccept` и resume), строка
-«failure not classified (…)». Любое удержание ограничивает сводный класс до `unverified`.
+один раз как passed eligible-прогоном на текущем дереве, завершившимся с полной записью (для types-touched, у которой нет
+поштучных падений, — её собственный eligible `Passed` на этом дереве при том же определении). Каждая квитанция этих проверок
+(в т. ч. из общего `run` с полным набором) хранит свою запись по тестам: ключ — дайджест идентичности (с файлом раннера) и
+нормализованного каталога запуска, плюс редактированные имя и первая строка; текст падений не сравнивается; неполный захват
+или отчёт сохраняет исход процесса и помечает запись неполной. Каждое сообщённое падение держится до такого снятия;
+неидентифицированные и обрезанные — всю попытку. Stop перезапускает последнюю красную команду каждой проверки, не
+подтверждённую eligible-прогоном или маркером на этом дереве (её замыкание, маркер под её определением, без flaky-повтора,
+прямой `pytest` с `-rA`), и один baseline на проверку и попытку. **New** (жёсткий отказ) — eligible-прогон этого дерева
+однозначно сообщает падение, а завершённый baseline сообщил идентичность на s0 ровно один раз как passed. **Было красным до
+изменений** — baseline сообщил её как failed: без `Open`, раскрытие. **Неизвестно** — остальное: D-400 + раскрытие с
+причиной. Любое удержание ограничивает класс до `unverified`.
 
 # Часть 1 — P8.C.10
 
@@ -86,8 +86,9 @@ passed. **Было красным до изменений** — тот baseline 
 - «Один раз на попытку» → baseline один на определение на попытку, не более одного на проверку за stop.
 - Файлы вне списка границ: `evidence/Receipt.kt`, `evidence/Receipts.kt`, `workspace/Workspace.kt` (`unquiet`),
   `graph/{Planning,RequirementGraph}.kt`, `verify/{ExitGate,Blast}.kt`, `cell/{Cell,CellContext}.kt` (3 строки),
-  `campaign/Controller.kt` (проводка baseline, `acknowledged`, resume, восстановление blast).
-- Проводка baseline включает операцию модели `verify(baseline)` в main-line ячейках.
+  `campaign/Controller.kt` (проводка baseline, `acknowledged`, resume, восстановление обеих регрессионных проверок).
+- Проводка baseline — только для автоматического baseline на stop (`Verify.regressionBaseline`); операция модели
+  `verify(baseline)` осталась как в main («no baseline is configured», круг 5).
 
 ## Хвосты и риски
 - Раннеры, не называющие прошедшие тесты (pytest `-q` без `-rA`, без JUnit XML): исправленная идентичность не может
@@ -209,6 +210,71 @@ passed. **Было красным до изменений** — тот baseline 
   RunTest 74/0, Resume 8/0, JUnitXmlShaperTest 11/0 (1 skip, прежний).
 - Возражений нет.
 
+## Ревью, круг 4 (контрольная проверка; находка → что сделано)
+1. Общий `run` (полный набор + blast одной командой) писал blast-квитанцию без записи → `Executed.testsByCheck`:
+   `executedOf` строит запись для КАЖДОЙ регрессионной проверки из `sharing` (распознанные checks, pin.checks фона),
+   идентичность перепривязана к её check id; `recordRun` берёт запись своей проверки.
+2. Неeligible-прогон маскировал New и перезапуск → New, если любой eligible-прогон этого дерева однозначно сообщил падение
+   (`failingEligible`); `unconfirmed` считает подтверждением только eligible-квитанцию или маркер.
+3. Ключ без каталога → ключ = дайджест (canonical идентичности + нормализованный cwd квитанции); снятие и оба сравнения с s0
+   идут по такой паре (baseline запускается с cwd красной).
+4. (а) types-touched снимается своим eligible `Passed` на этом дереве при том же определении; (б) собственные запуски blast
+   harness'ом: прямой `pytest`/`python -m pytest` без своего `-r…` получает `-rA` только в запускаемом argv (в квитанции —
+   объявленная команда, определение не меняется); для jest/vitest/mocha безопасного способа в коде нет — команда не трогается;
+   (в) причины раскрытия: «the runner lists no passed tests», «passed more tests than the record keeps (2000)».
+5. Перезапуск types на stop: маркер несёт `checkDefinitionVersion` красной; если красная определена зарегистрированной
+   проверкой (end-of-turn checker с файлами), перезапускается сама зарегистрированная проверка — квитанция с тем же
+   определением; второй stop на том же дереве не перезапускает. Не больше одного перезапуска на проверку за stop
+   (последнее определение; более старые красные остаются Unknown).
+6. Лишнее `baseline != null` убрано (`usable`); KDoc `Resolver` переписан.
+7. Ошибка сбора отчётов → исход процесса (exit, статус лога) и падения из лога сохраняются, запись неполная, Passed → Inconclusive;
+   красная без идентичностей держится как Unknown. Так же для фона (`settleRecognized`).
+8. JUnit: атрибут `file` testcase входит в идентичность (`file`, а classname — в suite); два `t` из разных файлов — разные
+   идентичности; неоднозначная идентичность не снимает и New не доказывает (New требует однозначности и сейчас).
+9. Baseline: живая редакция (`applyLive`, как в Verify) — незакрытый блок ключа скрыт; `Verify.timeLeft` при установке
+   передаётся в `Baseline.timeLeft` — все пути baseline, включая `verify(baseline)`, читают актуальный остаток.
+- Тесты: RunTest — общий `run` (1), сбор отчётов > 16 МиБ (7), перезапуск types под определением красной (5), остаток
+  времени у baseline (9); BaselineTest — неeligible не маскирует New (2), ключ с каталогом (3), types-след, «runner lists no
+  passed tests», «>2000» (4), `listingPasses` (4б), неоднозначность сейчас → не New (8), редакция ключа в логе baseline (9);
+  JUnitXmlShaperTest — `file` в идентичности (8); ProvenanceTest — сквозной pytest red → fix → green без перечня passed
+  (`Completed`, `unverified`, причина) и с перечнем (существующий тест «a fix proposed without a rerun…», без следа).
+- Изменённый тест: «две ошибки одной идентичности» — теперь Unknown, а не New (п. 8: неоднозначность ничего не доказывает).
+- Не делалось (хвосты): атомарные claim и `Receipt.workspaceId` из ветки Codex; `ignoreUnknownKeys` при чтении квитанций
+  (`K/evidence/Receipts.kt`); предел числа перезапусков исторических красных за stop — сделан минимально: одна (последняя)
+  команда на проверку за stop.
+
+## Ревью, круг 5 (финальная проверка Codex; находка → что сделано)
+1. P1 `Controller.kt:575` — при reopen обе регрессионные проверки восстанавливаются из истории квитанций, даже если
+   discovery их больше не регистрирует (`Regressions.restored(receipt)`: blast — как прежде `Blast.restored`, types —
+   проверка по определению своей последней квитанции, `last` = эта квитанция). Hold и cap класса считаются из истории.
+2. P1 `Verify.kt:517` — ошибка сбора отчётов: квитанция и view каждой проверки как в main (`Inconclusive`, без exit,
+   view — текст ошибки); только `CHK-tests-blast`/`CHK-types-touched` (из `sharing`/`pin.checks`) получают исход процесса
+   (`Executed.outcomeByCheck`; `Passed` → `Inconclusive`) и падения из лога как неполную запись. Так же в `settleRecognized`.
+3. P2 `JUnitXmlShaper.kt:165` — идентичность, display и ключи других проверок как в main; `file` хранится рядом
+   (`TestResult.runnerFile`, `@Transient`) и входит только в ключ регрессионной записи (`Regressions.key(…, runnerFile)`).
+4. P2 `Controller.kt:2231` — автоматический baseline отделён: `Verify(baseline = null)` как в main, а stop берёт
+   `Verify.regressionBaseline` (тот же объект, тот же остаток времени). `verify(baseline)` модели — «no baseline is configured».
+- Тесты: ProvenanceTest — reopen после удаления `mypy.ini`: types-touched восстановлен с `last`, hold Unknown (1);
+  RunTest — отчёт > 16 МиБ: blast `Failed` + неполная запись, FULL-квитанция `Inconclusive`, без exit и записи, как в main (2);
+  JUnitXmlShaperTest — идентичность и display как в main, `runnerFile` разводит ключи (3); VerifyTest — при заданном
+  `regressionBaseline` `verify(baseline)` отвечает «unavailable … no baseline is configured», квитанций нет (4).
+  Тесты main не менялись (тест круга 4 о `file` в идентичности переписан под п. 3).
+- Часть 2: без живого фонового handle `settleRuns` ничего не ждёт и не отменяет — второго слоя, заметок и иного вывода
+  poll на stop нет, поведение stop совпадает с main (кроме перезапуска/baseline удерживаемых регрессионных красных — часть 1).
+
+## Пределы применимости
+- Поштучный результат (снятие и New возможны): pytest с перечнем прошедших (`-rA`; harness добавляет его к своим прямым
+  вызовам `pytest`/`python -m pytest`), JUnit XML отчёты Gradle и Maven (каждый `testcase`), Jest при наличии JSON-отчёта.
+- Без перечня прошедших (pytest `-q` без `-rA` через обёртки/скрипты, Jest/vitest/mocha в терминальном выводе, go, cargo,
+  unittest — только падения): падение не может быть показано исправленным; после зелёного прогона оно Unknown не текущее,
+  раскрытие «the runner lists no passed tests», завершение возможно, класс `unverified`. New тоже невозможен (на s0 нет
+  поштучного passed) — регрессия остаётся под правилом D-400.
+- Больше 2000 прошедших или 200 падений в одном прогоне — запись обрезана: то же, причина «more tests than the record keeps».
+- types-touched (mypy, pyright, tsc): поштучных падений нет; красная снимается только собственным eligible `Passed` на
+  текущем дереве при том же определении (harness-проверка без объявленного kind обычно даёт `Inconclusive` на exit 0 —
+  тогда снятия нет и класс `unverified`); New для types невозможен.
+- Baseline на s0 непригоден, где зависимости в игнорируемых каталогах (`node_modules`) или набор включает новые файлы.
+
 ## Тесты (L2 и ABI)
 - Первая сдача: L2 (карточка) 76 классов, 624 теста, 2 skipped, 0/0; ABI `0cbbd17`.
 - Раунд ревью: `git merge main` дважды — `faa183d` (C3r `47c1149`) и `b1863ec` (C11 `878d5fe`: конфликт
@@ -226,4 +292,10 @@ passed. **Было красным до изменений** — тот baseline 
 
 - Круг 2: `git merge main` → `a413b14` (main `98772fb`, только TODO.md, без конфликтов). L2 тем же набором пакетов (`c10-l2.sh`) → exit 0; XML своего checkout: 90 классов, 721 тест, 2 skipped, 0 failures, 0 errors. `:core:updateKotlinAbi` → `83517b6` (TestResult.detail + вторичный конструктор, Regressions.RERUN/isMarker; удалений не-synthetic сигнатур относительно main нет); `:eval:compileTestKotlin :core:checkKotlinAbi` → exit 0. Ветка запушена.
 
-Статус: ГОТОВО К СЛИЯНИЮ — последний коммит `83517b6`
+- Круг 3: `git merge main` → `5a58e19` (C14 `e9cbb0b`: авто-слияние `Controller.kt`, `CellContext.kt`, дампа; без конфликтов). L2 тем же набором (`c10-l2.sh`) → exit 0; XML своего checkout: 90 классов, 733 теста, 2 skipped, 0 failures, 0 errors (до слияния C14: 90 / 725 / 2 / 0 / 0). `:core:updateKotlinAbi` → `f7cf280`, удалений не-synthetic сигнатур относительно main нет; `:eval:compileTestKotlin :core:checkKotlinAbi` → exit 0. Ветка запушена.
+
+- Круг 4: `git merge main` — уже актуально (`e9cbb0b`). L1: ExitGate 22/0, Scheduler 22/0 (1 skip), Baseline 12/0, Provenance 39/0, AcceptanceDecision 11/0, Run 77/0, Resume 8/0, JUnitXmlShaper 12/0 (1 skip). L2 (`c10-l2.sh`) → exit 0; XML своего checkout: 90 классов, 740 тестов, 2 skipped, 0 failures, 0 errors. `:core:updateKotlinAbi` → `568da66`, удалений не-synthetic сигнатур относительно main нет; `:eval:compileTestKotlin :core:checkKotlinAbi` → exit 0. Коммиты круга 4: `3fb46e4` (код и тесты), `0ab8c09` (docs), `568da66` (ABI). Ветка запушена.
+
+- Круг 5: `git merge main` — уже актуально (`e9cbb0b`). L1: ExitGate 22/0, Scheduler 22/0 (1 skip), Baseline 12/0, Provenance 40/0, AcceptanceDecision 11/0, Run 77/0, Resume 8/0, JUnitXmlShaper 12/0 (1 skip), Verify 16/0. L2 (`c10-l2.sh`) → exit 0; XML своего checkout: 90 классов, 742 теста, 2 skipped, 0 failures, 0 errors. `:core:updateKotlinAbi` → `ae5610f`: относительно main удалены только `copy`/synthetic data-классов (`TestResult` получил `runnerFile`, 4-аргументный конструктор сохранён); `:eval:compileTestKotlin :core:checkKotlinAbi` → exit 0. Коммиты круга 5: `0500e3a` (код и тесты), `ae5610f` (ABI). Ветка запушена.
+
+Статус: ГОТОВО К СЛИЯНИЮ — последний коммит `ae5610f`
