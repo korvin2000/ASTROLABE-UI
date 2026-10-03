@@ -106,6 +106,16 @@ describe('acceptance (B3)', () => {
     expect(acceptanceBody('rework', ' handle nulls ')).toEqual({ decision: 'rework', answer: 'handle nulls' });
   });
 
+  it('offers no Continue for a contract budget no reopen lifts, and keeps it for the built-in limit (C14)', () => {
+    for (const code of ['contract_budget', 'contract_budget_cost', 'contract_budget_unknown_usage']) {
+      expect(ERROR_CODES).toContain(code);
+      expect(actionsOf(code)).toEqual(['copy_details']);
+      expect(translate('en', 'error.' + code)).toContain('cannot continue');
+      expect(translate('ru', 'error.' + code)).toContain('Продолжить его нельзя');
+    }
+    expect(actionsOf('limit_reached')).toContain('continue_more');
+  });
+
   it('never offers Continue while the result waits for the word of the user', () => {
     for (const code of ['acceptance_decision', 'review_rejected']) {
       expect(ERROR_CODES).toContain(code);

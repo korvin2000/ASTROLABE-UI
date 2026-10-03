@@ -629,6 +629,10 @@ export const EN: Record<string, string> = {
   'error.limit_money': 'Stopped at the money limit (${limit}).',
   'error.limit_minutes': 'Stopped at the time limit ({limit} min).',
   'error.limit_requests': 'Stopped at the request limit ({limit}).',
+  // ASTROLABE 2.0 C14: the run's own budget that no continue lifts.
+  'error.contract_budget': 'Stopped at this run\'s own budget. It cannot continue; send a message to start a new run of the task.',
+  'error.contract_budget_cost': 'Stopped at this run\'s own money budget. It cannot continue; send a message to start a new run of the task.',
+  'error.contract_budget_unknown_usage': 'Stopped: a model call did not report its size, so this run\'s budget counts as spent. It cannot continue; send a message to start a new run of the task.',
   'state.done_agent_test': 'Done · verified by the agent\'s own test',
   'state.paused_limit': 'Stopped at the limit',
   'composer.limits': 'Approach and limits',

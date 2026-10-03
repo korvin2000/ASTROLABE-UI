@@ -96,6 +96,13 @@ public class StudioDb {
                 "ELSE CAST(json_extract(json, '$.value') AS TEXT) END, 'minutes', 480, 'requests', 3000), updated_at " +
                 "FROM preference WHERE key = 'limit' AND json_extract(json, '$.kind') = 'money'",
             "DELETE FROM preference WHERE key = 'limit'"
+        ),
+        // ASTROLABE 2.0 C14: whether the user chose the run's effort (the approach steps only a default one), what the
+        // core says still holds a stopped run after an open (`LimitHold`), and the cause of a contract budget stop.
+        List.of(
+            "ALTER TABLE campaign_index ADD COLUMN effort_explicit INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE campaign_index ADD COLUMN limit_hold_json TEXT",
+            "ALTER TABLE campaign_index ADD COLUMN contract_stop_json TEXT"
         )
     );
 

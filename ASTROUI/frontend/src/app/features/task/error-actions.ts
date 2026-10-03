@@ -25,6 +25,11 @@ const ACTIONS: Record<string, ActionId[]> = {
   limit_money: ['raise_limit', 'stop'],
   limit_minutes: ['raise_limit', 'stop'],
   limit_requests: ['raise_limit', 'stop'],
+  // C14: the run's own budget, spent by its money, by a call of unknown size, or before the cause was recorded — no
+  // continue lifts it, so none is offered; a new message starts a follow-up.
+  contract_budget: ['copy_details'],
+  contract_budget_cost: ['copy_details'],
+  contract_budget_unknown_usage: ['copy_details'],
   command_timeout: ['retry'],
   context_too_large: ['change_model'],
   checks_failed: ['retry', 'show_output'],

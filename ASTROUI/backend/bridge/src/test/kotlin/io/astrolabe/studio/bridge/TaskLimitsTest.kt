@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlinx.serialization.json.jsonPrimitive
 
 /** ASTROLABE 2.0 C4: the run's limits reach the core; a request limit stops the run, a raised one continues the same work. */
 class TaskLimitsTest {
@@ -61,21 +62,31 @@ class TaskLimitsTest {
                 assertEquals("budget_exhausted", first.outcome, first.reason)
                 assertEquals("task_limit_requests", first.code, first.reason)
 
-                // A reopen that does not raise the reached limit leaves the campaign stopped, and the ref says so.
+                // A reopen that does not raise the reached limit leaves the campaign stopped, and the ref says what holds it
+                // (C14: the core's LimitHold). With the Studio's notes it is still one open: one journal line, one event.
                 val again = Ended()
-                val still = host.resume("p1", ref.workId, spec, configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
+                val stopped = java.util.concurrent.CopyOnWriteArrayList<String>()
+                val busFrom = host.busLastSeq()
+                val subscription = host.subscribe { _, seq, kind, record -> if (kind == "budget.limit_reached" && seq > busFrom) stopped += record }
+                val stillBefore = stillLines(host, ref.workId)
+                val noted = spec.copy(verificationSetup = true)
+                val still = host.resume("p1", ref.workId, noted, configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
                     again.outcome = o; again.code = c; again.reason = r ?: f?.toString(); again.latch.countDown()
                 }
-                assertEquals("task_limit_requests", still.budgetStop)
+                val hold = ConfigSupport.obj(checkNotNull(still.limitHold) { "the ref names the hold" })
+                assertEquals("task_limit_requests", hold["stop"]?.jsonPrimitive?.content)
                 kotlin.test.assertTrue(again.latch.await(180, TimeUnit.SECONDS), "unchanged reopen ended")
                 assertEquals("budget_exhausted", again.outcome, again.reason)
+                assertEquals(1, stillLines(host, ref.workId) - stillBefore, "one 'still reached' line per reopen")
+                assertEquals(1, stopped.size, "one budget.limit_reached event per reopen: $stopped")
+                subscription.close()
 
                 val servedAtStop = brain.served()
                 val second = Ended()
-                val raisedRef = host.resume("p1", ref.workId, spec.copy(limits = TaskLimits(requests = 500)), configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
+                val raisedRef = host.resume("p1", ref.workId, noted.copy(limits = TaskLimits(requests = 500)), configJson, llm, authority, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, c, f ->
                     second.outcome = o; second.code = c; second.reason = r ?: f?.toString(); second.latch.countDown()
                 }
-                kotlin.test.assertNull(raisedRef.budgetStop)
+                kotlin.test.assertNull(raisedRef.limitHold)
                 kotlin.test.assertTrue(second.latch.await(180, TimeUnit.SECONDS), "continued run ended")
                 // The fixture brain's script does not replay a stopped cell, so how the continued run ends is the
                 // script's; what C4 owns is that the raised limit lets the same work call the model again.
@@ -97,12 +108,42 @@ class TaskLimitsTest {
         }
     }
 
+    /** The journal lines of [work] that say a task limit still holds it after an open. */
+    private fun stillLines(host: StudioHost, work: String): Int =
+        Regex(Regex.escape("limits: still reached")).findAll(host.journalAfter("p1", work, 0, 2_000)).count()
+
     @Test
     fun `stop codes read as wire words whatever form names them`() {
-        assertEquals("task_limit_money", StopCodes.wire("TaskLimitMoney"))
-        assertEquals("cell_cap", StopCodes.wire("cell_cap"))
+        // C14: the core writes budget stops as wire words; a state stored before names the constant, read by the core.
+        assertEquals("task_limit_money", StopCodes.budgetStop("task_limit_money"))
+        assertEquals("task_limit_money", StopCodes.budgetStop("TaskLimitMoney"))
+        assertEquals("contract_budget", StopCodes.budgetStop("ContractBudget"))
+        assertEquals("cell_cap", StopCodes.budgetStop("cell_cap"))
+        assertEquals("something_else", StopCodes.budgetStop("something_else"))
+        kotlin.test.assertNull(StopCodes.budgetStop(null))
+        // StopCode still crosses by its constant name.
         assertEquals("acceptance_decision", StopCodes.wire("AcceptanceDecision"))
+        assertEquals("integrity_review", StopCodes.wire("integrity_review"))
         assertEquals("something_else", StopCodes.wire("something_else"))
         kotlin.test.assertNull(StopCodes.wire(null))
+    }
+
+    @Test
+    fun `the approach steps a default effort and never the one the user chose`() {
+        val brain = FixtureBrain({ emptyList() }, latencyMillis = 0, tokensPerSecond = 0)
+        val main = FixtureBrain.profiles().first { it.id == FixtureBrain.MAIN_PROFILE }
+        val economy = io.astrolabe.BalanceProfiles.vector(io.astrolabe.BalanceProfile.Economy)
+        Llm.builder().provider(brain.provider()).environment(Environment.none()).catalog { it.offline() }.build().use { llm ->
+            val adapter = io.astrolabe.provider.aigate.AiGateAdapter(llm, listOf(main), false)
+            StudioHost().use { host ->
+                val estimator = io.astrolabe.budget.HeuristicEstimator()
+                val byApproach = host.cellModel(adapter, main, estimator, StartSpec("x", 1, effort = "Medium"))
+                val chosen = host.cellModel(adapter, main, estimator, StartSpec("x", 1, effort = "Medium", effortExplicit = true))
+                kotlin.test.assertFalse(byApproach.effortExplicit)
+                assertEquals(io.astrolabe.provider.Effort.Low, io.astrolabe.BalanceProfiles.effort(byApproach, economy))
+                assertEquals(io.astrolabe.provider.Effort.Medium, io.astrolabe.BalanceProfiles.effort(chosen, economy))
+            }
+            adapter.close()
+        }
     }
 }

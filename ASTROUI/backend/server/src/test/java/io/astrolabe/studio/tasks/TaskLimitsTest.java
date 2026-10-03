@@ -260,18 +260,20 @@ class TaskLimitsTest {
         verify(projectSettings).saveCheck("p1", "test", "pytest -q", "local");
     }
 
-    private void limitEvent(int seq, String limit, String stage) {
-        jdbc.update("INSERT INTO event_log (work_id, seq, at, source, kind, payload) VALUES ('W-1', ?, '2026-10-03T11:00:00Z', 'bus', 'budget.limit_reached', ?)",
-            seq, "{\"kind\":\"budget.limit_reached\",\"data\":{\"limit\":\"" + limit + "\",\"stage\":\"" + stage + "\",\"action\":\"raise_limit\"}}");
+    /** The core's `LimitHold` of the run's last open (C14), as the bridge passes it. */
+    private static String hold(String stop, String cause) {
+        return "{\"stop\":\"" + stop + "\",\"status\":{\"requests\":3},\"reason\":\"held\"" + (cause == null ? "" : ",\"cause\":\"" + cause + "\"") + "}";
+    }
+
+    private void column(String column, Object value) {
+        jdbc.update("UPDATE campaign_index SET " + column + " = ? WHERE work_id = 'W-1'", value);
     }
 
     @Test
     void aLimitThatStillHoldsAfterARaiseIsTheOneShownAndRaised() {
-        // Stopped at money; the reopen with more money found the minutes spent too (core: still reached (minutes)).
+        // Stopped at money; the reopen with more money found the minutes spent too: the core's LimitHold names them (C14).
         row("budget_exhausted", "task_limit_money", "{\"moneyUsd\":\"10.00\",\"minutes\":60,\"requests\":300}");
-        limitEvent(1, "money", "stopped");
-        limitEvent(2, "minutes", "reserve");
-        limitEvent(3, "minutes", "stopped");
+        column("limit_hold_json", hold("task_limit_minutes", null));
         var task = tasks.task("W-1", false);
         assertEquals("limit_minutes", Json.text(task.path("reason"), "code"));
         assertEquals(60, task.path("reason").path("params").path("limit").asInt());
@@ -282,8 +284,8 @@ class TaskLimitsTest {
         verify(campaigns).setBudget(eq("W-1"), anyString(), eq(null));
     }
 
-    private static io.astrolabe.studio.bridge.CampaignRef ref(String budgetStop) {
-        return new io.astrolabe.studio.bridge.CampaignRef("W-1", "a", null, 1, "f", "{}", budgetStop == null ? null : "budget", null, null, budgetStop);
+    private static io.astrolabe.studio.bridge.CampaignRef ref(String limitHold) {
+        return new io.astrolabe.studio.bridge.CampaignRef("W-1", "a", null, 1, "f", "{}", limitHold == null ? null : "budget", null, null, limitHold);
     }
 
     private void notices(String code, int times) {
@@ -295,14 +297,124 @@ class TaskLimitsTest {
     void theTaskContinuesOnlyWhenTheCoreLeftTheLimitStop() {
         row("budget_exhausted", "task_limit_requests", "{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":300}");
         tasks.resume("W-1", null, null, null, Json.parse("{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":301}"));
-        // The reserve still holds (core Reserve, not Within): the open leaves the campaign stopped.
-        tasks.reopened("W-1", ref("task_limit_requests"));
+        // The reserve still holds (core Reserve, not Within): the open leaves the campaign stopped, and its hold says which.
+        tasks.reopened("W-1", ref(hold("task_limit_requests", null)));
         notices("limit_still_reached", 1);
         notices("limit_raised", 0);
+        verify(pipeline).studioItem(eq("W-1"), eq("studio.notice"), org.mockito.ArgumentMatchers.argThat(d -> "requests".equals(Json.text(d, "limit"))));
         // A second raise that frees it says so once.
         tasks.resume("W-1", null, null, null, Json.parse("{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":600}"));
         tasks.reopened("W-1", ref(null));
         tasks.reopened("W-1", ref(null));
         notices("limit_raised", 1);
+    }
+
+    // ------------------------------------------------------------------------------------------------ C14
+
+    private static final CampaignService.TaskRun RUN =
+        new CampaignService.TaskRun("W-1", "p1", "W-1", null, "fix it", "fix the discount", "demo/model", "medium", "ask", false);
+    private static final long GUARD = 200_000L * 10_000;
+
+    private String reasonCode() {
+        var task = tasks.task("W-1", false);
+        assertEquals("paused", Json.text(task, "state"));
+        return Json.text(task.path("reason"), "code");
+    }
+
+    @Test
+    void theTokenGuardOfAModelWithoutAKnownWindowIsAWholeGuardNotOneToken() {
+        row(null, null, null);
+        var unknown = new ModelService.Bound("auto-demo", "demo", "model", true, 0);
+        assertEquals((long) io.astrolabe.studio.bridge.AutoProfiles.ESTIMATED_CONTEXT * 10_000, tasks.spec(RUN, "fix the discount", unknown).getTokens());
+    }
+
+    @Test
+    void aContractBudgetStopOnItsTokensContinuesInPlaceAboveThem() {
+        row("budget_exhausted", "contract_budget", null);
+        column("contract_stop_json", "{\"cause\":\"tokens\",\"tokens\":400000}");
+        assertEquals("limit_reached", reasonCode());
+        // The core raises the contract's tokens only to a larger policy: the reopen asks for the guard on top of them.
+        assertEquals(400_000L + GUARD, tasks.spec(RUN, "fix the discount", BOUND).getTokens());
+        tasks.resume("W-1", null, null, null);
+        verify(projects).open("p1");
+        verify(campaigns, never()).register(any());
+    }
+
+    @Test
+    void aContractBudgetStopOnACellsTurnsContinuesInPlace() {
+        row("budget_exhausted", "contract_budget", null);
+        column("contract_stop_json", "{\"cause\":\"turns\",\"tokens\":400000}");
+        assertEquals("limit_reached", reasonCode());
+        assertEquals(GUARD, tasks.spec(RUN, "fix the discount", BOUND).getTokens());
+        tasks.resume("W-1", null, null, null);
+        verify(projects).open("p1");
+        verify(campaigns, never()).register(any());
+    }
+
+    @Test
+    void theHoldOfTheLastOpenSaysWhatHoldsAContractBudgetStop() {
+        // A turns stop whose tokens ran out holds on its tokens (core LimitHold.cause): the next open raises them.
+        row("budget_exhausted", "contract_budget", null);
+        column("contract_stop_json", "{\"cause\":\"turns\",\"tokens\":400000}");
+        column("limit_hold_json", hold("contract_budget", "tokens"));
+        assertEquals("limit_reached", reasonCode());
+        assertEquals(400_000L + GUARD, tasks.spec(RUN, "fix the discount", BOUND).getTokens());
+    }
+
+    @Test
+    void aContractBudgetNoReopenContinuesSaysSoAndContinueStartsAFollowUp() {
+        String[][] cases = {
+            {"{\"cause\":\"cost\",\"tokens\":400000}", "contract_budget_cost"},
+            {"{\"cause\":\"unknown_usage\",\"tokens\":400000}", "contract_budget_unknown_usage"},
+            // A stop recorded before the core named causes: the core holds it.
+            {null, "contract_budget"},
+        };
+        when(host.newWorkId()).thenReturn("W-2");
+        int followUps = 0;
+        for (String[] c : cases) {
+            jdbc.update("DELETE FROM campaign_index");
+            row("budget_exhausted", "contract_budget", null);
+            column("contract_stop_json", c[0]);
+            assertEquals(c[1], reasonCode(), String.valueOf(c[0]));
+            assertEquals(GUARD, tasks.spec(RUN, "fix the discount", BOUND).getTokens());
+            tasks.resume("W-1", null, null, null);
+            verify(campaigns, org.mockito.Mockito.times(++followUps)).register(any());
+        }
+        verify(projects, never()).open(any());
+    }
+
+    @Test
+    void anEffortTheUserChoseIsExplicitAndTheDefaultIsNot() {
+        ArgumentCaptor<CampaignService.TaskRun> runs = ArgumentCaptor.forClass(CampaignService.TaskRun.class);
+        tasks.start("p1", "fix the discount", "demo/model", "high", "ask");
+        when(host.newWorkId()).thenReturn("W-2");
+        // The default effort — the preference, remembered from the last start — is not a choice.
+        tasks.start("p1", "fix the discount", "demo/model", null, "ask");
+        verify(campaigns, org.mockito.Mockito.times(2)).register(runs.capture());
+        var chosen = runs.getAllValues().get(0);
+        var byDefault = runs.getAllValues().get(1);
+        assertTrue(chosen.effortExplicit());
+        assertEquals("high", byDefault.effort());
+        assertFalse(byDefault.effortExplicit());
+        assertTrue(tasks.spec(chosen, "fix the discount", BOUND).getEffortExplicit());
+        assertEquals("High", tasks.spec(chosen, "fix the discount", BOUND).getEffort());
+        assertFalse(tasks.spec(byDefault, "fix the discount", BOUND).getEffortExplicit());
+    }
+
+    private int effortExplicit() {
+        return jdbc.queryForObject("SELECT effort_explicit FROM campaign_index WHERE work_id = 'W-1'", Integer.class);
+    }
+
+    @Test
+    void aContinuedRunKeepsWhoChoseItsEffort() {
+        row("budget_exhausted", "cell_cap", null);
+        tasks.resume("W-1", null, null, null);
+        assertEquals(0, effortExplicit());
+        column("status", "stored");
+        tasks.resume("W-1", null, "high", null);
+        assertEquals(1, effortExplicit());
+        column("status", "stored");
+        tasks.resume("W-1", null, null, null);
+        assertEquals(1, effortExplicit(), "the user's effort stays theirs on a continue without a new choice");
     }
 }

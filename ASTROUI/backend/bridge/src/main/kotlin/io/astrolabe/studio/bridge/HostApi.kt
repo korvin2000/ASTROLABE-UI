@@ -1,5 +1,6 @@
 package io.astrolabe.studio.bridge
 
+import kotlinx.serialization.json.JsonPrimitive
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -42,6 +43,11 @@ public data class StartSpec @JvmOverloads constructor(
     val limits: TaskLimits? = null,
     /** ASTROLABE 2.0 C4: the approach of the run (`economy` · `balanced` · `thorough`), frozen with its attempt. */
     val preset: String = "balanced",
+    /**
+     * C14: the user chose [effort] for this run (D-405 `CellModel.effortExplicit`): the approach never steps it. False — a
+     * default effort — lets the approach move it.
+     */
+    val effortExplicit: Boolean = false,
 )
 
 /**
@@ -69,19 +75,36 @@ public data class CampaignRef(
     val verification: VerificationSetup? = null,
     /** The core's machine-readable reason a stopped campaign waits (D-339): `acceptance_decision` · `review_rejected` · `integrity_review` (C11). */
     val stopCode: String? = null,
-    /** C4: the typed budget stop (`task_limit_money` …) when the open left the campaign `budget_exhausted` — a raised limit did not free it. */
-    val budgetStop: String? = null,
+    /**
+     * C14 (D-405): the JSON of the core's `LimitHold` — what still holds a `budget_exhausted` campaign this open could not
+     * continue: `{stop, status, reason, cause?}` with wire words (`stop` `task_limit_money` … `contract_budget`, `cause`
+     * `tokens` · `turns` · `cost` · `unknown_usage`); null when the open continued it or it was not stopped on a budget.
+     */
+    val limitHold: String? = null,
 )
 
 /** Core stop codes as their wire words (D-339, D-401), whatever form a stored state names them in. */
 public object StopCodes {
-    /** `TaskLimitMoney` or `task_limit_money` → `task_limit_money`; `AcceptanceDecision` → `acceptance_decision`; unknown stays as it is. */
+    /**
+     * A `StopCode` (the core still writes its constant name in a state): `AcceptanceDecision` → `acceptance_decision`; a
+     * wire word stays; anything else stays as it is. Budget stops come as wire words since C14: see [budgetStop].
+     */
     @JvmStatic
     public fun wire(code: String?): String? {
         if (code == null) return null
-        io.astrolabe.campaign.BudgetStop.entries.firstOrNull { it.name == code || it.wire == code }?.let { return it.wire }
         io.astrolabe.verify.StopCode.entries.firstOrNull { it.name == code || it.wire == code }?.let { return it.wire }
         return code
+    }
+
+    /**
+     * A `BudgetStop` as a stored state names it — the C14 wire word, or the constant name of a state written before C14 —
+     * read by the core's own serializer (`@JsonNames`); an unknown word stays as it is.
+     */
+    @JvmStatic
+    public fun budgetStop(word: String?): String? {
+        if (word == null) return null
+        return runCatching { ConfigSupport.json.decodeFromString(io.astrolabe.campaign.BudgetStop.serializer(), JsonPrimitive(word).toString()).wire }
+            .getOrDefault(word)
     }
 }
 
