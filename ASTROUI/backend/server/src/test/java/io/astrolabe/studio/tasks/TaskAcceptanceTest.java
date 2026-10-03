@@ -166,6 +166,15 @@ class TaskAcceptanceTest {
     }
 
     @Test
+    void theRecapSaysWhoVerifiedTheRun() {
+        String recap = recapOfCompleted("{\"provenanceClass\":\"agent_test\",\"acceptanceSurfaceModelApproved\":[],\"acceptance\":[{\"id\":\"AC-1\",\"provenance\":\"reviewed\",\"verifiedBy\":\"T2\"}]}");
+        assertTrue(recap.contains("Outcome: finished; verified only by the agent's own test."), recap);
+        var provenance = tasks.task("W-1", false).path("provenance");
+        assertEquals("agent_test", Json.text(provenance, "class"));
+        assertTrue(provenance.path("judge").asBoolean());
+    }
+
+    @Test
     void aRunThatEndedOtherwiseShowsNoCard() {
         String card = waitingCard();
         assertNotNull(card);

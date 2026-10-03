@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -184,5 +185,55 @@ class TaskLimitsTest {
         assertEquals(new Limits("7.00", 480, 3000), migrated("money.db", "{\"kind\":\"money\",\"value\":\"7\"}"));
         assertEquals(Limits.DEFAULTS, migrated("tokens.db", "{\"kind\":\"tokens\",\"value\":\"900000\"}"));
         assertEquals(Limits.DEFAULTS, migrated("auto.db", "{\"kind\":\"auto\"}"));
+    }
+
+    @Test
+    void aRunStoppedAtTheMoneyLimitPausesWithThatLimit() {
+        row("budget_exhausted", "task_limit_money", "{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":300}");
+        when(host.isOpen("p1")).thenReturn(true);
+        when(host.finishReceipt("p1", "W-1")).thenReturn("{\"status\":\"partial\",\"limit\":{\"bestCandidate\":\"c1\",\"workingTree\":false}}");
+        var task = tasks.task("W-1", false);
+        assertEquals("paused", Json.text(task, "state"));
+        assertEquals("limit_money", Json.text(task.path("reason"), "code"));
+        assertEquals("5.00", Json.text(task.path("reason").path("params"), "limit"));
+        assertEquals("money", Json.text(task.path("limit"), "kind"));
+        assertEquals("earlier", Json.text(task.path("limit"), "best"));
+        assertEquals("thorough", Json.text(task, "preset"));
+    }
+
+    @Test
+    void aRaisedLimitContinuesTheSameRun() {
+        row("budget_exhausted", "task_limit_requests", "{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":300}");
+        tasks.resume("W-1", null, null, null, Json.parse("{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":600}"));
+        ArgumentCaptor<String> limits = ArgumentCaptor.forClass(String.class);
+        verify(campaigns).setBudget(eq("W-1"), limits.capture(), eq(null));
+        assertEquals(new Limits("5.00", 60, 600), Limits.of(limits.getValue(), null));
+        verify(projects).open("p1");
+        verify(campaigns, never()).register(any());
+    }
+
+    @Test
+    void limitsThatDoNotRaiseTheReachedOneAreRefused() {
+        row("budget_exhausted", "task_limit_requests", "{\"moneyUsd\":\"5.00\",\"minutes\":60,\"requests\":300}");
+        assertThrows(ApiException.class, () -> tasks.resume("W-1", null, null, null, Json.parse("{\"moneyUsd\":\"9.00\",\"minutes\":60,\"requests\":300}")));
+        verify(projects, never()).open(any());
+    }
+
+    @Test
+    void continueWithoutLimitsAfterALimitIsAFollowUp() {
+        row("budget_exhausted", "task_limit_minutes", "{\"moneyUsd\":null,\"minutes\":60,\"requests\":null}");
+        when(host.newWorkId()).thenReturn("W-2");
+        tasks.resume("W-1", null, null, null);
+        verify(campaigns).register(any());
+        verify(campaigns).setBudget(eq("W-2"), anyString(), eq("thorough"));
+    }
+
+    @Test
+    void theCellCapContinuesInPlaceAsTheBuiltInLimit() {
+        row("budget_exhausted", "cell_cap", null);
+        assertEquals("limit_reached", Json.text(tasks.task("W-1", false).path("reason"), "code"));
+        tasks.resume("W-1", null, null, null);
+        verify(projects).open("p1");
+        verify(campaigns, never()).register(any());
     }
 }

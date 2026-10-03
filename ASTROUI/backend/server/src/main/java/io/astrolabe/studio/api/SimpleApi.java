@@ -285,7 +285,7 @@ public class SimpleApi {
 
     @PostMapping("/tasks/{id}/continue")
     public ResponseEntity<String> resume(@PathVariable String id, @RequestBody(required = false) JsonNode body) {
-        return Raw.json(tasks.resume(id, Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode")));
+        return Raw.json(tasks.resume(id, Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode"), body == null ? null : body.get("limits")));
     }
 
     @PostMapping("/tasks/{id}/cards/{cardId}")

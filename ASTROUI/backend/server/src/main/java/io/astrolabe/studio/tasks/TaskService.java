@@ -153,7 +153,7 @@ public class TaskService implements DisposableBean {
                 }
                 case "budget_exhausted" -> {
                     state = "paused";
-                    reason = reason(StudioError.LIMIT_REACHED, r.reason());
+                    reason = limitReason(r);
                 }
                 case "waiting_for_input" -> {
                     if ("acceptance_decision".equals(r.stopCode()) || "review_rejected".equals(r.stopCode())) {
@@ -188,6 +188,21 @@ public class TaskService implements DisposableBean {
         return o;
     }
 
+    /**
+     * C4: a run the user's limit stopped names the limit (`limit_money` · `limit_minutes` · `limit_requests`, params.limit);
+     * a technical ceiling — the cell cap, the contract's own budget — is the built-in `limit_reached`.
+     */
+    private ObjectNode limitReason(Run r) {
+        String kind = Provenance.limitKind(r.stopCode());
+        if (kind == null) return reason(StudioError.LIMIT_REACHED, r.reason());
+        ObjectNode o = reason("limit_" + kind, r.reason());
+        String value = r.limits(defaultLimits()).value(kind);
+        if (value != null) {
+            if (kind.equals("money")) ((ObjectNode) o.get("params")).put("limit", value); else ((ObjectNode) o.get("params")).put("limit", Integer.parseInt(value));
+        }
+        return o;
+    }
+
     /** A failed run whose checks did not pass is "not verified", not an agent error. */
     private static String failureCode(String reason) {
         if (reason == null) return StudioError.AGENT_ERROR;
@@ -216,7 +231,15 @@ public class TaskService implements DisposableBean {
         o.put("projectId", first.projectId());
         o.put("title", first.customTitle() != null ? first.customTitle() : first.title());
         o.setAll(stateOf(last));
-        o.put("verified", "completed".equals(last.outcome()) ? verifiedLabel(last) : "answered".equals(last.outcome()) ? "answer" : "none");
+        JsonNode receipt = "completed".equals(last.outcome()) || "budget_exhausted".equals(last.outcome()) ? receiptOf(last) : null;
+        o.put("verified", "completed".equals(last.outcome()) ? verifiedLabel(receipt) : "answered".equals(last.outcome()) ? "answer" : "none");
+        Provenance.Label label = "completed".equals(last.outcome()) && receipt != null ? Provenance.of(receipt) : null;
+        if (label != null) o.set("provenance", label.json());
+        String limitKind = "budget_exhausted".equals(last.outcome()) ? Provenance.limitKind(last.stopCode()) : null;
+        if (limitKind != null) {
+            String best = Provenance.best(receipt);
+            o.putObject("limit").put("kind", limitKind).put("best", best == null ? "none" : best);
+        }
         if (last.verification() != null) o.set("verification", last.verification());
         ObjectNode model = o.putObject("model");
         model.put("ref", last.modelRef());
@@ -265,15 +288,11 @@ public class TaskService implements DisposableBean {
      * `unverified`, on the user's `user`; otherwise `review` when a reviewer approved an item, `tests` when every item
      * was tested, `none` when the receipt says nothing.
      */
-    private String verifiedLabel(Run r) {
-        String receipt = null;
-        try {
-            if (hosts.host().isOpen(r.projectId())) receipt = hosts.host().finishReceipt(r.projectId(), r.workId());
-        } catch (RuntimeException e) {
-            log.debug("finish receipt of {}: {}", r.workId(), e.toString());
-        }
+    private String verifiedLabel(Run r) { return verifiedLabel(receiptOf(r)); }
+
+    private static String verifiedLabel(JsonNode receipt) {
         if (receipt == null) return "none";
-        JsonNode lines = Json.parse(receipt).path("acceptance");
+        JsonNode lines = receipt.path("acceptance");
         boolean policy = false, user = false, reviewed = false, tested = false;
         for (JsonNode line : Json.each(lines)) {
             switch (Json.text(line, "provenance", "")) {
@@ -286,6 +305,17 @@ public class TaskService implements DisposableBean {
             }
         }
         return policy ? "unverified" : user ? "user" : reviewed ? "review" : tested ? "tests" : "none";
+    }
+
+    /** The core's finish receipt of [r], or null when the project is closed or the run wrote none. */
+    private JsonNode receiptOf(Run r) {
+        try {
+            String receipt = hosts.host().isOpen(r.projectId()) ? hosts.host().finishReceipt(r.projectId(), r.workId()) : null;
+            return receipt == null ? null : Json.parse(receipt);
+        } catch (RuntimeException e) {
+            log.debug("finish receipt of {}: {}", r.workId(), e.toString());
+            return null;
+        }
     }
 
     static String pattern(JsonNode request) { return DecisionService.patternOf(request); }
@@ -617,12 +647,14 @@ public class TaskService implements DisposableBean {
             campaigns.setReason(workId, e.body());
             pipeline.studioItem(workId, "studio.error", e.body());
         } else if ("budget_exhausted".equals(outcome)) {
-            pipeline.studioItem(workId, "studio.error", StudioError.of(StudioError.LIMIT_REACHED, Json.obj(), reason).body());
+            Run stopped = run(workId);
+            ObjectNode why = stopped != null ? limitReason(stopped) : reason(StudioError.LIMIT_REACHED, reason);
+            pipeline.studioItem(workId, "studio.error", StudioError.of(Json.text(why, "code"), (ObjectNode) why.get("params"), reason).body());
         }
         Run fresh = run(workId);
         if (fresh != null) state(fresh);
         if ("completed".equals(outcome) && !preferences.flag(Preferences.FIRST_TASK_DONE)) preferences.set(Preferences.FIRST_TASK_DONE, Json.MAPPER.valueToTree(true));
-        notify(r.taskId(), "completed".equals(outcome) || "answered".equals(outcome) ? "task.done" : outcome == null || "failed".equals(outcome) ? "task.failed" : stopCode != null ? "task.needs_you" : "task.paused");
+        notify(r.taskId(), "completed".equals(outcome) || "answered".equals(outcome) ? "task.done" : outcome == null || "failed".equals(outcome) ? "task.failed" : stopCode != null && "waiting_for_input".equals(outcome) ? "task.needs_you" : "task.paused");
     }
 
     /** A notification for the desktop and the tab title; the text comes from the frontend catalog. */
@@ -702,6 +734,8 @@ public class TaskService implements DisposableBean {
         if (r.outcome() == null) return !"open_failed".equals(r.status());
         // The core never replenishes an increment's attempts on resume: continuing in place would block again at once.
         if (attemptsSpent(r)) return false;
+        // D-401: the cell cap counts per run, so a reopen continues the same attempt.
+        if ("budget_exhausted".equals(r.outcome())) return "cell_cap".equals(r.stopCode());
         return List.of("waiting_for_input", "waiting_for_process", "blocked_external").contains(r.outcome());
     }
 
@@ -775,7 +809,11 @@ public class TaskService implements DisposableBean {
         String asked = lastUserText(last);
         String result = lastAgentText(last.workId());
         String outcome = switch (String.valueOf(last.outcome())) {
-            case "completed" -> completedOutcome(verifiedLabel(last));
+            case "completed" -> {
+                JsonNode receipt = receiptOf(last);
+                Provenance.Label label = receipt == null ? null : Provenance.of(receipt);
+                yield completedOutcome(verifiedLabel(receipt), label == null ? null : label.cls());
+            }
             case "answered" -> "answered, nothing changed";
             case "cancelled" -> "stopped by the user before it finished";
             case "failed" -> "did not finish";
@@ -808,7 +846,13 @@ public class TaskService implements DisposableBean {
      * How the recap names a completed run (F5): "verified" only when a check passed (`review`, `tests`); a run accepted
      * on the policy's or the user's word, or with no receipt, is finished but not verified.
      */
-    static String completedOutcome(String verified) {
+    static String completedOutcome(String verified) { return completedOutcome(verified, null); }
+
+    /** C4: with the receipt's provenance class, "verified" says by whom; a model's approval alone is not verification. */
+    static String completedOutcome(String verified, String cls) {
+        if ("independent".equals(cls)) return "finished and independently verified";
+        if ("agent_test".equals(cls)) return "finished; verified only by the agent's own test";
+        if ("unverified".equals(cls) && List.of("review", "tests").contains(verified)) return "finished, not verified (no independent check passed)";
         return switch (verified) {
             case "review", "tests" -> "finished and verified";
             case "unverified" -> "finished, not verified (accepted by the auto policy without a passing check)";
@@ -866,16 +910,32 @@ public class TaskService implements DisposableBean {
 
     /** `POST /tasks/{id}/continue`: paused tasks and tasks interrupted by a restart (§7.6). */
     public ObjectNode resume(String taskId, String modelRef, String effort, String mode) {
+        return resume(taskId, modelRef, effort, mode, null);
+    }
+
+    /**
+     * `POST /tasks/{id}/continue` with [limits] (C4): a run stopped at the user's limit continues in place — the same
+     * attempt with what it spent (D-401) — once that limit is raised or cleared; limits that do not raise it are refused.
+     * Without limits such a run continues as a follow-up that counts from zero.
+     */
+    public ObjectNode resume(String taskId, String modelRef, String effort, String mode, JsonNode limits) {
         List<Run> runs = require(taskId);
         Run last = runs.getLast();
         // C1: a run that is opening or working is not started again; a repeated click changes nothing.
         if (hosts.host().isLive(last.workId()) || campaigns.isOpening(last.workId()) || "opening".equals(last.status())) return task(taskId, false);
         String state = Json.text(stateOf(last), "state");
-        if ("paused".equals(state) && resumable(last)) {
+        String kind = "budget_exhausted".equals(last.outcome()) ? Provenance.limitKind(last.stopCode()) : null;
+        if (kind != null && limits != null && !limits.isNull()) {
+            Limits raised = Limits.parse(limits, null);
+            if (!raised.raises(last.limits(defaultLimits()), kind)) throw ApiException.invalid("limit.raise_needed: raise the " + kind + " limit that was reached, or clear it");
+            campaigns.setBudget(last.workId(), Json.write(raised.json()), null);
+            pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "limit_raised").put("kind", kind));
+            continueRun(last, null, modelRef, effort, mode);
+        } else if ("paused".equals(state) && resumable(last)) {
             continueRun(last, null, modelRef, effort, mode);
         } else {
             // A reached limit or a failed start cannot continue in place: the same request runs again as a follow-up.
-            String text = "limit_reached".equals(stateOf(last).path("reason").path("code").asString("")) || attemptsSpent(last)
+            String text = stateOf(last).path("reason").path("code").asString("").startsWith("limit_") || attemptsSpent(last)
                 ? "Continue the task from where it stopped." : lastUserText(last);
             if ("open_failed".equals(last.status()) && runs.size() == 1) {
                 retryStart(last, modelRef, effort, mode);
