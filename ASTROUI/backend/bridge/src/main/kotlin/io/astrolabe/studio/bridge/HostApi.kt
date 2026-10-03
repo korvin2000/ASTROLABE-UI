@@ -67,7 +67,7 @@ public data class CampaignRef(
     val stopReason: String?,
     /** How the result is verified (Studio 2 §7.3); null when the bridge could not tell. */
     val verification: VerificationSetup? = null,
-    /** The core's machine-readable reason a stopped campaign waits (D-339): `acceptance_decision` · `review_rejected`. */
+    /** The core's machine-readable reason a stopped campaign waits (D-339): `acceptance_decision` · `review_rejected` · `integrity_review` (C11). */
     val stopCode: String? = null,
     /** C4: the typed budget stop (`task_limit_money` …) when the open left the campaign `budget_exhausted` — a raised limit did not free it. */
     val budgetStop: String? = null,
@@ -87,7 +87,8 @@ public object StopCodes {
 
 /**
  * Called once when a campaign's run returns, fails, or its job is cancelled (host shutdown). [stopCode] is the core's
- * machine-readable reason a `waiting_for_input` campaign waits (D-339): `acceptance_decision` or `review_rejected`; for
+ * machine-readable reason a `waiting_for_input` campaign waits (D-339): `acceptance_decision`, `review_rejected` or
+ * `integrity_review` (C11: a test change waits for a person); for
  * `budget_exhausted` it is the typed budget stop (D-401): `task_limit_money` · `task_limit_minutes` ·
  * `task_limit_requests` · `cell_cap` · `contract_budget`.
  */

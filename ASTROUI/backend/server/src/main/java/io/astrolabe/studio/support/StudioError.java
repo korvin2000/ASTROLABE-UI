@@ -39,6 +39,8 @@ public class StudioError extends ApiException {
     public static final String ACCEPTANCE_DECISION = "acceptance_decision";
     /** Phase 0 B3: the review found problems after the agent's rework round; the user decides. */
     public static final String REVIEW_REJECTED = "review_rejected";
+    /** C11 (D-404): the agent changed a test a required check runs; under `human` approval only the user may accept it. */
+    public static final String INTEGRITY_REVIEW = "integrity_review";
     public static final String WAITING_FOR_PROCESS = "waiting_for_process";
     public static final String BLOCKED = "blocked";
     public static final String INTERRUPTED = "interrupted";
