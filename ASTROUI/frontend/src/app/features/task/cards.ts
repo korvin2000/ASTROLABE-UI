@@ -314,6 +314,15 @@ export class ErrorCard {
             }
           </div>
         }
+        @if (offer(); as command) {
+          <div class="skipped">
+            <div class="l">{{ 'result.check_offer' | t: { command } }}</div>
+            <div class="row">
+              <button class="btn sm" [disabled]="actions.busy()" (click)="actions.adoptCheck(command)">{{ 'action.make_project_check' | t }}</button>
+              <button class="btn ghost sm" (click)="notNow()">{{ 'action.not_now' | t }}</button>
+            </div>
+          </div>
+        }
         @if ((changes()?.files ?? 0) > 0 || rework()) {
           <div class="row">
             @if ((changes()?.files ?? 0) > 0) {
@@ -352,6 +361,24 @@ export class ResultCard {
   readonly used = computed(() => { this.i18n.lang(); return usageText(this.i18n, this.task()?.usage); });
 
   files(n: number): string { return this.i18n.n('count.files', n); }
+
+  /** C1b/C4: the agent's own test offered as the project's check, until the user says "Not now" for this task. */
+  private readonly dismissed = signal(0);
+  readonly offer = computed(() => {
+    this.dismissed();
+    const task = this.task();
+    const command = task?.checkOffer?.command;
+    if (!task || !command) return null;
+    try { if (localStorage.getItem('studio.checkOffer.' + task.id) === command) return null; } catch { /* storage may be unavailable */ }
+    return command;
+  });
+
+  notNow(): void {
+    const task = this.task();
+    if (!task?.checkOffer) return;
+    try { localStorage.setItem('studio.checkOffer.' + task.id, task.checkOffer.command); } catch { /* storage may be unavailable */ }
+    this.dismissed.update(n => n + 1);
+  }
 
   /** D-397: a model judge's approval is shown beside the class, never as independent verification. */
   readonly judge = computed(() => !!this.task()?.provenance?.judge);

@@ -236,4 +236,18 @@ class TaskLimitsTest {
         verify(projects).open("p1");
         verify(campaigns, never()).register(any());
     }
+
+    @Test
+    void theOfferedCheckBecomesTheProjectsAndNoOtherCommandDoes() {
+        row("completed", null, null);
+        when(host.isOpen("p1")).thenReturn(true);
+        when(host.finishReceipt("p1", "W-1")).thenReturn("{\"outcome\":\"completed\",\"provenanceClass\":\"agent_test\",\"acceptanceSurfaceModelApproved\":[],"
+            + "\"checksRun\":[{\"checkId\":\"CHK-model-1a2b\",\"outcome\":\"passed\",\"evidenceKind\":\"Tests\",\"command\":{\"argv\":[\"pytest\",\"-q\"],\"cwd\":null}}]}");
+        when(projectSettings.get("p1")).thenReturn((tools.jackson.databind.node.ObjectNode) Json.parse("{\"checks\":{\"test\":{\"source\":\"none\"}}}"));
+        assertEquals("pytest -q", Json.text(tasks.task("W-1", true).path("checkOffer"), "command"));
+        assertThrows(ApiException.class, () -> tasks.adoptCheck("W-1", "rm -rf ."));
+        verify(projectSettings, never()).saveCheck(any(), any(), any(), any());
+        tasks.adoptCheck("W-1", "pytest -q");
+        verify(projectSettings).saveCheck("p1", "test", "pytest -q", "local");
+    }
 }

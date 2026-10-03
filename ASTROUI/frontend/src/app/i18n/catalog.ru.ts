@@ -677,4 +677,8 @@ export const RU: Record<string, string> = {
   'provenance.unverified': 'Не проверено',
   'provenance.judge': 'одобрено судьёй-моделью',
   'notice.limit_raised': 'Лимит поднят; задача продолжается с места остановки.',
+  'result.check_offer': 'Агент проверил результат командой {command}. Сделать её проверкой проекта? Тогда следующие задачи при её прохождении будут считаться проверенными независимо.',
+  'action.make_project_check': 'Сделать проверкой проекта',
+  'action.not_now': 'Не сейчас',
+  'notice.project_check_saved': '{command} теперь проверка проекта. Изменить её можно в настройках проекта.',
 };

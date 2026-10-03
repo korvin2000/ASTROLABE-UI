@@ -69,4 +69,22 @@ class ProvenanceTest {
         assertEquals("money", Provenance.limitKind("task_limit_money"));
         assertNull(Provenance.limitKind("cell_cap"));
     }
+
+    private static final String OFFER = "{\"outcome\":\"completed\",\"checksRun\":[{\"checkId\":\"CHK-model-1a2b\",\"outcome\":%s,\"evidenceKind\":%s,"
+        + "\"command\":{\"argv\":[\"npm\",\"test\"],\"cwd\":%s}}]}";
+
+    private static String offer(String outcome, String kind, String cwd, String source) {
+        return Provenance.checkOffer(Json.parse(OFFER.formatted(outcome, kind, cwd)), source);
+    }
+
+    @Test
+    void theAgentsPassingTestAtTheRootIsOfferedToAProjectWithoutOne() {
+        assertEquals("npm test", offer("\"passed\"", "\"Tests\"", "null", "none"));
+        assertEquals("npm test", offer("\"passed\"", "\"tests\"", "\".\"", "none"));
+        assertNull(offer("\"failed\"", "\"Tests\"", "null", "none"));
+        assertNull(offer("\"passed\"", "\"Build\"", "null", "none"));
+        assertNull(offer("\"passed\"", "\"Tests\"", "\"web\"", "none"));
+        assertNull(offer("\"passed\"", "\"Tests\"", "null", "detected"));
+        assertNull(Provenance.checkOffer(Json.parse("{\"outcome\":\"budget_exhausted\",\"checksRun\":[]}"), "none"));
+    }
 }

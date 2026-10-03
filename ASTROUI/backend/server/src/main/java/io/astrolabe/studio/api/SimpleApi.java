@@ -280,6 +280,11 @@ public class SimpleApi {
             Json.text(body, "preset"), body.get("limits")));
     }
 
+    @PostMapping("/tasks/{id}/project-check")
+    public ResponseEntity<String> projectCheck(@PathVariable String id, @RequestBody JsonNode body) {
+        return Raw.json(tasks.adoptCheck(id, Json.text(body, "command")));
+    }
+
     @PostMapping("/tasks/{id}/stop")
     public ResponseEntity<String> stop(@PathVariable String id) { return Raw.json(tasks.stop(id)); }
 

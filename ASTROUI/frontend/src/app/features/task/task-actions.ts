@@ -77,6 +77,11 @@ export class TaskActions {
     this.took(await this.run(() => this.api.post<Task>(this.path() + '/skipped/' + encodeURIComponent(card.id) + '/allow', {})));
   }
 
+  /** C4: the agent's own test becomes the project's test check. */
+  async adoptCheck(command: string): Promise<void> {
+    this.took(await this.run(() => this.api.post<Task>(this.path() + '/project-check', { command })));
+  }
+
   async rename(taskId: string, title: string): Promise<boolean> {
     const task = await this.run(() => this.api.put<Task>('/tasks/' + encodeURIComponent(taskId), { title }));
     this.took(task);

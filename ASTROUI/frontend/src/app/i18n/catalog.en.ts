@@ -653,4 +653,8 @@ export const EN: Record<string, string> = {
   'provenance.unverified': 'Not verified',
   'provenance.judge': 'approved by the model judge',
   'notice.limit_raised': 'The limit is raised; the task continues where it stopped.',
+  'result.check_offer': 'The agent checked the result with {command}. Make it the project\'s check? Later tasks then count as independently verified when it passes.',
+  'action.make_project_check': 'Make it the project\'s check',
+  'action.not_now': 'Not now',
+  'notice.project_check_saved': '{command} is now the project\'s check. Change it in the project settings.',
 };

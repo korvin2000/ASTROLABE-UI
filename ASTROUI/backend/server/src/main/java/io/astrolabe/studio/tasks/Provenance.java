@@ -81,6 +81,27 @@ final class Provenance {
         return limit.path("workingTree").asBoolean(false) ? "current" : "earlier";
     }
 
+    /**
+     * C1b/C4: the agent's own test that could become the project's check — a model check (`CHK-model-*`) of tests that
+     * passed, run at the project root — when the run completed and the project has no test command ([testSource]
+     * `none`: the next task then applies the saved one). Its command as one line, or null.
+     */
+    static String checkOffer(JsonNode receipt, String testSource) {
+        if (receipt == null || !"completed".equals(Json.text(receipt, "outcome")) || !"none".equals(testSource)) return null;
+        String offer = null;
+        for (JsonNode c : Json.each(receipt.get("checksRun"))) {
+            boolean model = Json.text(c, "checkId", "").startsWith("CHK-model-") || "model".equals(Json.text(c.path("checkOrigin"), "type"));
+            JsonNode command = c.path("command");
+            String cwd = Json.text(command, "cwd");
+            if (!model || !"tests".equalsIgnoreCase(Json.text(c, "evidenceKind", "")) || !"passed".equals(Json.text(c, "outcome"))
+                || !(cwd == null || cwd.isEmpty() || cwd.equals("."))) continue;
+            List<String> argv = new java.util.ArrayList<>();
+            for (JsonNode a : Json.each(command.get("argv"))) argv.add(a.asString().chars().anyMatch(Character::isWhitespace) ? "\"" + a.asString() + "\"" : a.asString());
+            if (!argv.isEmpty() && !argv.getFirst().isBlank()) offer = String.join(" ", argv);
+        }
+        return offer;
+    }
+
     /** The kind of a task limit from the core's budget stop code (D-401), or null for any other stop. */
     static String limitKind(String stopCode) {
         if (stopCode == null) return null;

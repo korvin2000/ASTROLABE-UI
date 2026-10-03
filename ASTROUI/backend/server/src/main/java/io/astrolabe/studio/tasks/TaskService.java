@@ -270,6 +270,8 @@ public class TaskService implements DisposableBean {
         }
         o.set("changes", changeSummary(first.projectId(), runs));
         o.set("usage", usage(first.projectId(), runs));
+        String offer = checkOffer(last, receipt);
+        if (offer != null) o.putObject("checkOffer").put("command", offer);
         ArrayNode skipped = o.putArray("skipped");
         for (JsonNode d : decisions.skipped(last.workId())) skipped.add(card(d));
         return o;
@@ -1017,6 +1019,32 @@ public class TaskService implements DisposableBean {
         boolean fresh = decisions.answerAcceptance((ObjectNode) card, kind, reason, "local");
         if (!fresh || hosts.host().isLive(run.workId()) || campaigns.isOpening(run.workId()) || "opening".equals(run.status())) return;
         continueRun(run, null, modelRef, effort, mode);
+    }
+
+    /** C4: the agent's own test of [r] the user may make the project's test check (Provenance.checkOffer). */
+    private String checkOffer(Run r, JsonNode receipt) {
+        if (receipt == null) return null;
+        try {
+            String source = Json.text(projectSettings.get(r.projectId()).path("checks").path("test"), "source", "none");
+            return Provenance.checkOffer(receipt, source);
+        } catch (RuntimeException e) {
+            log.debug("check offer of {}: {}", r.workId(), e.toString());
+            return null;
+        }
+    }
+
+    /**
+     * `POST /tasks/{id}/project-check` (C4): the offered command becomes the project's test check, so later tasks are
+     * verified independently when it passes. Only the command the last run offers is taken.
+     */
+    public ObjectNode adoptCheck(String taskId, String command) {
+        Run last = require(taskId).getLast();
+        String offer = "completed".equals(last.outcome()) ? checkOffer(last, receiptOf(last)) : null;
+        if (offer == null || command == null || !offer.equals(command.strip())) throw ApiException.invalid("no such check is offered for this task");
+        projectSettings.saveCheck(last.projectId(), "test", offer, "local");
+        pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "project_check_saved").put("command", offer));
+        publish(taskId);
+        return task(taskId, true);
     }
 
     /** "Allow and continue" on the result card (§7.5): the skipped action becomes always allowed, then a follow-up runs. */
