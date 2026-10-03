@@ -54,6 +54,8 @@ export class TaskStore implements OnDestroy {
     return state === 'working' && this.timeline.pending().length ? 'needs_you' : state;
   });
   readonly working = computed(() => this.state() === 'working' || this.state() === 'needs_you');
+  /** C4: the live meter of the current run; null before the core's first report. */
+  readonly meter = computed(() => { this.version(); return this.timeline.meter.view(this.now(), this.state() === 'working'); });
 
   /** The status line above the composer: what the agent does now and for how long. */
   readonly status = computed<{ text: Text; seconds: number } | null>(() => {
@@ -165,6 +167,7 @@ export class TaskStore implements OnDestroy {
     const known = this.app.models().find(m => m.ref === task.model.ref);
     const effort = task.model.effort && (!known || known.efforts.includes(task.model.effort)) ? this.i18n.t('effort.' + task.model.effort) : null;
     this.flow.setModel(known?.name ?? task.model.name, effort);
+    this.timeline.meter.contextLimit = known?.context ?? null;
   }
 
   private follow(workId: string, sinceSeq: number): void {

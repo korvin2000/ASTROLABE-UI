@@ -205,16 +205,14 @@
             <div class="opt-row">
               <div><b>{{ 'settings.limit' | t }}</b><small>{{ 'settings.limit.help' | t }}</small></div>
               <div class="v col">
-                <span class="seg" role="radiogroup" [attr.aria-label]="'settings.limit' | t">
-                  @for (k of ['auto', 'tokens', 'money']; track k) { <button role="radio" [class.on]="p.limit.kind === k" [attr.aria-checked]="p.limit.kind === k" (click)="limit($any(k))">{{ ('settings.limit.' + k) | t }}</button> }
-                </span>
-                @if (p.limit.kind !== 'auto') {
-                  <form class="addrow" (ngSubmit)="saveLimit()">
-                    <input class="input num" name="limitValue" [(ngModel)]="limitValue" inputmode="decimal" [attr.aria-label]="('settings.limit.' + p.limit.kind) | t">
-                    <span class="muted small">{{ (p.limit.kind === 'tokens' ? 'settings.limit.unit_tokens' : 'settings.limit.unit_money') | t }}</span>
-                    <button class="btn sm" type="submit" [disabled]="limitValue === (p.limit.value ?? '')">{{ 'action.save' | t }}</button>
-                  </form>
-                }
+                <form class="addrow" (ngSubmit)="saveLimits()">
+                  @for (k of limitKinds; track k) {
+                    <input class="input num" [name]="'limit_' + k" [(ngModel)]="limitFields[k]" inputmode="decimal"
+                      [placeholder]="'limit.none' | t" [attr.aria-label]="('limit.' + k) | t" [title]="('limit.' + k) | t">
+                  }
+                  <button class="btn sm" type="submit">{{ 'action.save' | t }}</button>
+                </form>
+                @if (limitInvalid()) { <small class="bad">{{ 'limit.invalid' | t }}</small> }
               </div>
             </div>
           }

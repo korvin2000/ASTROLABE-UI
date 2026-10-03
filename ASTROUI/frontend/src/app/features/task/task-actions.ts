@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Api, errorInfo } from '../../core/api';
-import { Card, Effort, ErrorInfo, Mode, Task } from '../../core/model';
+import { Approach, Card, Effort, ErrorInfo, Limits, Mode, Task } from '../../core/model';
 import { AppStore } from '../../state/app.store';
 import { TaskStore } from '../../state/task.store';
 import { AcceptanceDecision, acceptanceBody } from './acceptance';
@@ -9,7 +9,7 @@ import { AcceptanceDecision, acceptanceBody } from './acceptance';
 export type PanelTab = 'changes' | 'progress' | 'output';
 
 /** What the task view is asked to show: the side panel at a tab, a file or an output, or a dialog. */
-export interface ViewRequest { panel?: PanelTab; file?: string; output?: string; dialog?: 'commit' | 'undo' | 'model'; compose?: 'rework'; }
+export interface ViewRequest { panel?: PanelTab; file?: string; output?: string; dialog?: 'commit' | 'undo' | 'model' | 'limits'; compose?: 'rework'; }
 
 /**
  * What the user can do with the open task (sections 7.5 to 7.8, 10). Every action answers with the task as the
@@ -26,8 +26,8 @@ export class TaskActions {
   /** The last action failed; shown above the composer until the next action. */
   readonly failure = signal<ErrorInfo | null>(null);
   readonly request = signal<ViewRequest | null>(null);
-  /** The model, effort and mode chosen in the composer for the next message. */
-  readonly next = signal<{ model?: string; effort?: Effort; mode?: Mode }>({});
+  /** The model, effort, mode, approach and limits chosen in the composer for the next message (C4: limits per run). */
+  readonly next = signal<{ model?: string; effort?: Effort; mode?: Mode; preset?: Approach; limits?: Limits }>({});
 
   private path(): string { return '/tasks/' + encodeURIComponent(this.store.taskId() ?? ''); }
 
@@ -54,7 +54,7 @@ export class TaskActions {
 
   async message(text: string): Promise<void> {
     const n = this.next();
-    await this.run(() => this.api.post(this.path() + '/messages', { text, model: n.model, effort: n.effort, mode: n.mode }));
+    await this.run(() => this.api.post(this.path() + '/messages', { text, model: n.model, effort: n.effort, mode: n.mode, preset: n.preset, limits: n.limits }));
     void this.store.refreshTask();
   }
 
@@ -85,10 +85,15 @@ export class TaskActions {
 
   async stop(): Promise<void> { this.took(await this.run(() => this.api.post<Task>(this.path() + '/stop', {}))); }
 
-  /** Continue, Retry and "Continue with more" are one request: the backend knows what the task needs. */
-  async resume(): Promise<void> {
+  /**
+   * Continue, Retry and "Continue with more" are one request: the backend knows what the task needs. With [limits]
+   * (C4 "Raise the limit and continue") a run stopped at the user's limit continues in place.
+   */
+  async resume(limits?: Limits): Promise<boolean> {
     const n = this.next();
-    this.took(await this.run(() => this.api.post<Task>(this.path() + '/continue', { model: n.model, effort: n.effort, mode: n.mode })));
+    const task = await this.run(() => this.api.post<Task>(this.path() + '/continue', { model: n.model, effort: n.effort, mode: n.mode, limits }));
+    this.took(task);
+    return !!task;
   }
 
   /** E-9 "Stop it and start this one". */

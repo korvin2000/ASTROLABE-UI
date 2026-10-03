@@ -4,7 +4,8 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
-import { acceptanceBody, acceptanceChoices, reworkable, stateKey, verifiedOf } from './acceptance';
+import { acceptanceBody, acceptanceChoices, doneUnverified, reworkable, stateKey, verifiedOf } from './acceptance';
+import { DEFAULT_LIMITS, NO_LIMITS, limitKindOf, limitsText, meterText, parseLimit, raised, raises } from './limits';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { sends } from './keys';
 import { kindOf } from './project-kind';
@@ -241,5 +242,61 @@ describe('complexity budget (section 2)', () => {
     expect(kindOf('web/package.json')).toBe('web');
     expect(kindOf('build.gradle.kts')).toBe('jvm');
     expect(kindOf(undefined)).toBe('generic');
+  });
+});
+
+describe('limits, approach and the outcome label (C4)', () => {
+  const t = (k: string, p?: Record<string, unknown>) => k + (p ? JSON.stringify(p) : '');
+
+  it('names the state by the core class and by a stop at the user limit', () => {
+    expect(stateKey('done', 'tests', 'independent')).toBe('state.done');
+    expect(stateKey('done', 'tests', 'agent_test')).toBe('state.done_agent_test');
+    expect(stateKey('done', 'review', 'unverified')).toBe('state.done_unverified');
+    expect(stateKey('paused', 'none', undefined, 'limit_money')).toBe('state.paused_limit');
+    expect(stateKey('paused', 'none', undefined, 'limit_reached')).toBe('state.paused');
+    // Without the class (older runs) the earlier rule holds.
+    expect(stateKey('done', 'review')).toBe('state.done');
+    expect(doneUnverified('done', 'review', 'agent_test')).toBe(true);
+  });
+
+  it('offers to raise a reached limit, and Continue for the built-in one', () => {
+    expect(actionsOf('limit_money')).toEqual(['raise_limit', 'stop']);
+    expect(actionsOf('limit_requests')).toEqual(['raise_limit', 'stop']);
+    expect(actionsOf('limit_reached')).toEqual(['continue_more', 'stop']);
+    expect(limitKindOf('limit_minutes')).toBe('minutes');
+    expect(limitKindOf('limit_reached')).toBeNull();
+  });
+
+  it('doubles the reached limit, money to the cent, and keeps no limit as none', () => {
+    const l = { moneyUsd: '7.25', minutes: 90, requests: null };
+    expect(raised(l, 'money')).toEqual({ moneyUsd: '14.50', minutes: 90, requests: null });
+    expect(raised(l, 'minutes').minutes).toBe(180);
+    expect(raised(l, 'requests').requests).toBeNull();
+    expect(raises(raised(l, 'money'), l, 'money')).toBe(true);
+    expect(raises(l, l, 'money')).toBe(false);
+    expect(raises({ ...l, moneyUsd: null }, l, 'money')).toBe(true);
+  });
+
+  it('reads a limit field: empty is no limit, anything else a positive number', () => {
+    expect(parseLimit('money', '')).toBeNull();
+    expect(parseLimit('money', '7,5')).toBe('7.50');
+    expect(parseLimit('money', '0')).toBeUndefined();
+    expect(parseLimit('minutes', '1.5')).toBeUndefined();
+    expect(parseLimit('requests', '3000')).toBe(3000);
+    expect(parseLimit('requests', '100001')).toBeUndefined();
+  });
+
+  it('writes the limits short, time in hours from two hours on', () => {
+    expect(limitsText(t, DEFAULT_LIMITS)).toBe('$50 · limit.short_hours{"n":8} · limit.short_requests{"n":3000}');
+    expect(limitsText(t, { moneyUsd: '7.50', minutes: 90, requests: null })).toBe('$7.50 · limit.short_minutes{"n":90}');
+    expect(limitsText(t, NO_LIMITS)).toBe('limit.no_limits');
+  });
+
+  it('writes the meter against the limits, and only the spend without them', () => {
+    const view = { money: { spent: '0.42', unknown: false, estimated: false, limit: '50.00' }, time: { ms: 760_000, limitMin: 480 },
+      requests: { n: 37, limit: 3000 }, context: { used: 41_000, limit: 200_000 }, near: false };
+    expect(meterText(t, view)).toBe('$0.42 / $50.00 · 12:40 / limit.short_hours{"n":8} · meter.requests{"n":37,"limit":3000} · meter.context{"used":"41K","limit":"200K"}');
+    const free = { ...view, money: { spent: null, unknown: false, estimated: true, limit: null }, time: { ms: 5_000, limitMin: null }, requests: { n: 2, limit: null }, context: { used: 0, limit: null } };
+    expect(meterText(t, free)).toBe('meter.money_unknown · 0:05 · meter.requests_free{"n":2}');
   });
 });

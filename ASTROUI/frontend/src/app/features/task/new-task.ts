@@ -1,12 +1,13 @@
 import { ChangeDetectionStrategy, Component, afterNextRender, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { Api, errorInfo } from '../../core/api';
-import { Effort, ErrorInfo, Mode, Project, ProjectSettingsDto } from '../../core/model';
+import { Approach, Effort, ErrorInfo, Limits, Mode, Project, ProjectSettingsDto } from '../../core/model';
 import { I18n, TPipe } from '../../i18n/i18n';
 import { AppStore } from '../../state/app.store';
 import { ErrorLine } from '../../ui/error-line';
 import { FolderDialog } from '../welcome/folder-dialog';
 import { Composer } from './composer';
+import { DEFAULT_LIMITS } from './limits';
 import { kindOf } from './project-kind';
 
 /** New task (section 4.3, 10): an empty conversation with the composer in the centre and three example requests. */
@@ -20,7 +21,8 @@ import { kindOf } from './project-kind';
       <h1>{{ 'new.title' | t }}</h1>
       <as-composer #composer [up]="false" [projectId]="projectId()" [model]="model()" [effort]="effort()" [mode]="mode()" [busy]="busy()"
         (send)="start($event)" (projectChange)="chosenProject.set($event)" (modelChange)="chosenModel.set($event)"
-        (effortChange)="chosenEffort.set($event)" (modeChange)="chosenMode.set($event)" (openFolder)="choosing.set(true)" />
+        (effortChange)="chosenEffort.set($event)" (modeChange)="chosenMode.set($event)" (openFolder)="choosing.set(true)"
+        [approach]="approach()" [limits]="limits()" (approachChange)="chosenApproach.set($event)" (limitsChange)="chosenLimits.set($event)" />
       @if (failure(); as f) { <div class="err"><as-error-line [error]="f" /></div> }
       <div class="ex">
         @for (n of [1, 2, 3]; track n) {
@@ -56,6 +58,9 @@ export class NewTask {
   readonly chosenModel = signal<string | null>(null);
   readonly chosenEffort = signal<Effort | null>(null);
   readonly chosenMode = signal<Mode | null>(null);
+  /** C4: a limit changed here is for this task only; the defaults are setting 13. */
+  readonly chosenApproach = signal<Approach | null>(null);
+  readonly chosenLimits = signal<Limits | null>(null);
   readonly choosing = signal(false);
   readonly busy = signal(false);
   readonly failure = signal<ErrorInfo | null>(null);
@@ -70,6 +75,8 @@ export class NewTask {
   readonly model = computed(() => this.chosenModel() ?? this.app.defaultModel()?.ref ?? null);
   readonly effort = computed<Effort>(() => this.chosenEffort() ?? this.app.preferences()?.defaultEffort ?? 'medium');
   readonly mode = computed<Mode>(() => this.chosenMode() ?? this.app.preferences()?.defaultMode ?? 'ask');
+  readonly approach = computed<Approach>(() => this.chosenApproach() ?? this.app.preferences()?.defaultPreset ?? 'balanced');
+  readonly limits = computed<Limits>(() => this.chosenLimits() ?? this.app.preferences()?.taskLimits ?? DEFAULT_LIMITS);
   readonly demo = computed(() => !!this.app.models().find(m => m.ref === this.model())?.demo);
 
   constructor() {
@@ -97,7 +104,8 @@ export class NewTask {
     this.busy.set(true);
     this.failure.set(null);
     try {
-      const r = await this.api.post<{ taskId: string }>('/tasks', { projectId, text, model: this.model(), effort: this.effort(), mode: this.mode() });
+      const r = await this.api.post<{ taskId: string }>('/tasks', { projectId, text, model: this.model(), effort: this.effort(), mode: this.mode(),
+        preset: this.approach(), limits: this.limits() });
       void this.router.navigate(['/t', r.taskId]);
     } catch (e) {
       this.failure.set(errorInfo(e));

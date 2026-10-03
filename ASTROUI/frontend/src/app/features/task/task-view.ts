@@ -2,8 +2,8 @@ import { ChangeDetectionStrategy, Component, ElementRef, HostListener, computed,
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { LAST_TASK } from '../../app.routes';
-import { Effort, Mode } from '../../core/model';
-import { TPipe } from '../../i18n/i18n';
+import { Approach, Effort, Limits, Mode } from '../../core/model';
+import { I18n, TPipe } from '../../i18n/i18n';
 import { AppStore } from '../../state/app.store';
 import { TaskStore } from '../../state/task.store';
 import { FlowNode } from '../../timeline/steps';
@@ -23,6 +23,7 @@ import { ActivityGroup } from './activity-group';
 import { AskCard, ChecksCard, ErrorCard, ResultCard } from './cards';
 import { Composer } from './composer';
 import { CommitDialog, UndoDialog } from './landing-dialogs';
+import { DEFAULT_LIMITS, LimitKind, limitKindOf, meterText, raised } from './limits';
 import { PanelTab, TaskActions } from './task-actions';
 
 const PANEL = 'studio.panel';
@@ -49,6 +50,7 @@ export class TaskView {
   readonly store = inject(TaskStore);
   readonly actions = inject(TaskActions);
   private readonly router = inject(Router);
+  private readonly i18n = inject(I18n);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly composer = viewChild<Composer>('composer');
 
@@ -68,7 +70,7 @@ export class TaskView {
 
   readonly task = computed(() => this.store.task() ?? this.app.task(this.taskId()));
   /** F5: the header of a done task that no check verified reads "Done · not verified". */
-  readonly unverified = computed(() => doneUnverified(this.store.state(), this.task()?.verified));
+  readonly unverified = computed(() => doneUnverified(this.store.state(), this.task()?.verified, this.task()?.provenance?.class));
   readonly stateKey = stateKey;
   readonly project = computed(() => this.app.project(this.task()?.projectId));
   readonly tab = computed<PanelTab | null>(() => (TABS.includes(this.panel() as PanelTab) ? (this.panel() as PanelTab) : null));
@@ -81,6 +83,16 @@ export class TaskView {
   readonly model = computed(() => this.actions.next().model ?? this.task()?.model.ref ?? this.app.defaultModel()?.ref ?? null);
   readonly effort = computed<Effort>(() => this.actions.next().effort ?? this.task()?.model.effort ?? 'medium');
   readonly mode = computed<Mode>(() => this.actions.next().mode ?? this.task()?.mode ?? 'ask');
+  readonly approach = computed<Approach>(() => this.actions.next().preset ?? this.task()?.preset ?? 'balanced');
+  readonly limits = computed<Limits>(() => this.actions.next().limits ?? this.task()?.limits ?? DEFAULT_LIMITS);
+  /** C4: the reached limit being raised in the composer, until the run continues. */
+  readonly raising = signal<LimitKind | null>(null);
+  /** The live meter of the run: spent against its limits. */
+  readonly meter = computed(() => {
+    const v = this.store.meter();
+    this.i18n.lang();
+    return v ? { text: meterText((k, p) => this.i18n.t(k, p), v), near: v.near } : null;
+  });
   /** A placeholder asked for by a card ("What should change?"), until the next message is sent. */
   readonly hint = signal<string | null>(null);
   readonly placeholder = computed(() => {
@@ -106,6 +118,7 @@ export class TaskView {
         this.pinned = true;
         this.hint.set(null);
         this.actions.next.set({});
+        this.raising.set(null);
         this.actions.failure.set(null);
         void this.store.open(id).then(() => this.opened(id));
       });
@@ -123,6 +136,7 @@ export class TaskView {
       untracked(() => {
         this.actions.request.set(null);
         if (r.dialog === 'model') { this.composer()?.open.set('model'); return; }
+        if (r.dialog === 'limits') { this.raise(); return; }
         if (r.compose === 'rework') { this.hint.set('composer.rework'); this.composer()?.focus(); return; }
         if (r.dialog) { this.dialog.set({ kind: r.dialog, file: r.file }); return; }
         if (r.panel) this.open(r.panel, { file: r.file, out: r.output });
@@ -230,7 +244,24 @@ export class TaskView {
     void this.actions.message(text).then(() => this.actions.next.set({}));
   }
 
-  choose(patch: { model?: string; effort?: Effort; mode?: Mode }): void { this.actions.next.update(n => ({ ...n, ...patch })); }
+  choose(patch: { model?: string; effort?: Effort; mode?: Mode; preset?: Approach; limits?: Limits }): void { this.actions.next.update(n => ({ ...n, ...patch })); }
+
+  /** R11: "Raise the limit and continue" shows the raised number first — the reached limit doubled — in the composer. */
+  private raise(): void {
+    const task = this.task();
+    const kind = limitKindOf(task?.reason?.code);
+    if (!task || !kind) return;
+    this.raising.set(kind);
+    this.choose({ limits: raised(task.limits ?? DEFAULT_LIMITS, kind) });
+    queueMicrotask(() => this.composer()?.open.set('limits'));
+  }
+
+  async raiseAndContinue(): Promise<void> {
+    if (await this.actions.resume(this.limits())) {
+      this.raising.set(null);
+      this.actions.next.update(n => ({ ...n, limits: undefined }));
+    }
+  }
 
   rename(): void {
     this.menu.set(false);

@@ -8,6 +8,7 @@ import { MarkdownPipe } from '../../ui/markdown';
 import { usageText } from '../../ui/units';
 import { AcceptanceDecision, acceptanceChoices, reworkable, verifiedOf } from './acceptance';
 import { ActionId, actionsOf } from './error-actions';
+import { limitKindOf } from './limits';
 import { TaskActions } from './task-actions';
 
 // The cards of the conversation (section 7.5, 7.8, 10): question, approval, suggestion, checks, error and result.
@@ -205,8 +206,9 @@ export class ChecksCard {
   imports: [TPipe],
   template: `
     <section class="card" [class.err]="item().state === 'failed'" [class.attn]="item().state !== 'failed'" role="alert">
-      <div class="k">{{ ('state.' + (item().state === 'failed' ? 'failed' : 'paused')) | t }}</div>
+      <div class="k">{{ (limited() ? 'state.paused_limit' : 'state.' + (item().state === 'failed' ? 'failed' : 'paused')) | t }}</div>
       <p>{{ text() }}</p>
+      @if (best(); as b) { <p class="muted">{{ ('limit.best.' + b) | t }}</p> }
       @if (said(); as words) { <blockquote class="said">{{ words }}</blockquote> }
       @if (latest()) {
         <div class="row">
@@ -237,6 +239,9 @@ export class ErrorCard {
 
   readonly text = computed(() => { this.i18n.lang(); return sentence(this.i18n, this.item().error); });
   readonly acts = computed<ActionId[]>(() => actionsOf(this.item().error.code));
+  /** C4: a stop at the user's limit, and — on the last card — where the best verified result is. */
+  readonly limited = computed(() => limitKindOf(this.item().error.code) !== null);
+  readonly best = computed(() => (this.limited() && this.latest() ? this.store.task()?.limit?.best ?? null : null));
   /** Why the agent stopped, in its own words: the user has to read them to answer (section 10, `blocked`). */
   readonly said = computed(() => {
     const e = this.item().error;
@@ -272,6 +277,7 @@ export class ErrorCard {
       case 'show_output': this.actions.show({ panel: 'output' }); break;
       case 'copy_details': void this.copy(); break;
       case 'stop': void this.actions.stop(); break;
+      case 'raise_limit': this.actions.show({ dialog: 'limits' }); break;
       default: void this.actions.resume();
     }
   }
@@ -296,7 +302,7 @@ export class ErrorCard {
             } @else { <span class="muted">{{ 'empty.changes' | t }}</span><span></span> }
           } @else { <span class="muted">…</span><span></span> }
           <span class="l">{{ 'result.verified' | t }}</span>
-          <span>@if (verified().ok) { <span class="ok" aria-hidden="true">✓</span> } {{ verified().text }}</span>
+          <span>@if (verified().ok) { <span class="ok" aria-hidden="true">✓</span> } {{ verified().text }}@if (judge()) { · <span class="muted">{{ 'provenance.judge' | t }}</span> }</span>
           @if (verified().output) { <button class="lnk" (click)="actions.show({ panel: 'output' })">{{ 'action.show_output' | t }}</button> } @else { <span></span> }
           <span class="l">{{ 'result.used' | t }}</span><span>{{ used() }}</span><span></span>
         </div>
@@ -347,9 +353,24 @@ export class ResultCard {
 
   files(n: number): string { return this.i18n.n('count.files', n); }
 
-  /** The "Verified" line (section 7.8), honest about how the result was checked. */
+  /** D-397: a model judge's approval is shown beside the class, never as independent verification. */
+  readonly judge = computed(() => !!this.task()?.provenance?.judge);
+
+  /**
+   * The "Verified" line (section 7.8), honest about how the result was checked. With the core's provenance class (C4)
+   * the class leads and ✓ marks only an independent check; the detail follows.
+   */
   readonly verified = computed<{ ok: boolean; text: string; output: boolean }>(() => {
     this.i18n.lang();
+    const task = this.task();
+    const cls = task?.provenance?.class;
+    const plain = this.plain();
+    if (!cls) return plain;
+    const detail = ['tests', 'user', 'unverified'].includes(task?.verified ?? '') ? ' · ' + plain.text : '';
+    return { ok: cls === 'independent', text: this.i18n.t('provenance.' + cls) + detail, output: plain.output };
+  });
+
+  private plain(): { ok: boolean; text: string; output: boolean } {
     const task = this.task();
     const kind = task?.verified ?? 'none';
     if (kind === 'tests') {
@@ -360,5 +381,5 @@ export class ResultCard {
     }
     const v = verifiedOf(kind);
     return { ok: v.ok, text: this.i18n.t(v.key), output: v.output };
-  });
+  }
 }

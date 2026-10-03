@@ -51,6 +51,39 @@
       }
     </div>
 
+    <div class="ctl">
+      <button class="pill" [class.open]="open() === 'limits'" (click)="toggle('limits', $event)" [attr.aria-label]="'composer.limits' | t" [attr.aria-expanded]="open() === 'limits'">
+        <span class="ellipsis">{{ ('preset.' + approach()) | t }} · {{ budgetText() }}</span> <span class="faint">▾</span>
+      </button>
+      @if (open() === 'limits') {
+        <div class="menu limits" role="menu" (click)="$event.stopPropagation()">
+          <div class="k">{{ 'preset.title' | t }}</div>
+          @for (a of approaches; track a) {
+            <button role="menuitemradio" [class.sel]="approach() === a" [attr.aria-checked]="approach() === a" (click)="approachChange.emit(a)">
+              <span><b>{{ ('preset.' + a) | t }}</b><small>{{ ('preset.' + a + '_help') | t }}</small></span>
+            </button>
+          }
+          @if (projectFixed()) { <small class="faint note">{{ 'preset.next_run' | t }}</small> }
+          <hr>
+          <div class="k">{{ 'limit.title' | t }}</div>
+          <small class="faint note">{{ 'limit.help' | t }}</small>
+          @for (kind of kinds; track kind) {
+            <label class="lim"><span>{{ ('limit.' + kind) | t }}</span>
+              <input class="input num" inputmode="decimal" [value]="field(kind)" (change)="setLimit(kind, $any($event.target).value)"
+                [placeholder]="'limit.none' | t" [attr.aria-label]="('limit.' + kind) | t">
+            </label>
+          }
+          @if (invalid()) { <small class="bad note">{{ 'limit.invalid' | t }}</small> }
+          <button class="lnk" (click)="noLimits()">{{ 'limit.no_limits' | t }}</button>
+          @if (raise()) {
+            <small class="note">{{ 'limit.raise_hint' | t }}</small>
+            <button class="btn pri sm" [disabled]="!raiseReady() || busy()" (click)="raiseConfirm.emit(); close()">{{ 'action.raise_limit' | t }}</button>
+            @if (!raiseReady()) { <small class="faint note">{{ 'limit.raise_needed' | t }}</small> }
+          }
+        </div>
+      }
+    </div>
+
     <span class="grow"></span>
     @if (working() && !canSend()) {
       <button class="send stop" (click)="stop.emit()" [attr.aria-label]="'action.stop' | t" [title]="'action.stop' | t"><span class="sq"></span></button>

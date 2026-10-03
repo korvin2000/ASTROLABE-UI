@@ -2,7 +2,8 @@
 
 export type ActionId =
   | 'connect' | 'sign_in' | 'replace_key' | 'retry' | 'change_model' | 'choose_folder' | 'remove_project' | 'init_git'
-  | 'open_task' | 'stop_other' | 'set_checks' | 'review_pass' | 'copy_details' | 'continue_more' | 'stop' | 'continue' | 'show_output';
+  | 'open_task' | 'stop_other' | 'set_checks' | 'review_pass' | 'copy_details' | 'continue_more' | 'stop' | 'continue' | 'show_output'
+  | 'raise_limit';
 
 const ACTIONS: Record<string, ActionId[]> = {
   account_missing: ['connect'],
@@ -20,6 +21,10 @@ const ACTIONS: Record<string, ActionId[]> = {
   start_timeout: ['retry'],
   agent_error: ['retry', 'copy_details'],
   limit_reached: ['continue_more', 'stop'],
+  // C4: the user's own limit; raising it continues the same run with what it spent.
+  limit_money: ['raise_limit', 'stop'],
+  limit_minutes: ['raise_limit', 'stop'],
+  limit_requests: ['raise_limit', 'stop'],
   command_timeout: ['retry'],
   context_too_large: ['change_model'],
   checks_failed: ['retry', 'show_output'],

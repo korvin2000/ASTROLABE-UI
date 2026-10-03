@@ -4,6 +4,7 @@ import { TaskStore } from '../../state/task.store';
 import { FlowNode } from '../../timeline/steps';
 import { STAGES } from '../../timeline/timeline';
 import { clockOf, usageText } from '../../ui/units';
+import { meterText } from '../task/limits';
 import { FlowStage } from './flow/flow-stage';
 
 /** The stage rail (section 8.2.1): Understand, Plan, Build, Check, Finish; the line fills up to the current stage. */
@@ -63,10 +64,7 @@ export class StageRail {
       <dt>{{ 'progress.used' | t }}</dt>
       <dd>
         {{ used() }}
-        @if (share() !== null) {
-          <div class="bar2" role="progressbar" [attr.aria-valuenow]="share()" aria-valuemin="0" aria-valuemax="100"><i [style.width.%]="share()"></i></div>
-          <small class="faint">{{ 'progress.share' | t: { percent: share() } }}</small>
-        }
+        @if (meter(); as m) { <small class="meter" [class.near]="m.near" [attr.aria-label]="'meter.label' | t">{{ m.text }}</small> }
       </dd>
     </dl>`,
   styles: [`
@@ -81,8 +79,8 @@ export class StageRail {
     li[data-s="now"]::before { content: "●"; color: var(--accent); }
     li[data-s="done"]::before { content: "✓"; color: var(--ok); }
     li[data-s="skipped"] { color: var(--faint); text-decoration: line-through; }
-    .bar2 { height: 4px; border-radius: 2px; background: var(--border); margin-top: 6px; overflow: hidden; }
-    .bar2 i { display: block; height: 100%; background: var(--accent); }
+    .meter { display: block; margin-top: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .meter.near { color: var(--warn); }
   `],
 })
 export class Progress {
@@ -100,12 +98,11 @@ export class Progress {
     const tokens = Math.max(task?.usage?.tokens ?? 0, this.store.working() ? this.store.timeline.tokens : 0);
     return usageText(this.i18n, { tokens, cost: task?.usage?.cost, elapsedMs: task?.usage?.elapsedMs ?? 0 });
   });
-  /** The share of the task's limit that is used, in percent; null when the limit is not known. */
-  readonly share = computed<number | null>(() => {
-    this.store.version();
-    const limit = this.store.timeline.limitTokens;
-    if (!limit) return null;
-    return Math.min(100, Math.round((this.store.timeline.tokens / limit) * 100));
+  /** C4: the run's spend against its limits (the core's report), in place of the old share of a token limit. */
+  readonly meter = computed(() => {
+    const v = this.store.meter();
+    this.i18n.lang();
+    return v ? { text: meterText((k, p) => this.i18n.t(k, p), v), near: v.near } : null;
   });
 
   clock(seconds: number): string { return clockOf(seconds); }

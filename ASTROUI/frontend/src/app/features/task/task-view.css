@@ -23,6 +23,8 @@
 
 .composer-wrap { flex: none; padding: 6px 18px 16px; }
 .status { max-width: 760px; margin: 0 auto 6px; color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.status.meter { font-variant-numeric: tabular-nums; }
+.status.meter.near { color: var(--warn); }
 .fail { max-width: 760px; margin: 0 auto 6px; }
 
 .panel { min-width: 474px; max-width: 70%; flex: none; border-left: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg); position: relative; }
