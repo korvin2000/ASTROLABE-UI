@@ -8,11 +8,55 @@ export type AcceptanceDecision = 'done' | 'rework';
 
 export interface AcceptanceChoice { decision: AcceptanceDecision; label: string; primary: boolean; }
 
-/** The two buttons of an acceptance card, in their order: after a rejecting review, fixing comes first. */
+/**
+ * The two buttons of an acceptance card, in their order: after a rejecting review, fixing comes first; a test change only
+ * the user may approve (C11) reads "Approve the test change" / "Reject".
+ */
 export function acceptanceChoices(card: Pick<Card, 'variant'>): AcceptanceChoice[] {
+  if (card.variant === 'integrity') {
+    return [{ decision: 'done', label: 'action.approve_test_change', primary: true }, { decision: 'rework', label: 'action.reject_test_change', primary: false }];
+  }
   return card.variant === 'rejected'
     ? [{ decision: 'rework', label: 'action.continue_fixing', primary: true }, { decision: 'done', label: 'action.accept_as_is', primary: false }]
     : [{ decision: 'done', label: 'action.acceptance_done', primary: true }, { decision: 'rework', label: 'action.acceptance_rework', primary: false }];
+}
+
+// C11 (D-404): under "human" approval of test changes the user, never a model, approves a change to the tests the
+// required checks run. The review card answers with the user's verdict; the model's, if any, is shown beside it.
+
+export type ReviewDecision = 'approve' | 'reject';
+
+export interface ReviewChoice { decision: ReviewDecision; label: string; primary: boolean; }
+
+/** The two buttons of a review card. */
+export function reviewChoices(): ReviewChoice[] {
+  return [{ decision: 'approve', label: 'action.approve_test_change', primary: true }, { decision: 'reject', label: 'action.reject_test_change', primary: false }];
+}
+
+/** The body of `POST /tasks/{id}/cards/{cardId}` for a review answer; the user's words only for a rejection. */
+export function reviewBody(decision: ReviewDecision, text?: string): { decision: ReviewDecision; answer?: string } {
+  const answer = decision === 'reject' ? text?.trim() : undefined;
+  return answer ? { decision, answer } : { decision };
+}
+
+export interface TestChange { path: string; checks: string[]; reason?: string; }
+
+/** The changed tests a card asks about; the agent's reason only on a review card (an acceptance item's is the agent's log). */
+export function testChanges(card: Pick<Card, 'kind' | 'items'>): TestChange[] {
+  return (card.items ?? []).filter(i => !!i.path).map(i => ({
+    path: i.path as string,
+    checks: i.checks ?? [],
+    ...(card.kind === 'review' && i.reason ? { reason: i.reason } : {}),
+  }));
+}
+
+/** The catalog key of the model's verdict attached to the card: it approves, asks for changes, or could not tell. */
+export function modelVerdictKey(outcome: string | undefined): string {
+  switch (outcome) {
+    case 'approve': return 'card.model.approve';
+    case 'revise': case 'reject': return 'card.model.revise';
+    default: return 'card.model.unsure';
+  }
 }
 
 /** The body of `POST /tasks/{id}/cards/{cardId}` for an acceptance answer. */

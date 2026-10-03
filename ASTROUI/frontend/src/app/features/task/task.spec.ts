@@ -4,7 +4,7 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
-import { acceptanceBody, acceptanceChoices, doneUnverified, reworkable, stateKey, verifiedOf } from './acceptance';
+import { acceptanceBody, acceptanceChoices, doneUnverified, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
 import { DEFAULT_LIMITS, NO_LIMITS, limitKindOf, limitsText, meterText, parseLimit, raised, raises } from './limits';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { sends } from './keys';
@@ -298,5 +298,53 @@ describe('limits, approach and the outcome label (C4)', () => {
     expect(meterText(t, view)).toBe('$0.42 / $50.00 · 12:40 / limit.short_hours{"n":8} · meter.requests{"n":37,"limit":3000} · meter.context{"used":"41K","limit":"200K"}');
     const free = { ...view, money: { spent: null, unknown: false, estimated: true, limit: null }, time: { ms: 5_000, limitMin: null }, requests: { n: 2, limit: null }, context: { used: 0, limit: null } };
     expect(meterText(t, free)).toBe('meter.money_unknown · 0:05 · meter.requests_free{"n":2}');
+  });
+});
+
+describe('a test change only the user approves (C11)', () => {
+  const integrity = {
+    kind: 'acceptance' as const,
+    items: [{ reason: 'integrity:src/test/price.spec.ts: acceptance surface … — needs a human review', path: 'src/test/price.spec.ts', checks: ['CHK-test'], humanOnly: true }],
+  };
+
+  it('offers "Approve the test change" first and "Reject" on the acceptance card', () => {
+    const c = acceptanceChoices({ variant: 'integrity' });
+    expect(c.map(x => [x.label, x.decision])).toEqual([['action.approve_test_change', 'done'], ['action.reject_test_change', 'rework']]);
+    expect(c[0].primary).toBe(true);
+    expect(translate('ru', c[0].label)).toBe('Одобрить изменение теста');
+    expect(translate('ru', c[1].label)).toBe('Отклонить');
+    expect(translate('en', c[0].label)).toBe('Approve the test change');
+  });
+
+  it('answers a review card with approve or reject, the words of the user only with a rejection', () => {
+    expect(reviewChoices().map(x => [x.label, x.decision])).toEqual([['action.approve_test_change', 'approve'], ['action.reject_test_change', 'reject']]);
+    expect(reviewBody('approve', 'ignored')).toEqual({ decision: 'approve' });
+    expect(reviewBody('reject')).toEqual({ decision: 'reject' });
+    expect(reviewBody('reject', ' keep the old bound ')).toEqual({ decision: 'reject', answer: 'keep the old bound' });
+  });
+
+  it('names the changed test and its checks; the agent\'s reason only on a review card', () => {
+    expect(testChanges(integrity)).toEqual([{ path: 'src/test/price.spec.ts', checks: ['CHK-test'] }]);
+    const review = { kind: 'review' as const, items: [{ path: 'src/test/price.spec.ts', checks: ['CHK-test', 'CHK-ci'], reason: 'the old bound was wrong' }] };
+    expect(testChanges(review)).toEqual([{ path: 'src/test/price.spec.ts', checks: ['CHK-test', 'CHK-ci'], reason: 'the old bound was wrong' }]);
+    expect(testChanges({ kind: 'acceptance', items: [{ reason: 'no tests' }] })).toEqual([]);
+    expect(translate('ru', 'card.integrity_checks', { checks: 'CHK-test' })).toBe('Касается проверок: CHK-test');
+    expect(translate('ru', 'card.integrity_reason', { reason: 'x' })).toBe('Причина: x');
+  });
+
+  it('shows the model\'s verdict as information beside the card', () => {
+    expect(modelVerdictKey('approve')).toBe('card.model.approve');
+    expect(modelVerdictKey('revise')).toBe('card.model.revise');
+    expect(modelVerdictKey('reject')).toBe('card.model.revise');
+    expect(modelVerdictKey('insufficientevidence')).toBe('card.model.unsure');
+    expect(modelVerdictKey(undefined)).toBe('card.model.unsure');
+    expect(translate('ru', 'card.model.approve')).toBe('Модель одобряет изменение.');
+  });
+
+  it('waits for the user, never offers Continue, and is not an error', () => {
+    expect(ERROR_CODES).toContain('integrity_review');
+    expect(actionsOf('integrity_review')).toEqual(['copy_details']);
+    expect(stateKey('needs_you', 'none')).toBe('state.needs_you');
+    expect(translate('ru', 'error.integrity_review')).toBe('Агент изменил тесты, по которым идут обязательные проверки. Ждём вашего одобрения.');
   });
 });

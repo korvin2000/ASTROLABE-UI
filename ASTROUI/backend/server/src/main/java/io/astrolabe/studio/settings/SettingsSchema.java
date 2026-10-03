@@ -46,7 +46,8 @@ public final class SettingsSchema {
         f("config.dClass", "autonomy", "D-class effects", "enum", null, List.of("Ask", "Deny"), null, null, "S P C", "next-attempt", "editable", null,
             "Privilege, network, package installs, git ref mutation, deletes outside tmp. Autonomous mode: Ask degrades to deny unless allowlisted.");
         f("config.integrityApproval", "autonomy", "Test-integrity approval", "enum", null, List.of("Autonomous", "Human"), null, null, "S P", "next-attempt", "editable", null,
-            "Autonomous: a review cell first, human fallback. Never disables the integrity guard.");
+            "Who approves a change the agent makes to the tests a required check runs. Human: every such change needs your approval — the task waits for you, in auto mode too. "
+                + "Autonomous: a model approves the change, and the result is marked \"approved by the model judge\". Never disables the integrity guard.");
         f("config.unknownOutcomeReconciliation", "autonomy", "Unknown outcomes", "enum", null, List.of("Host", "Automatic"), null, null, "S P", "next-attempt", "editable", null,
             "Host: you reconcile effects left unknown by a crash before resume. Automatic covers only replay-safe or workspace-confined intents.");
         f("config.ceiling", "autonomy", "Publication ceiling", "enum", null, List.of("Patch", "LocalCommit", "Push", "Merge", "Deploy"), null, null, "S P C", "next-attempt", "editable", null,

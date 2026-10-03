@@ -156,10 +156,12 @@ public class TaskService implements DisposableBean {
                     reason = limitReason(r);
                 }
                 case "waiting_for_input" -> {
-                    if ("acceptance_decision".equals(r.stopCode()) || "review_rejected".equals(r.stopCode())) {
+                    if ("acceptance_decision".equals(r.stopCode()) || "review_rejected".equals(r.stopCode()) || StudioError.INTEGRITY_REVIEW.equals(r.stopCode())) {
                         // B3: the core waits for the user's word on its result — a decision card, never Continue.
+                        // C11: a test change only the user may approve waits for them too; it is not an error.
                         state = "needs_you";
-                        reason = reason("review_rejected".equals(r.stopCode()) ? StudioError.REVIEW_REJECTED : StudioError.ACCEPTANCE_DECISION, r.reason());
+                        reason = reason("review_rejected".equals(r.stopCode()) ? StudioError.REVIEW_REJECTED
+                            : StudioError.INTEGRITY_REVIEW.equals(r.stopCode()) ? StudioError.INTEGRITY_REVIEW : StudioError.ACCEPTANCE_DECISION, r.reason());
                     } else {
                         state = "paused";
                         boolean noChecks = r.reason() != null && r.reason().contains("nothing to accept against");
@@ -1007,9 +1009,10 @@ public class TaskService implements DisposableBean {
     // ------------------------------------------------------------------------------------------------ cards
 
     /**
-     * `POST /tasks/{id}/cards/{cardId}`: `{ decision: answer|allow_once|allow_always|deny|accept|decline|done|rework, answer?, option? }`.
+     * `POST /tasks/{id}/cards/{cardId}`: `{ decision: answer|allow_once|allow_always|deny|accept|decline|done|rework|approve|reject, answer?, option? }`.
      * `done` and `rework` answer an acceptance card (B3): the user's word is stored for the core's request and the run
-     * resumes — the core then finishes with no model call, or runs one continuation with the text.
+     * resumes — the core then finishes with no model call, or runs one continuation with the text. `approve` and
+     * `reject` answer a review card (C11): the user's verdict on a test change, marked a person's.
      */
     public ObjectNode card(String taskId, String cardId, JsonNode body) {
         List<Run> runs = require(taskId);
@@ -1039,8 +1042,12 @@ public class TaskService implements DisposableBean {
                 if (choice.equals("allow_always")) projectSettings.allow(Json.text(decision, "projectId"), pattern(request), "local");
                 decisions.reply(cardId, Json.obj().put("approved", approved).put("reason", approved ? choice.equals("allow_always") ? "always allowed in this project" : "allowed once" : "denied by the user"), null, "local");
             }
+            case "approve", "reject" -> {
+                if (!kind.equals("review")) throw ApiException.invalid("this card is not a review");
+                decisions.reply(cardId, DecisionService.personVerdict(request, choice.equals("approve"), Json.text(body, "answer")), null, "local");
+            }
             case "accept", "decline" -> {
-                if (kind.equals("question") || kind.equals("effect") || kind.equals("publication")) throw ApiException.invalid("this card is not a suggestion");
+                if (kind.equals("question") || kind.equals("effect") || kind.equals("publication") || kind.equals("review")) throw ApiException.invalid("this card is not a suggestion");
                 boolean accept = choice.equals("accept");
                 decisions.reply(cardId, Json.obj().put("outcome", accept ? "Accepted" : "Rejected").put("confirmWeakening", accept && Json.bool(body, "confirm", false)), null, "local");
             }
@@ -1056,7 +1063,10 @@ public class TaskService implements DisposableBean {
      */
     private void decideAcceptance(Run run, JsonNode card, String kind, String text, String modelRef, String effort, String mode) {
         if (!"open".equals(Json.text(card, "status"))) return;
-        String reason = text != null && !text.isBlank() ? text : kind.equals("accept") ? "the user confirmed the task is done" : "the user says the task is not done; fix what the review or the checks found";
+        boolean person = "integrity".equals(Json.text(DecisionService.cardOf(card), "variant"));
+        String reason = text != null && !text.isBlank() ? text
+            : person ? (kind.equals("accept") ? "the user approved the change to the tests" : "the user did not approve the change to the tests; keep the required checks as they were")
+            : kind.equals("accept") ? "the user confirmed the task is done" : "the user says the task is not done; fix what the review or the checks found";
         boolean fresh = decisions.answerAcceptance((ObjectNode) card, kind, reason, "local");
         if (!fresh || hosts.host().isLive(run.workId()) || campaigns.isOpening(run.workId()) || "opening".equals(run.status())) return;
         continueRun(run, null, modelRef, effort, mode);

@@ -57,7 +57,7 @@ public class CampaignService {
     /** Told once per run after its end was recorded (Studio 2 BE-8). */
     @FunctionalInterface
     public interface RunEnded {
-        /** [stopCode]: the core's reason a `waiting_for_input` run waits (D-339), `acceptance_decision` or `review_rejected`. */
+        /** [stopCode]: the core's reason a `waiting_for_input` run waits (D-339), `acceptance_decision`, `review_rejected` or `integrity_review`. */
         void ended(String workId, String outcome, String reason, String stopCode, Throwable failure);
     }
 

@@ -171,8 +171,27 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return raise(kind, workId, proposalJson);
     }
 
+    /**
+     * The host's review. A request that says `humanOnly` (C11, D-404: a test-integrity change under
+     * `IntegrityApproval.Human`) is the user's card in both modes; the review pass may run first, and its verdict is
+     * attached to the card as the person's information (`modelVerdict`) — it never answers the request.
+     */
     @Override
     public CompletableFuture<String> review(String workId, String requestJson) {
+        JsonNode request = Json.parse(requestJson);
+        if (request.path("humanOnly").asBoolean(false)) {
+            if (policyOf.apply(workId) == null) return raise("review", workId, requestJson);
+            CompletableFuture<String> pass;
+            try {
+                pass = reviewer.review(workId, request);
+            } catch (RuntimeException e) {
+                pass = CompletableFuture.failedFuture(e);
+            }
+            return pass.handle((verdict, e) -> {
+                if (e != null) log.warn("review pass for {} (information for a person's review) failed: {}", workId, e.toString());
+                return e == null ? verdict : null;
+            }).thenCompose(verdict -> raise("review", workId, withModelVerdict(request, verdict)));
+        }
         if (policyOf.apply(workId) != null) {
             return reviewer.review(workId, Json.parse(requestJson)).exceptionally(e -> {
                 log.warn("review pass for {} failed: {}", workId, e.toString());
@@ -200,14 +219,21 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         }
         HostPolicy policy = policyOf.apply(workId);
         boolean rejected = false;
+        boolean person = INTEGRITY_REVIEW.equals(Json.text(request, "code"));
         StringBuilder why = new StringBuilder();
         for (JsonNode item : Json.each(request.get("items"))) {
             if ("Failed".equals(Json.text(item, "status"))) rejected = true;
+            if (item.path("humanOnly").asBoolean(false)) person = true;
             why.append(why.isEmpty() ? "" : "; ").append(Json.text(item, "reason", Json.text(item, "obligation", "")));
         }
-        if (policy != null && policy.auto() && !rejected) {
+        // C11 (D-404): a test change only a person may approve is never accepted on the policy's word, in `auto` too.
+        if (policy != null && policy.auto() && !rejected && !person) {
             ObjectNode decision = decision(request, "Accept", "Policy", "studio:policy(auto)", "not verified: " + why);
             return byPolicy("acceptance", workId, requestJson, decision, "accepted");
+        }
+        if (person) {
+            JsonNode model = modelVerdictFor(workId, request.get("candidate"));
+            if (model != null) requestJson = withModelVerdict(request, Json.write(model));
         }
         // Earlier open requests of this run are replaced by the newest one: one card at a time.
         jdbc.update("UPDATE decision SET status = 'superseded', answered_at = ? WHERE work_id = ? AND kind = 'acceptance' AND status = 'open'", Json.now(), workId);
@@ -249,6 +275,114 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     /** Closes the open acceptance card of a run that no longer waits for it (it went on, or ended otherwise). */
     public void closeAcceptance(String workId, String reason) {
         jdbc.update("UPDATE decision SET status = 'closed', reason = ?, answered_at = ? WHERE work_id = ? AND kind = 'acceptance' AND status = 'open'", reason, Json.now(), workId);
+    }
+
+    /** The core's stop code of a campaign waiting for a person's review of a test change (C11, `StopCode.IntegrityReview`). */
+    public static final String INTEGRITY_REVIEW = "integrity_review";
+
+    /** [request] with the review pass's verdict JSON attached as `modelVerdict` (a person's information, C11); as is without one. */
+    private static String withModelVerdict(JsonNode request, String verdictJson) {
+        if (verdictJson == null || !(request instanceof ObjectNode o)) return Json.write(request);
+        ObjectNode copy = o.deepCopy();
+        copy.set("modelVerdict", Json.parse(verdictJson));
+        return Json.write(copy);
+    }
+
+    /** The review pass's verdict on [candidate] attached to a person's review card of [workId]; null when none. */
+    private JsonNode modelVerdictFor(String workId, JsonNode candidate) {
+        if (candidate == null) return null;
+        for (String json : jdbc.queryForList("SELECT request_json FROM decision WHERE work_id = ? AND kind = 'review' AND status <> 'policy' ORDER BY created_at DESC LIMIT 5", String.class, workId)) {
+            JsonNode r = Json.parse(json);
+            if (r.hasNonNull("modelVerdict") && candidate.equals(r.get("candidate"))) return r.get("modelVerdict");
+        }
+        return null;
+    }
+
+    /**
+     * The person's verdict on a test change (C11): `Approve`, or `Reject` with one finding at the changed path in the
+     * user's words — a substantive rejection, so the agent reworks it. `buildReply` binds it and marks it a person's.
+     */
+    public static ObjectNode personVerdict(JsonNode request, boolean approve, String text) {
+        ObjectNode v = Json.obj();
+        v.put("outcome", approve ? "Approve" : "Reject");
+        ArrayNode findings = v.putArray("findings");
+        if (!approve) {
+            List<String> paths = integrityPaths(request);
+            findings.addObject()
+                .put("severity", "Major")
+                .put("location", paths.isEmpty() ? "test-integrity" : paths.getFirst())
+                .put("issue", text != null && !text.isBlank() ? text.strip() : "the user did not approve this change to the tests; keep the required checks as they were")
+                .put("kind", "TestIntegrity");
+        }
+        v.put("confidence", 1.0);
+        return v;
+    }
+
+    private static final java.util.regex.Pattern FLAG_LINE =
+        java.util.regex.Pattern.compile("^acceptance surface: (.+?) \\((test file|check definition|CI config|acceptance command input)\\) modified by (.*)$");
+    private static final java.util.regex.Pattern TOUCHES = java.util.regex.Pattern.compile("^integrity:.+?: acceptance surface .+? touches (.*?) — ");
+
+    /**
+     * The test changes a person's review is about (C11), each `{path, checks, reason?}`: from the flag lines of the
+     * criteria (`acceptance surface: <path> (<surface>) modified by … · required: … · reason: …`) or, without them, the
+     * paths of the original obligations (`<path>: <text>`). The core sends no such fields of its own.
+     */
+    static ArrayNode integrityItems(JsonNode request) {
+        ArrayNode out = Json.arr();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (JsonNode c : Json.each(request.get("criteria"))) {
+            java.util.regex.Matcher m = FLAG_LINE.matcher(c.asString());
+            if (!m.matches() || !seen.add(m.group(1))) continue;
+            ObjectNode i = out.addObject();
+            i.put("path", m.group(1));
+            ArrayNode checks = i.putArray("checks");
+            for (String part : m.group(3).split(" · ")) {
+                if (part.startsWith("required: ")) for (String id : part.substring("required: ".length()).split(", ")) if (!id.isBlank()) checks.add(id.strip());
+                if (part.startsWith("reason: ")) i.put("reason", part.substring("reason: ".length()));
+            }
+        }
+        if (!out.isEmpty()) return out;
+        for (JsonNode o : Json.each(request.get("originalObligations"))) {
+            String line = o.asString();
+            if (line.startsWith("original ")) line = line.substring("original ".length());
+            int colon = line.indexOf(": ");
+            if (colon <= 0) continue;
+            String path = line.substring(0, colon);
+            // An acceptance definition reads `AC-1 (origin, v2): …`, never a path.
+            if (path.contains(" (") || !seen.add(path)) continue;
+            out.addObject().put("path", path).putArray("checks");
+        }
+        return out;
+    }
+
+    private static List<String> integrityPaths(JsonNode request) {
+        List<String> paths = new java.util.ArrayList<>();
+        for (JsonNode i : integrityItems(request)) paths.add(Json.text(i, "path"));
+        for (JsonNode i : Json.each(request.get("items"))) {
+            String obligation = Json.text(i, "obligation", "");
+            if (obligation.startsWith("integrity:")) paths.add(obligation.substring("integrity:".length()));
+        }
+        return paths;
+    }
+
+    /** The model's verdict attached to a person's card: outcome, summary and findings; null when none is attached. */
+    private static ObjectNode modelOf(JsonNode request) {
+        JsonNode v = request.get("modelVerdict");
+        if (v == null || !v.isObject()) return null;
+        ObjectNode m = Json.obj();
+        m.put("outcome", Json.text(v, "outcome", "").toLowerCase(Locale.ROOT));
+        String summary = Json.text(v, "summary");
+        if (summary != null && !summary.isBlank()) m.put("summary", summary);
+        m.set("findings", findingsOf(v.get("findings")));
+        return m;
+    }
+
+    private static ArrayNode findingsOf(JsonNode findings) {
+        ArrayNode a = Json.arr();
+        for (JsonNode f : Json.each(findings)) {
+            a.addObject().put("severity", Json.text(f, "severity", "").toLowerCase(Locale.ROOT)).put("location", Json.text(f, "location", "")).put("issue", Json.text(f, "issue", ""));
+        }
+        return a;
     }
 
     /** The user's stored answer to exactly this request, as the core's `AcceptanceDecision`; null when none. */
@@ -584,20 +718,40 @@ public class DecisionService implements AuthorityPort, PolicyListener {
                 for (JsonNode op : Json.each(request.get("options"))) options.add(op.asString());
             }
             case "acceptance" -> {
-                // B3: "could not verify — is it done?" or "the review found problems".
+                // B3: "could not verify — is it done?" or "the review found problems"; C11: "approve the test change?".
                 o.put("kind", "acceptance");
-                o.put("variant", "review_rejected".equals(Json.text(request, "code")) ? "rejected" : "unverified");
+                String code = Json.text(request, "code");
+                boolean person = INTEGRITY_REVIEW.equals(code);
                 ArrayNode items = o.putArray("items");
                 for (JsonNode item : Json.each(request.get("items"))) {
                     ObjectNode i = items.addObject();
                     i.put("reason", Json.text(item, "reason", ""));
                     i.put("status", Json.text(item, "status", ""));
-                    ArrayNode findings = i.putArray("findings");
-                    for (JsonNode f : Json.each(item.get("findings"))) {
-                        findings.addObject().put("severity", Json.text(f, "severity", "").toLowerCase(Locale.ROOT)).put("location", Json.text(f, "location", "")).put("issue", Json.text(f, "issue", ""));
+                    i.set("findings", findingsOf(item.get("findings")));
+                    if (item.path("humanOnly").asBoolean(false)) {
+                        person = true;
+                        i.put("humanOnly", true);
+                        String obligation = Json.text(item, "obligation", "");
+                        if (obligation.startsWith("integrity:")) i.put("path", obligation.substring("integrity:".length()));
+                        ArrayNode checks = i.putArray("checks");
+                        java.util.regex.Matcher m = TOUCHES.matcher(Json.text(item, "reason", ""));
+                        if (m.find()) for (String id : m.group(1).split(", ")) if (!id.isBlank()) checks.add(id.strip());
+                        String by = Json.text(item, "by");
+                        if (by != null) i.put("by", by);
                     }
                 }
+                o.put("variant", "review_rejected".equals(code) ? "rejected" : person ? "integrity" : "unverified");
+                ObjectNode model = modelOf(request);
+                if (model != null) o.set("model", model);
                 o.put("summary", Json.text(request, "summary", ""));
+            }
+            case "review" -> {
+                // C11: a person's review of a test change; the review of a run that is not a task keeps the plain variant.
+                o.put("kind", "review");
+                o.put("variant", request.path("humanOnly").asBoolean(false) ? "integrity" : "review");
+                o.set("items", integrityItems(request));
+                ObjectNode model = modelOf(request);
+                if (model != null) o.set("model", model);
             }
             case "effect", "publication" -> {
                 o.put("kind", "approval");

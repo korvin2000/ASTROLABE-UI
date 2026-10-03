@@ -54,6 +54,7 @@ class TaskAcceptanceTest {
     private final ProjectService projects = mock(ProjectService.class);
     private final AccountService accounts = mock(AccountService.class);
     private final ModelService models = mock(ModelService.class);
+    private final ReviewPass reviewPass = mock(ReviewPass.class);
     private DecisionService decisions;
     private TaskService tasks;
 
@@ -65,9 +66,11 @@ class TaskAcceptanceTest {
         when(hosts.host()).thenReturn(host);
         when(campaigns.taskOf(anyString())).thenReturn("W-1");
         when(accounts.list()).thenReturn(Json.arr());
+        when(host.contractRevision(any(), any())).thenReturn(2);
+        when(reviewPass.review(anyString(), any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(null));
         decisions = new DecisionService(jdbc, new TopicBroker(), hosts);
         tasks = new TaskService(jdbc, hosts, campaigns, projects, mock(ProjectSettings.class), mock(SettingsService.class), mock(Preferences.class),
-            accounts, models, decisions, mock(EventPipeline.class), new TopicBroker(), mock(ChangesService.class), mock(StatsService.class), mock(ReviewPass.class));
+            accounts, models, decisions, mock(EventPipeline.class), new TopicBroker(), mock(ChangesService.class), mock(StatsService.class), reviewPass);
     }
 
     @AfterEach
@@ -183,5 +186,45 @@ class TaskAcceptanceTest {
         assertEquals(0, task.path("pending").size());
         assertTrue(List.of("done", "working").contains(Json.text(task, "state")), Json.text(task, "state"));
         assertNull(task.get("reason"));
+    }
+
+    private static final String CANDIDATE = "ab".repeat(32);
+
+    @Test
+    void aTestChangeWaitingForThePersonNeedsYouAndDoneIsTheUsersApproval() {
+        run("stored", "waiting_for_input", "integrity_review");
+        decisions.decide("W-1", "{\"id\":\"decide-1\",\"contractRevision\":2,\"ids\":{\"work\":\"W-1\",\"attempt\":\"a1\"},\"incrementId\":\"I1\",\"candidate\":\"" + CANDIDATE + "\","
+            + "\"code\":\"integrity_review\",\"items\":[{\"obligation\":\"integrity:src/test/PriceTest.java\",\"kind\":\"Integrity\",\"status\":\"Unverified\","
+            + "\"reason\":\"integrity:src/test/PriceTest.java: acceptance surface src/test/PriceTest.java touches CHK-test — integrity change needs a human review\",\"humanOnly\":true}]}").join();
+        var task = tasks.task("W-1", false);
+        assertEquals("needs_you", Json.text(task, "state"), "a test change waiting for the user is not an error");
+        assertEquals("integrity_review", Json.text(task.path("reason"), "code"));
+        var card = task.path("pending").get(0);
+        assertEquals("acceptance", Json.text(card, "kind"));
+        assertEquals("integrity", Json.text(card, "variant"));
+        tasks.card("W-1", Json.text(card, "id"), Json.obj().put("decision", "done"));
+        var stored = jdbc.queryForList("SELECT kind, text FROM acceptance_decision WHERE request_id = 'decide-1'");
+        assertEquals("accept", stored.getFirst().get("kind"));
+        assertEquals("the user approved the change to the tests", stored.getFirst().get("text"));
+        verify(projects, times(1)).open("p1");
+    }
+
+    @Test
+    void approveOnAReviewCardAnswersWithThePersonsVerdict() {
+        run("stored", null, null);
+        var answer = decisions.review("W-1", "{\"id\":\"review-1\",\"contractRevision\":2,\"ids\":{\"work\":\"W-1\",\"attempt\":\"a1\"},\"scope\":\"Increment\","
+            + "\"candidate\":\"" + CANDIDATE + "\",\"packetRef\":\"blob-1\",\"criteria\":[],\"originalObligations\":[\"src/test/PriceTest.java: assertTrue(price < 10)\"],\"humanOnly\":true}");
+        var card = tasks.task("W-1", false).path("pending").get(0);
+        assertEquals("review", Json.text(card, "kind"));
+        assertEquals("src/test/PriceTest.java", Json.text(card.path("items").get(0), "path"));
+        try {
+            tasks.card("W-1", Json.text(card, "id"), Json.obj().put("decision", "accept"));
+            org.junit.jupiter.api.Assertions.fail("a review card is not a suggestion");
+        } catch (io.astrolabe.studio.support.ApiException expected) { /* the review card takes approve or reject only */ }
+        tasks.card("W-1", Json.text(card, "id"), Json.obj().put("decision", "approve"));
+        var verdict = Json.parse(answer.join());
+        assertEquals("Approve", Json.text(verdict, "outcome"));
+        assertEquals("human", Json.text(verdict, "reviewer"));
+        assertEquals(0, tasks.task("W-1", false).path("pending").size());
     }
 }

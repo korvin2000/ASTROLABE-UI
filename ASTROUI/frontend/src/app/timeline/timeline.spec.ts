@@ -310,3 +310,40 @@ describe('texts of the timeline', () => {
     expect(summarize(first.steps)).toEqual([{ key: 'group.read', n: 2, failed: false }]);
   });
 });
+
+describe('a test change only the user approves (C11)', () => {
+  const at = (n: number) => `2026-10-03T10:00:${String(n).padStart(2, '0')}Z`;
+  const studio = (seq: number, kind: string, data: Record<string, unknown>): StudioItem => ({ at: at(seq), source: 'studio', ids: { work: 'W-a' }, seq, kind, data });
+  const card = { id: 'd-1', workId: 'W-a', createdAt: at(1), status: 'pending', kind: 'review', variant: 'integrity',
+    items: [{ path: 'src/test/price.spec.ts', checks: ['CHK-test'] }], model: { outcome: 'approve', findings: [] } };
+
+  it('waits for the user on the review card and records the approval', () => {
+    const t = replay([studio(1, 'studio.decision_requested', { id: 'd-1', kind: 'review', status: 'pending', card })]);
+    expect(t.state).toBe('needs_you');
+    expect(t.pending().map(c => c.card.kind)).toEqual(['review']);
+    t.apply(studio(2, 'studio.decision_resolved', { id: 'd-1', kind: 'review', status: 'answered', reply: { outcome: 'Approve', reviewer: 'human' } }));
+    expect(of(t, 'card')[0]).toMatchObject({ status: 'answered', decision: 'approved' });
+    expect(t.pending()).toEqual([]);
+  });
+
+  it('records a rejection', () => {
+    const t = replay([studio(1, 'studio.decision_requested', { id: 'd-1', kind: 'review', status: 'pending', card }),
+      studio(2, 'studio.decision_resolved', { id: 'd-1', kind: 'review', status: 'answered', reply: { outcome: 'Reject', reviewer: 'human' } })]);
+    expect(of(t, 'card')[0]).toMatchObject({ decision: 'rejected' });
+  });
+
+  it('keeps the model\'s look at the change out of the conversation: it is on the card', () => {
+    const t = replay([studio(1, 'studio.policy_decision', { kind: 'review', status: 'policy', reason: 'approve', request: { humanOnly: true }, reply: { outcome: 'Approve' } })]);
+    expect(of(t, 'notice')).toEqual([]);
+    expect(t.technical).toHaveLength(1);
+  });
+
+  it('is a waiting task, not an error, when the run stops for the user', () => {
+    const t = replay([
+      studio(1, 'studio.run_ended', { outcome: 'waiting_for_input', stopCode: 'integrity_review' }),
+      studio(2, 'studio.task_state', { state: 'needs_you', reason: { code: 'integrity_review' } }),
+    ]);
+    expect(t.state).toBe('needs_you');
+    expect(of(t, 'error')).toEqual([]);
+  });
+});
