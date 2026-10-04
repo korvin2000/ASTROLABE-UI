@@ -1,5 +1,6 @@
 package io.astrolabe.studio.bridge
 
+import io.astrolabe.provider.Billing
 import io.astrolabe.provider.BillingDimension
 import io.astrolabe.provider.CacheCapability
 import io.astrolabe.provider.Capabilities
@@ -40,10 +41,14 @@ public object AutoProfiles {
 
     /**
      * Drafts the profile of [modelId] from the catalog; a model without limits in the catalog (common for local
-     * servers) gets estimated limits. Validation is the adapter's own, without any billable call.
+     * servers) gets estimated limits. Validation is the adapter's own, without any billable call. [planBilled]: the
+     * account is a subscription or a local server, so a model the catalog names no token price for is charged by the
+     * plan and a task's money limit does not apply to it; the request and time limits do. Without it a missing price
+     * stays an unknown charge.
      */
     @JvmStatic
-    public fun make(llm: Llm, providerId: String, modelId: String): AutoProfile {
+    @JvmOverloads
+    public fun make(llm: Llm, providerId: String, modelId: String, planBilled: Boolean = false): AutoProfile {
         val id = idOf(providerId, modelId)
         val today = LocalDate.now()
         var estimated = false
@@ -54,7 +59,9 @@ public object AutoProfiles {
             estimated = true
             estimate(llm, providerId, modelId, id, today)
         }
-        val profile = drafted.copy(config = routed(providerId, modelId, drafted.config))
+        val unpriced = drafted.priceTable.perMillion.isEmpty() && drafted.priceTable.tiers.isEmpty()
+        val prices = if (planBilled && unpriced) drafted.priceTable.copy(billing = Billing.Plan) else drafted.priceTable
+        val profile = drafted.copy(priceTable = prices, config = routed(providerId, modelId, drafted.config))
         val violations = try {
             AiGateAdapter.violations(llm, listOf(profile)).map { it.toString() }
         } catch (e: RuntimeException) {

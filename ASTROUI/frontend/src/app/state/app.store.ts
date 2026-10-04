@@ -93,6 +93,13 @@ export class AppStore {
     }
   }
 
+  /** Fetches the model lists of the connected accounts again (the Studio refreshes them only when asked), then reloads them. */
+  async refreshModels(): Promise<void> {
+    await this.api.post('/models/refresh');
+    // Not loadModels(): it empties the list on a failed read, and a failed refresh must leave the list as it was.
+    this.models.set(await this.api.get<UsableModel[]>('/models/usable'));
+  }
+
   async reloadAccounts(): Promise<void> {
     const [accounts, preferences] = await Promise.all([this.api.get<Account[]>('/accounts'), this.api.get<Preferences>('/preferences')]);
     this.accounts.set(accounts);

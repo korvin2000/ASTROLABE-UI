@@ -22,6 +22,7 @@ import io.astrolabe.studio.live.EventPipeline;
 import io.astrolabe.studio.live.TopicBroker;
 import io.astrolabe.studio.models.ModelService;
 import io.astrolabe.studio.projects.ProjectService;
+import io.astrolabe.verify.ScratchPolicy;
 import io.astrolabe.studio.runtime.HostService;
 import io.astrolabe.studio.settings.Preferences;
 import io.astrolabe.studio.settings.SettingsService;
@@ -539,7 +540,7 @@ public class TaskService implements DisposableBean {
 
             // 2. Model ready.
             step(work, current = "model", "running");
-            ModelService.Bound bound = models.bind(r.modelRef());
+            ModelService.Bound bound = models.bind(r.modelRef(), accounts.usable());
             step(work, current, "passed");
 
             // 3. Project usable.
@@ -915,16 +916,50 @@ public class TaskService implements DisposableBean {
         }
         sb.append('\n');
         try {
-            List<String> files = new ArrayList<>();
+            List<String> paths = new ArrayList<>();
             JsonNode c = changes.taskChanges(last.projectId(), runs.stream().map(Run::workId).toList(), false);
-            for (JsonNode f : Json.each(c.get("files"))) if (files.size() < 12) files.add(Json.text(f, "path"));
-            if (!files.isEmpty()) sb.append("Files changed so far: ").append(String.join(", ", files)).append('\n');
+            for (JsonNode f : Json.each(c.get("files"))) paths.add(Json.text(f, "path"));
+            String files = changedFiles(paths);
+            if (!files.isEmpty()) sb.append("Files changed so far: ").append(files).append('\n');
         } catch (RuntimeException e) {
             // Without the change list the recap is shorter, not wrong.
         }
         sb.append("[End of context]\n\n");
         String recap = sb.toString();
         return recap.length() > RECAP_LIMIT ? recap.substring(0, RECAP_LIMIT - 20) + "…\n[End of context]\n\n" : recap;
+    }
+
+    /** Folders a build, a cache or an IDE writes: never what a recap names as changed. */
+    private static final ScratchPolicy RECAP_NOISE = new ScratchPolicy(
+        java.util.stream.Stream.concat(ScratchPolicy.DEFAULT_PREFIXES.stream(), java.util.stream.Stream.of(".idea", ".vscode")).collect(java.util.stream.Collectors.toUnmodifiableSet()));
+    private static final int RECAP_FILES = 12;
+    private static final int RECAP_FILES_PER_FOLDER = 4;
+
+    /**
+     * The changed files a recap names: no build output, cache or IDE folder, at most 4 of one top-level folder and 12 in
+     * all, so a report tree or a vendored tool cannot crowd the sources out; what is left out is counted. The list is the
+     * next run's first picture of the project: named in path order alone it was `.gradle/…` locks twelve times over.
+     */
+    static String changedFiles(List<String> paths) {
+        List<String> kept = paths.stream().filter(p -> p != null && !p.isBlank() && !RECAP_NOISE.isScratch(p)).toList();
+        java.util.Map<String, Integer> perFolder = new java.util.HashMap<>();
+        List<String> named = new ArrayList<>();
+        List<String> held = new ArrayList<>();
+        for (String path : kept) {
+            int n = perFolder.merge(folderOf(path), 1, Integer::sum);
+            if (named.size() < RECAP_FILES && (folderOf(path).isEmpty() || n <= RECAP_FILES_PER_FOLDER)) named.add(path); else held.add(path);
+        }
+        // Free places go to the smaller folders first: the fifth source file before the fifth file of a vendored tool.
+        held.sort(java.util.Comparator.comparingInt(path -> perFolder.get(folderOf(path))));
+        for (String path : held) if (named.size() < RECAP_FILES) named.add(path);
+        if (named.isEmpty()) return "";
+        int more = kept.size() - named.size();
+        return String.join(", ", named) + (more > 0 ? " and " + more + " more" : "");
+    }
+
+    private static String folderOf(String path) {
+        int slash = path.indexOf('/');
+        return slash < 0 ? "" : path.substring(0, slash);
     }
 
     /**

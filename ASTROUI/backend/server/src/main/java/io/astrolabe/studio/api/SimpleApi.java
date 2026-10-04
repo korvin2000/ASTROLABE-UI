@@ -173,8 +173,9 @@ public class SimpleApi {
     @PostMapping("/models/calibrate")
     public ResponseEntity<String> calibrate(@RequestBody JsonNode body) {
         if (!Json.bool(body, "confirm", false)) throw new ApiException("confirmation_required", 422, "calibration makes 3 to 5 short paid requests");
-        String ref = models.ensureDefault(accounts.usable());
-        ModelService.Bound bound = models.bind(ref);
+        List<ModelService.Account> usable = accounts.usable();
+        String ref = models.ensureDefault(usable);
+        ModelService.Bound bound = models.bind(ref, usable);
         JsonNode report = providers.qualify(bound.profileId(), true, "local");
         ObjectNode o = Json.obj();
         boolean qualified = report.path("qualified").asBoolean(false);

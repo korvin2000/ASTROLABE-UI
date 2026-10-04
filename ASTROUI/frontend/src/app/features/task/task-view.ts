@@ -22,6 +22,7 @@ import { doneUnverified, stateKey } from './acceptance';
 import { ActivityGroup } from './activity-group';
 import { AskCard, ChecksCard, ErrorCard, ResultCard } from './cards';
 import { Composer } from './composer';
+import { pinnedAfterScroll } from './follow';
 import { CommitDialog, UndoDialog } from './landing-dialogs';
 import { DEFAULT_LIMITS, LimitKind, limitKindOf, meterText, raised } from './limits';
 import { PanelTab, TaskActions } from './task-actions';
@@ -67,6 +68,8 @@ export class TaskView {
   readonly dragging = signal(false);
   readonly tabs = TABS;
   private pinned = true;
+  /** The scroll offset at the last scroll event: a lower one next time is the user moving up. */
+  private lastTop = 0;
 
   readonly task = computed(() => this.store.task() ?? this.app.task(this.taskId()));
   /** F5: the header of a done task that no check verified reads "Done · not verified". */
@@ -116,6 +119,7 @@ export class TaskView {
       const id = this.taskId();
       untracked(() => {
         this.pinned = true;
+        this.lastTop = 0;
         this.hint.set(null);
         this.actions.next.set({});
         this.raising.set(null);
@@ -223,7 +227,10 @@ export class TaskView {
 
   scrolled(): void {
     const el = this.scroller()?.nativeElement;
-    if (el) this.pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (!el) return;
+    const top = el.scrollTop;
+    this.pinned = pinnedAfterScroll(this.pinned, this.lastTop, top, el.scrollHeight - top - el.clientHeight);
+    this.lastTop = top;
   }
 
   private follow(): void { if (this.pinned) this.toEnd(false); }

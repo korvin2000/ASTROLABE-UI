@@ -188,6 +188,8 @@ export const RU: Record<string, string> = {
   'picker.effort': 'Усилие',
   'picker.context': '{model} · читает до {tokens} токенов за раз',
   'picker.applies_next': 'Применится со следующего сообщения.',
+  'picker.refresh': 'Обновить список моделей',
+  'picker.refresh_failed': 'Не удалось обновить список моделей. Ниже — последний загруженный список.',
   'price.included': 'включено',
   'price.free': 'бесплатно',
   'effort.low': 'Низкое',

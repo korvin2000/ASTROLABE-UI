@@ -18,8 +18,12 @@ const EFFORTS: Effort[] = ['low', 'medium', 'high'];
   imports: [FormsModule, TPipe],
   template: `
     <div class="pop" role="dialog" [attr.aria-label]="'picker.title' | t" (click)="$event.stopPropagation()">
-      <input class="input" [(ngModel)]="query" (ngModelChange)="search.set($event)" [placeholder]="'picker.search' | t" [attr.aria-label]="'picker.search' | t"
-        (keydown.arrowdown)="move(1, $event)" (keydown.arrowup)="move(-1, $event)" (keydown.enter)="pickActive($event)">
+      <div class="top">
+        <input class="input" [(ngModel)]="query" (ngModelChange)="search.set($event)" [placeholder]="'picker.search' | t" [attr.aria-label]="'picker.search' | t"
+          (keydown.arrowdown)="move(1, $event)" (keydown.arrowup)="move(-1, $event)" (keydown.enter)="pickActive($event)">
+        <button class="re" type="button" [class.busy]="refreshing()" [disabled]="refreshing()" [title]="'picker.refresh' | t" [attr.aria-label]="'picker.refresh' | t" (click)="refresh()">⟳</button>
+      </div>
+      @if (refreshFailed()) { <div class="none muted" role="status">{{ 'picker.refresh_failed' | t }}</div> }
       <div class="rows" role="listbox">
         @if (recommended().length) { <div class="sec">{{ 'picker.recommended' | t }}</div> }
         @for (m of recommended(); track m.ref) {
@@ -49,6 +53,11 @@ const EFFORTS: Effort[] = ['low', 'medium', 'high'];
   styles: [`
     :host { display: block; }
     .pop { width: 360px; max-width: calc(100vw - 32px); background: var(--raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 8px; }
+    .top { display: flex; gap: 6px; align-items: center; }
+    .top .input { flex: 1; min-width: 0; }
+    .re { flex: none; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; }
+    .re:hover:not(:disabled) { background: var(--hover); color: inherit; }
+    .re.busy { opacity: .5; }
     .rows { max-height: 320px; overflow: auto; margin-top: 6px; }
     .sec { font-size: 11px; font-weight: 600; color: var(--faint); padding: 6px 8px 2px; }
     .opt { display: flex; gap: 8px; padding: 5px 8px; border-radius: 6px; align-items: center; width: 100%; border: 0; background: transparent; text-align: left; }
@@ -78,6 +87,8 @@ export class ModelPicker {
 
   readonly search = signal('');
   readonly active = signal<string | null>(null);
+  readonly refreshing = signal(false);
+  readonly refreshFailed = signal(false);
   query = '';
 
   private readonly LIMIT = 60;
@@ -113,6 +124,20 @@ export class ModelPicker {
     // The effort of the task stays when the new model supports it; otherwise the nearest level it has.
     const fitted = fitEffort(m.efforts, this.effort());
     if (fitted && fitted !== this.effort()) this.effortChange.emit(fitted);
+  }
+
+  /** Asks the providers for their model lists again; the list shown stays as it is when that fails. */
+  async refresh(): Promise<void> {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    this.refreshFailed.set(false);
+    try {
+      await this.app.refreshModels();
+    } catch {
+      this.refreshFailed.set(true);
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   private visible(): UsableModel[] { return [...this.recommended(), ...this.others()]; }

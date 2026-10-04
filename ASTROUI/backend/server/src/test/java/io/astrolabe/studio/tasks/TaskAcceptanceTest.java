@@ -148,6 +148,23 @@ class TaskAcceptanceTest {
         return recap;
     }
 
+    /** The recorded follow-up (diags W-uyorz7p4tivk7xvm7iaq): twelve `.gradle` cache files were named, no source file. */
+    @Test
+    void theRecapNamesSourcesNotBuildOutputOrAVendoredTool() {
+        List<String> paths = new java.util.ArrayList<>(List.of(
+            ".gradle/9.7.1/checksums/checksums.lock", ".gradle/9.7.1/fileHashes/fileHashes.bin", ".idea/misc.xml", "AGENTS.md", "build.gradle.kts",
+            "build/reports/tests/test/index.html", "node_modules/react/index.js", "public/app/main.mjs", "src/main/java/notes/ApiController.java",
+            "src/main/java/notes/NoteStore.java", "src/main/java/notes/WebConfig.java", "src/test/java/notes/ApiTests.java", "src/main/resources/application.properties"));
+        for (int i = 0; i < 1_000; i++) paths.add("devtools/jdk/lib/file" + i);
+        String files = TaskService.changedFiles(paths);
+        assertEquals("AGENTS.md, build.gradle.kts, devtools/jdk/lib/file0, devtools/jdk/lib/file1, devtools/jdk/lib/file10, devtools/jdk/lib/file100, public/app/main.mjs, "
+            + "src/main/java/notes/ApiController.java, src/main/java/notes/NoteStore.java, src/main/java/notes/WebConfig.java, src/main/resources/application.properties, "
+            + "src/test/java/notes/ApiTests.java and 996 more",
+            TaskService.changedFiles(paths.stream().sorted().toList()));
+        assertTrue(!files.contains(".gradle/") && !files.contains(".idea/") && !files.contains("build/") && !files.contains("node_modules/"), files);
+        assertEquals("", TaskService.changedFiles(List.of(".gradle/x.lock", "build/a.class")));
+    }
+
     @Test
     void theRecapCallsAPolicyAcceptedRunNotVerified() {
         String recap = recapOfCompleted("{\"acceptance\":[{\"id\":\"AC-1\",\"provenance\":\"accepted\",\"decider\":\"policy\"}]}");

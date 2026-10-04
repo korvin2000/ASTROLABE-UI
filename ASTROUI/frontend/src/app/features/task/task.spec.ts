@@ -7,6 +7,7 @@ import { fitEffort } from './effort';
 import { acceptanceBody, acceptanceChoices, doneUnverified, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
 import { DEFAULT_LIMITS, NO_LIMITS, limitKindOf, limitsText, meterText, parseLimit, raised, raises } from './limits';
 import { ERROR_CODES, actionsOf } from './error-actions';
+import { pinnedAfterScroll } from './follow';
 import { sends } from './keys';
 import { kindOf } from './project-kind';
 
@@ -31,6 +32,41 @@ describe('composer keys (7.1, setting 3)', () => {
 
   it('never sends while an input method composes a character', () => {
     expect(sends(key('Enter', { isComposing: true }), 'enter')).toBe(false);
+  });
+});
+
+describe('following the end of the conversation', () => {
+  // pinnedAfterScroll(pinned, lastTop, top, toEnd): the scroll offset before and now, and the distance left to the end.
+  it('stops at once when the user moves up, even inside the old 80 px threshold', () => {
+    expect(pinnedAfterScroll(true, 1000, 970, 30)).toBe(false);
+    expect(pinnedAfterScroll(true, 1000, 400, 600)).toBe(false);
+  });
+
+  it('stays stopped while the user reads further up or scrolls down without reaching the end', () => {
+    expect(pinnedAfterScroll(false, 400, 300, 700)).toBe(false);
+    expect(pinnedAfterScroll(false, 300, 500, 500)).toBe(false);
+  });
+
+  it('follows again once the user scrolls down to the end', () => {
+    expect(pinnedAfterScroll(false, 500, 960, 40)).toBe(true);
+    expect(pinnedAfterScroll(false, 960, 1000, 0)).toBe(true);
+  });
+
+  it('keeps following when the view itself scrolls to the end or the content shrinks', () => {
+    expect(pinnedAfterScroll(true, 1000, 1400, 0)).toBe(true);
+    // A collapsed group shortens the content: the browser lowers the offset, and the view is still at the end.
+    expect(pinnedAfterScroll(true, 1400, 900, 0)).toBe(true);
+    // A new task opens with the last offset reset to 0.
+    expect(pinnedAfterScroll(true, 0, 3000, 0)).toBe(true);
+  });
+
+  it('keeps its state when new items made the content longer while it follows a smooth scroll down', () => {
+    expect(pinnedAfterScroll(true, 1000, 1100, 400)).toBe(true);
+  });
+
+  it('does not take a sub-pixel shift of the layout for the user moving up', () => {
+    expect(pinnedAfterScroll(true, 1000, 999.4, 120)).toBe(true);
+    expect(pinnedAfterScroll(true, 1000, 997, 120)).toBe(false);
   });
 });
 

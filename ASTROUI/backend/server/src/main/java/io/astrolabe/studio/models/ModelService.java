@@ -246,13 +246,24 @@ public class ModelService {
      * Makes or refreshes the automatic profile of [ref] and validates it without a billable call. A failure is
      * `model_unavailable` with the adapter's words under "Details".
      */
-    public Bound bind(String ref) {
+    public Bound bind(String ref) { return bind(ref, List.of()); }
+
+    /** Accounts no token price covers: a subscription signed in with OAuth, a local server, the demo. The same kinds [priceMark] calls `included` or `free`. */
+    private static final Set<String> PLAN_KINDS = Set.of("oauth", "local", "demo");
+
+    /**
+     * [accounts]: the usable accounts. A model of a subscription or local account without a token price is bound as
+     * plan-billed, so the task's money limit does not hold it back; an account that bills per token keeps a missing price
+     * unknown, and a money limit refuses it.
+     */
+    public Bound bind(String ref, List<Account> accounts) {
         Ref r = Ref.parse(ref);
         if (r == null) throw StudioError.of(StudioError.MODEL_UNAVAILABLE, Json.obj().put("model", String.valueOf(ref)), "not a model reference: " + ref);
         ObjectNode params = Json.obj().put("model", r.model()).put("account", r.provider());
+        boolean plan = accounts.stream().anyMatch(a -> a.provider().equals(r.provider()) && PLAN_KINDS.contains(a.kind()));
         AutoProfile made;
         try {
-            made = AutoProfiles.make(llm(), r.provider(), r.model());
+            made = AutoProfiles.make(llm(), r.provider(), r.model(), plan);
         } catch (RuntimeException e) {
             throw StudioError.of(StudioError.MODEL_UNAVAILABLE, params, e.getMessage() == null ? e.toString() : e.getMessage());
         }

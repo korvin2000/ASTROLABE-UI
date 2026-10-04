@@ -188,6 +188,8 @@ export const EN: Record<string, string> = {
   'picker.effort': 'Effort',
   'picker.context': '{model} · reads up to {tokens} tokens at once',
   'picker.applies_next': 'Applies from your next message.',
+  'picker.refresh': 'Refresh the model list',
+  'picker.refresh_failed': 'The model list could not be refreshed. The list below is the last one loaded.',
   'price.included': 'included',
   'price.free': 'free',
   'effort.low': 'Low',
