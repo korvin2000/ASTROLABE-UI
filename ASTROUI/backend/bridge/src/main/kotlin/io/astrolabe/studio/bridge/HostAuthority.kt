@@ -50,13 +50,19 @@ internal class PortAuthority(private val workId: String, private val port: Autho
     }
 }
 
-/** `AutonomousAuthority` semantics (§5.3) with every decision reported to the host as a policy record. */
+/**
+ * `AutonomousAuthority` semantics (§5.3) with every decision reported to the host as a policy record — except a D-class
+ * action the contract does not allow-list (P8.C.15): the policy never approves it and does not refuse it either, which
+ * would send the model looking for a way around; it waits for the user through the host [port], as in an interactive run.
+ */
 internal class RecordingAutonomousAuthority(
     private val workId: String,
     policy: AutonomousPolicy,
     private val listener: PolicyListener,
+    port: AuthorityPort,
 ) : Authority {
     private val delegate = AutonomousAuthority(policy)
+    private val person = PortAuthority(workId, port)
     private val json = ConfigSupport.json
 
     override suspend fun ask(question: Question): Answer? {
@@ -66,6 +72,7 @@ internal class RecordingAutonomousAuthority(
     }
 
     override suspend fun approve(request: DClassRequest): Decision {
+        if (!request.contractAllowlisted) return person.approve(request)
         val decision = delegate.approve(request)
         listener.onPolicyDecision(workId, "effect", json.encodeToString(DClassRequest.serializer(), request), json.encodeToString(Decision.serializer(), decision))
         return decision

@@ -199,7 +199,7 @@ export const EN: Record<string, string> = {
   'mode.ask': 'Ask',
   'mode.auto': 'Auto',
   'mode.ask_help': 'Works freely inside the project. Asks before risky actions and when something is unclear.',
-  'mode.auto_help': 'Never interrupts. Skips risky actions you have not allowed before and makes reasonable assumptions.',
+  'mode.auto_help': 'Does not stop for questions: makes reasonable assumptions. Asks before risky actions you have not allowed before.',
 
   // ---------------------------------------------------------------- composer and new task
   'composer.placeholder': 'Describe what to build, fix or change…',

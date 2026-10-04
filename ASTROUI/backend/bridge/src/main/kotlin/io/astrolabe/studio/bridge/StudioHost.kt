@@ -291,7 +291,7 @@ public class StudioHost @JvmOverloads public constructor(
                 ?: config.mainProfile ?: throw IllegalStateException("no profile '${frozen.profileRoles.main}' for the main routing function")
             val model = run.cellModel(adapter, main, estimators.estimatorFor(main))
             val authority: Authority = if (frozen.mode == Mode.Autonomous && !spec.hostAuthority) {
-                RecordingAutonomousAuthority(work.value, AutonomousPolicy(autonomous.acceptNonWeakening, autonomous.reviewer), policyListener)
+                RecordingAutonomousAuthority(work.value, AutonomousPolicy(autonomous.acceptNonWeakening, autonomous.reviewer), policyListener, port)
             } else {
                 PortAuthority(work.value, port)
             }

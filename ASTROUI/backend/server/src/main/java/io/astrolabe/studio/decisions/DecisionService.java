@@ -46,7 +46,8 @@ public class DecisionService implements AuthorityPort, PolicyListener {
 
     /**
      * How the host answers for a task (Studio 2 §7.5, BE-14): in `ask` mode the user decides, except what the project
-     * always allows; in `auto` mode nothing interrupts. Null for runs that were not started as tasks.
+     * always allows; in `auto` mode nothing interrupts but an action the project does not always allow, which waits for
+     * the user as in `ask` (P8.C.15). Null for runs that were not started as tasks.
      */
     public record HostPolicy(String mode, List<String> allowed) {
         public boolean auto() { return "auto".equals(mode); }
@@ -121,14 +122,16 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         HostPolicy policy = policyOf.apply(workId);
         if (policy != null && kind.equals("effect")) {
             boolean allowed = request.path("contractAllowlisted").asBoolean(false) || policy.allows(commandOf(request));
-            if (allowed || policy.auto()) {
+            if (allowed) {
                 ObjectNode decision = Json.obj();
                 decision.put("requestId", Json.text(request, "id"));
                 decision.put("contractRevision", request.path("contractRevision").asInt());
-                decision.put("approved", allowed);
-                decision.put("reason", allowed ? "always allowed in this project" : "auto mode: this action needs your approval");
-                return byPolicy(kind, workId, requestJson, decision, allowed ? "allowed" : "skipped");
+                decision.put("approved", true);
+                decision.put("reason", "always allowed in this project");
+                return byPolicy(kind, workId, requestJson, decision, "allowed");
             }
+            // P8.C.15 (orchestrator): in `auto` too, an action outside the allow list is never approved by the policy and
+            // not refused by it either — a refusal sends the model looking for a way around; the user decides on a card.
         }
         return raise(kind, workId, requestJson);
     }
@@ -432,7 +435,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return CompletableFuture.completedFuture(Json.write(reply));
     }
 
-    /** Actions the policy skipped in auto mode because they needed the user (§7.5 "Skipped, needed your approval"). */
+    /** Actions the policy skipped in auto mode because they needed the user (§7.5 "Skipped, needed your approval"); since P8.C.15 they wait on a card instead, so only older runs have them. */
     public ArrayNode skipped(String workId) {
         ArrayNode a = Json.arr();
         jdbc.query("SELECT * FROM decision WHERE work_id = ? AND status = 'policy' AND reason = 'skipped' ORDER BY created_at", rs -> { a.add(row(rs)); }, workId);
