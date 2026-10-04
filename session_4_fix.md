@@ -67,7 +67,12 @@ ran in several rounds. Do not repeat that.
   - Codex — math, statistics, analytics, money and limit accounting.
 - **No test loops.** L1 runs once, when the line's change is complete, not after every edit. A failed test: fix the
   cause and rerun only the failed class. At most three edit → test cycles per line; do not start a fourth — the
-  line reports `БЛОКЕР` with what it tried. L2 once at merge. The full suite is CI only.
+  line reports `БЛОКЕР` with what it tried. L2 once at merge, together with
+  `./gradlew assemble testClasses checkKotlinAbi`.
+- **Targeted tests only (plan §8.4, owner decision №28).** Never run the full suite and never wait for CI. A card
+  names its tests deliberately: the tests of the changed classes and of their direct consumers. A push to `main`
+  runs only the fast CI job (compile + ABI); the full suite starts unattended on a wave tag — read its result at
+  the next session start.
 - **No review loops.** One review round and one fix round. A second review round only for P1 findings; P2 and P3 go
   to the report as tails. A line may be rewritten once; after a second failure narrow or defer the package.
 - **Nothing beyond the card:** no side refactoring, extra fixtures or cleanup that "done when" does not name.
