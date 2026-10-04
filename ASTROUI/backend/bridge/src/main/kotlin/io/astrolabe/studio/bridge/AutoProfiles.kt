@@ -70,17 +70,6 @@ public object AutoProfiles {
         return AutoProfile(id, ConfigSupport.profileJson(profile), estimated, violations)
     }
 
-    /**
-     * Output headroom of a request (finding F-8). The catalog of some models names an output limit near the whole
-     * context window; reserved for every request, it leaves no room for the input and the agent cannot start. A
-     * request reserves a quarter of the window at most; a narrowing the user asked for stays.
-     */
-    @JvmStatic
-    public fun outputHeadroom(contextLimitTokens: Int, outputLimitTokens: Int, wanted: Int?): Int {
-        val share = maxOf(contextLimitTokens / 4, 1)
-        return minOf(wanted ?: outputLimitTokens, outputLimitTokens, share).coerceAtLeast(1)
-    }
-
     /** [config] with `gate.body.provider.ignore` naming the OpenRouter upstreams [OPENROUTER_UPSTREAM_IGNORES] lists for [modelId]. */
     internal fun routed(providerId: String, modelId: String, config: JsonObject): JsonObject {
         if (providerId != "openrouter") return config

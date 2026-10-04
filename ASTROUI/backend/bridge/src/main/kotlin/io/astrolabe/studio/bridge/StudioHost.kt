@@ -6,8 +6,6 @@ import io.astrolabe.ProfileRoles
 import io.astrolabe.Project
 import io.astrolabe.auth.Stage
 import io.astrolabe.budget.HeuristicEstimator
-import io.astrolabe.budget.Tokens
-import io.astrolabe.campaign.CampaignPolicy
 import io.astrolabe.campaign.CampaignRequest
 import io.astrolabe.campaign.Controller
 import io.astrolabe.campaign.DeployTarget
@@ -16,7 +14,6 @@ import io.astrolabe.campaign.PublicationRequest
 import io.astrolabe.campaign.PublicationRun
 import io.astrolabe.campaign.Reconciliation
 import io.astrolabe.campaign.S0Run
-import io.astrolabe.cell.CellModel
 import io.astrolabe.contract.Contracts
 import io.astrolabe.contract.SqliteContractRepository
 import io.astrolabe.event.Authority
@@ -42,8 +39,6 @@ import io.astrolabe.id.Digest
 import io.astrolabe.id.RandomIdGen
 import io.astrolabe.id.WorkId
 import io.astrolabe.Mode
-import io.astrolabe.provider.Effort
-import io.astrolabe.provider.Money
 import io.astrolabe.provider.aigate.AiGateAdapter
 import io.astrolabe.telemetry.Spans
 import kotlinx.coroutines.CoroutineName
@@ -66,7 +61,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import net.ai.gate.Llm
 import org.slf4j.LoggerFactory
-import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
@@ -251,13 +245,14 @@ public class StudioHost @JvmOverloads public constructor(
         val adapter = AiGateAdapter(llm, config.profiles.values, false)
         try {
             val estimators = adapter.estimators(HeuristicEstimator())
+            val run = RunSpecs.of(spec, config, checkNotNull(config.mainProfile) { "no profile '${config.profileRoles.main}' for the main routing function" })
             val controller = Controller(
-                config, clock, idGen, events,
+                run.config, clock, idGen, events,
                 spans = spans,
-                leaseDuration = Duration.ofMinutes(spec.leaseMinutes.coerceAtLeast(1)),
+                leaseDuration = run.leaseDuration,
                 estimators = estimators,
             )
-            val policy = corePolicy(spec)
+            val policy = run.policy
             val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text)
             var opened = controller.open(p.project, request, policy)
             val fresh = opened.contract.version == 1
@@ -294,7 +289,7 @@ public class StudioHost @JvmOverloads public constructor(
             val frozen = opened.attempt.config
             val main = config.profiles[frozen.profileRoles.main] ?: frozen.profiles[frozen.profileRoles.main]
                 ?: config.mainProfile ?: throw IllegalStateException("no profile '${frozen.profileRoles.main}' for the main routing function")
-            val model = cellModel(adapter, main, estimators.estimatorFor(main), spec)
+            val model = run.cellModel(adapter, main, estimators.estimatorFor(main))
             val authority: Authority = if (frozen.mode == Mode.Autonomous && !spec.hostAuthority) {
                 RecordingAutonomousAuthority(work.value, AutonomousPolicy(autonomous.acceptNonWeakening, autonomous.reviewer), policyListener)
             } else {
@@ -320,11 +315,11 @@ public class StudioHost @JvmOverloads public constructor(
                 var code: String? = null
                 var failure: Throwable? = null
                 try {
-                    val run = controller.run(opened, model, authority, maxCells = spec.maxCells.coerceAtLeast(1))
-                    campaign.run = run
-                    outcome = run.outcome?.wire ?: opened.stop?.outcome?.wire
-                    reason = run.state?.reason ?: opened.stop?.reason
-                    code = (run.state?.stopCode ?: opened.stop?.code)?.wire ?: run.budgetStop?.wire
+                    val result = controller.run(opened, model, authority, maxCells = run.maxCells)
+                    campaign.run = result
+                    outcome = result.outcome?.wire ?: opened.stop?.outcome?.wire
+                    reason = result.state?.reason ?: opened.stop?.reason
+                    code = (result.state?.stopCode ?: opened.stop?.code)?.wire ?: result.budgetStop?.wire
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     reason = "run job cancelled by the host (resumable)"
                     throw cancelled
@@ -351,30 +346,6 @@ public class StudioHost @JvmOverloads public constructor(
             runCatching { adapter.close() }
             throw failure
         }
-    }
-
-    /**
-     * The one point the run's limits and approach meet the core's C3 API (D-401). Named limits — raised ones included —
-     * replace the stored ones (all fields null is [io.astrolabe.budget.TaskLimits.NONE]); `null` keeps what is stored with
-     * the campaign. The approach is frozen with the attempt by the core.
-     */
-    internal fun corePolicy(spec: StartSpec): CampaignPolicy {
-        val cost = if (spec.costCurrency != null && spec.costAmount != null) Money(spec.costCurrency, BigDecimal(spec.costAmount)) else null
-        val limits = spec.limits?.let { l ->
-            io.astrolabe.budget.TaskLimits(l.moneyUsd?.let { Money("USD", BigDecimal(it)) }, l.minutes, l.requests)
-        }
-        val balance = io.astrolabe.BalanceProfile.entries.firstOrNull { it.wire == spec.preset } ?: io.astrolabe.BalanceProfile.Balanced
-        return CampaignPolicy(Tokens(spec.tokens), cost, spec.resumeExpected, limits = limits, balance = balance)
-    }
-
-    /**
-     * The model side of the run's cells. C14 (D-405): an effort the user chose is explicit — the approach never steps it;
-     * a default effort is left to the approach.
-     */
-    internal fun cellModel(adapter: io.astrolabe.provider.ProviderAdapter, main: io.astrolabe.provider.Profile, estimator: io.astrolabe.provider.TokenEstimator, spec: StartSpec): CellModel {
-        val effort = runCatching { Effort.valueOf(spec.effort) }.getOrDefault(Effort.Medium)
-        val headroom = AutoProfiles.outputHeadroom(main.capabilities.contextLimitTokens, main.capabilities.outputLimitTokens, spec.maxOutputTokens)
-        return CellModel(adapter, main, estimator, effort, headroom, effortExplicit = spec.effortExplicit)
     }
 
     /** How an opened contract is verified: by its declared or saved tests, or by a review pass. */

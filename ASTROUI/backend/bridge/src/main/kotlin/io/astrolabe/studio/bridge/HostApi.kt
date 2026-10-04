@@ -25,9 +25,9 @@ public data class StartSpec @JvmOverloads constructor(
     val costAmount: String? = null,
     val resumeExpected: Boolean = false,
     /** A technical guard (owner, C4): it must not stop a task before the user's own limits do. */
-    val maxCells: Int = 48,
-    val leaseMinutes: Long = 480,
-    val effort: String = "Medium",
+    val maxCells: Int = io.astrolabe.RunSpec.MAX_CELLS,
+    val leaseMinutes: Long = io.astrolabe.RunSpec.LEASE_MINUTES,
+    val effort: String = io.astrolabe.RunSpec.EFFORT.name,
     val maxOutputTokens: Int? = null,
     /** Studio 2 §7.3: supply acceptance when the core refuses to open for lack of it. */
     val verificationSetup: Boolean = false,
@@ -42,7 +42,7 @@ public data class StartSpec @JvmOverloads constructor(
      */
     val limits: TaskLimits? = null,
     /** ASTROLABE 2.0 C4: the approach of the run (`economy` · `balanced` · `thorough`), frozen with its attempt. */
-    val preset: String = "balanced",
+    val preset: String = io.astrolabe.BalanceProfile.Balanced.wire,
     /**
      * C14: the user chose [effort] for this run (D-405 `CellModel.effortExplicit`): the approach never steps it. False — a
      * default effort — lets the approach move it.
@@ -58,7 +58,13 @@ public data class TaskLimits @JvmOverloads constructor(
     val moneyUsd: String? = null,
     val minutes: Int? = null,
     val requests: Int? = null,
-)
+) {
+    public companion object {
+        /** The user's default limits of a new task: the core's `RunSpec.LIMITS` (D-415). */
+        @JvmField
+        public val DEFAULTS: TaskLimits = io.astrolabe.RunSpec.LIMITS.let { TaskLimits(it.maxCost?.amount?.toPlainString(), it.maxMinutes, it.maxRequests) }
+    }
+}
 
 /** A campaign the bridge opened (or reopened) and started. */
 public data class CampaignRef(

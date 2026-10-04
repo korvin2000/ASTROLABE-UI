@@ -10,8 +10,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import io.astrolabe.BalanceProfile;
+import io.astrolabe.RunSpec;
 import io.astrolabe.studio.accounts.AccountService;
 import io.astrolabe.studio.bridge.CampaignRef;
+import io.astrolabe.studio.bridge.RunSpecs;
 import io.astrolabe.studio.bridge.StartSpec;
 import io.astrolabe.studio.bridge.fixture.FixtureBrain;
 import io.astrolabe.studio.campaigns.CampaignService;
@@ -284,7 +287,7 @@ public class TaskService implements DisposableBean {
         model.put("name", ref == null ? null : ref.model());
         model.put("effort", last.effort());
         o.put("mode", last.mode() == null ? "ask" : last.mode());
-        o.put("preset", last.preset() == null ? "balanced" : last.preset());
+        o.put("preset", last.preset() == null ? BalanceProfile.Balanced.getWire() : last.preset());
         if (last.limitsJson() != null) o.set("limits", last.limits(defaultLimits()).json());
         o.put("demo", last.demo());
         o.put("lastRun", last.workId());
@@ -482,8 +485,6 @@ public class TaskService implements DisposableBean {
     }
 
     private static final List<String> PRESETS = List.of("economy", "balanced", "thorough");
-    /** The technical token guard in context windows: far above any request limit the user can set (100000 × a small share). */
-    static final long TOKEN_GUARD_WINDOWS = 10_000L;
     /** Runs reopened with a raised limit: "the task continues" is said only once the core has left the limit stop. */
     private final java.util.Set<String> raising = ConcurrentHashMap.newKeySet();
 
@@ -660,24 +661,21 @@ public class TaskService implements DisposableBean {
         }
     }
 
-    /** One model serves every function (§6.5); mode, reconciliation and instructions as Appendix B lists them. */
+    /**
+     * One model serves every function (§6.5); the task's mode, D-class actions asked and unknown outcomes reconciled
+     * automatically come from the core's default run (`RunSpec.defaults`, P8.B.7); the instructions are the project's.
+     */
     private String config(TaskRun r, ModelService.Bound bound, ObjectNode instructions) {
-        ObjectNode config = (ObjectNode) Json.parse(settings.taskConfigJson(r.projectId(), null, List.of(bound.profileId())));
-        ObjectNode roles = config.putObject("profileRoles");
-        roles.put("main", bound.profileId());
-        roles.putNull("helper");
-        roles.putNull("escalation");
+        String layers = settings.taskConfigJson(r.projectId(), null, List.of(bound.profileId()));
+        ObjectNode config = (ObjectNode) Json.parse(RunSpecs.taskConfigJson(layers, bound.profileId(), r.mode()));
         config.set("tierTable", settings.libraryDefaults().get("tierTable"));
-        config.put("mode", "auto".equals(r.mode()) ? "Autonomous" : "Interactive");
-        config.put("dClass", "Ask");
-        config.put("unknownOutcomeReconciliation", "Automatic");
         if (instructions != null) config.set("rulesFile", instructions); else config.putNull("rulesFile");
         return Json.write(config);
     }
 
     /**
      * C4: the run's limits and approach go to the core. The token budget and the cell cap stay technical guards that
-     * must not stop a run before the user's limits do (owner 2026-10-03): tokens = window × 10000, with the estimated
+     * must not stop a run before the user's limits do (owner 2026-10-03): the core's token guard of the window, with the estimated
      * window when the model's is unknown. C14 (D-405): on a reopen the core raises the contract's tokens to a larger
      * policy and never lowers them; a run its contract's tokens stopped gets the guard on top of what it had, so the
      * reopen continues it. The effort goes with whether the user chose it. A run stored before limits existed names
@@ -686,9 +684,9 @@ public class TaskService implements DisposableBean {
     StartSpec spec(TaskRun r, String requestText, ModelService.Bound bound) {
         Run row = run(r.workId());
         Limits limits = row == null ? defaultLimits() : row.limits(null);
-        String preset = row == null || row.preset() == null ? "balanced" : row.preset();
+        String preset = row == null || row.preset() == null ? BalanceProfile.Balanced.getWire() : row.preset();
         long window = bound.contextTokens() > 0 ? bound.contextTokens() : io.astrolabe.studio.bridge.AutoProfiles.ESTIMATED_CONTEXT;
-        long tokens = window * TOKEN_GUARD_WINDOWS;
+        long tokens = RunSpec.tokenGuard((int) Math.min(window, Integer.MAX_VALUE)).getValue();
         if (row != null && "tokens".equals(contractCause(row)) && row.contractStop() != null && row.contractStop().path("tokens").isIntegralNumber()) {
             tokens += row.contractStop().path("tokens").asLong();
         }
@@ -696,10 +694,10 @@ public class TaskService implements DisposableBean {
         String effort = switch (r.effort() == null ? "medium" : r.effort()) {
             case "low" -> "Low";
             case "high" -> "High";
-            default -> "Medium";
+            default -> RunSpec.EFFORT.name();
         };
         return new StartSpec(requestText, tokens, null, null, false,
-            runtime.path("maxCells").asInt(48), runtime.path("leaseMinutes").asLong(480), effort,
+            runtime.path("maxCells").asInt(RunSpec.MAX_CELLS), runtime.path("leaseMinutes").asLong(RunSpec.LEASE_MINUTES), effort,
             runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null,
             true, projectSettings.savedChecks(r.projectId()), true, projectSettings.protectedOverride(r.projectId()),
             limits == null ? null : limits.toBridge(), preset, r.effortExplicit());

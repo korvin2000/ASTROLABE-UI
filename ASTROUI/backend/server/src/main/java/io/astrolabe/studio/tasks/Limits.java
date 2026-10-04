@@ -15,8 +15,8 @@ import tools.jackson.databind.node.ObjectNode;
  * the same run with what it spent.
  */
 public record Limits(String moneyUsd, Integer minutes, Integer requests) {
-    /** Owner 2026-10-03: generous defaults — hard tasks run for hours, cost more than $5 and make thousands of requests. */
-    public static final Limits DEFAULTS = new Limits("50.00", 480, 3000);
+    /** Owner 2026-10-03: generous defaults — hard tasks run for hours, cost more than $5 and make thousands of requests (the core's `RunSpec.LIMITS`). */
+    public static final Limits DEFAULTS = new Limits(TaskLimits.DEFAULTS.getMoneyUsd(), TaskLimits.DEFAULTS.getMinutes(), TaskLimits.DEFAULTS.getRequests());
     public static final Limits NONE = new Limits(null, null, null);
 
     /**

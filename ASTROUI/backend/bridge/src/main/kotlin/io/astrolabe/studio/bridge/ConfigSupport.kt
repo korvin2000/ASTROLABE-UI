@@ -54,16 +54,19 @@ public object ConfigSupport {
     @JvmStatic
     public fun decodeProfile(profileJson: String): Profile = json.decodeFromString(Profile.serializer(), profileJson)
 
+    /** [configJson] decoded, not yet validated; a malformed one throws [InvalidConfig]. */
+    internal fun decodeOrInvalid(configJson: String): Config = try {
+        decode(configJson)
+    } catch (e: SerializationException) {
+        throw InvalidConfig(listOf(ConfigViolation("config", e.message?.lineSequence()?.first() ?: "malformed configuration")))
+    } catch (e: IllegalArgumentException) {
+        throw InvalidConfig(listOf(ConfigViolation("config", e.message ?: "malformed configuration")))
+    }
+
     /** Decodes [configJson] into a runnable configuration or throws [InvalidConfig] naming the offending fields. */
     @JvmStatic
     public fun runConfig(configJson: String): RunConfig {
-        val config = try {
-            decode(configJson)
-        } catch (e: SerializationException) {
-            throw InvalidConfig(listOf(ConfigViolation("config", e.message?.lineSequence()?.first() ?: "malformed configuration")))
-        } catch (e: IllegalArgumentException) {
-            throw InvalidConfig(listOf(ConfigViolation("config", e.message ?: "malformed configuration")))
-        }
+        val config = decodeOrInvalid(configJson)
         val violations = config.violations()
         if (violations.isNotEmpty()) throw InvalidConfig(violations)
         return RunConfig(config)
