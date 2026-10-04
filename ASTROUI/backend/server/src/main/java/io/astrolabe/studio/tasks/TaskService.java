@@ -387,6 +387,8 @@ public class TaskService implements DisposableBean {
         ObjectNode o = Json.obj();
         long tokens = 0;
         java.math.BigDecimal money = java.math.BigDecimal.ZERO;
+        // C16 (owner №25): the nominal spend of a subscription model is counted in [money] and always shown apart.
+        java.math.BigDecimal nominal = java.math.BigDecimal.ZERO;
         String currency = null;
         boolean complete = true;
         long elapsed = 0;
@@ -400,6 +402,7 @@ public class TaskService implements DisposableBean {
                         currency = Json.text(m, "currency");
                         money = money.add(new java.math.BigDecimal(Json.text(m, "amount", "0")));
                     }
+                    for (JsonNode m : Json.each(totals.get("nominalMoney"))) nominal = nominal.add(new java.math.BigDecimal(Json.text(m, "amount", "0")));
                 }
             } catch (RuntimeException e) {
                 complete = false;
@@ -417,7 +420,13 @@ public class TaskService implements DisposableBean {
             }
         }
         o.put("tokens", tokens);
-        if (currency != null && complete) o.putObject("cost").put("amount", money.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()).put("currency", currency);
+        if (currency != null && complete) {
+            ObjectNode cost = o.putObject("cost").put("amount", money.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()).put("currency", currency);
+            if (nominal.signum() > 0) {
+                cost.put("paidAmount", money.subtract(nominal).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
+                cost.put("nominalAmount", nominal.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString());
+            }
+        }
         o.put("elapsedMs", elapsed);
         return o;
     }

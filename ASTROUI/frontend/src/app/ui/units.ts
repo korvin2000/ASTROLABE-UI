@@ -20,17 +20,29 @@ export function stepTime(i18n: I18n, from: string, to: string | undefined): stri
   return elapsed(i18n, ms);
 }
 
+/** A task's cost: [amount] is paid plus nominal; the parts only when some of it is nominal (C16). */
+export interface UsageCost { amount: string; currency: string; paidAmount?: string; nominalAmount?: string }
+
 /** "0:42": the clock of the status line. */
 export function clockOf(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
-/** "18.4k tokens · $0.04 · 1 min 12 s": what a task used; the cost only when it is known. */
-export function usageText(i18n: I18n, usage: { tokens: number; cost?: { amount: string; currency: string }; elapsedMs: number } | undefined | null): string {
+/**
+ * "18.4k tokens · $0.04 · 1 min 12 s": what a task used; the cost only when it is known. C16 (owner №25): a cost with a
+ * nominal part (a subscription model at its official price) says what was paid and what is nominal, as the meter does.
+ */
+export function usageText(i18n: I18n, usage: { tokens: number; cost?: UsageCost; elapsedMs: number } | undefined | null): string {
   if (!usage) return '';
   const parts = [i18n.t('usage.tokens', { tokens: tokens(usage.tokens).toLowerCase() })];
-  if (usage.cost) parts.push(money(usage.cost.amount, usage.cost.currency));
+  const c = usage.cost;
+  if (c) {
+    const split = c.nominalAmount
+      ? ' (' + i18n.t('meter.split', { paid: money(c.paidAmount ?? '0', c.currency), nominal: money(c.nominalAmount, c.currency) }) + ')'
+      : '';
+    parts.push(money(c.amount, c.currency) + split);
+  }
   const time = elapsed(i18n, usage.elapsedMs);
   if (time) parts.push(time);
   return parts.join(' · ');

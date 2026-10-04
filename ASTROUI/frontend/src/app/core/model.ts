@@ -100,7 +100,8 @@ export interface Task {
   pending: Card[];
   runs?: TaskRun[];
   changes?: { files: number; added: number; removed: number };
-  usage?: { tokens: number; cost?: { amount: string; currency: string }; elapsedMs: number };
+  /** C16: `cost.paidAmount` / `cost.nominalAmount` only when some of the cost is a subscription model's nominal spend. */
+  usage?: { tokens: number; cost?: { amount: string; currency: string; paidAmount?: string; nominalAmount?: string }; elapsedMs: number };
   skipped?: Card[];
   preset?: Approach;
   limits?: Limits;
