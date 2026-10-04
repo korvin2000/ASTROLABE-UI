@@ -44,11 +44,13 @@ public object AutoProfiles {
      * servers) gets estimated limits. Validation is the adapter's own, without any billable call. [planBilled]: the
      * account is a subscription or a local server, so a model the catalog names no token price for is charged by the
      * plan and a task's money limit does not apply to it; the request and time limits do. Without it a missing price
-     * stays an unknown charge.
+     * stays an unknown charge. [subscription] (C16, plan §4.3a item 5): the account is a subscription — its model is
+     * accounted at the official price of the same model at a paying provider, as nominal spend apart from paid spend;
+     * without an official price it has no money accounting.
      */
     @JvmStatic
     @JvmOverloads
-    public fun make(llm: Llm, providerId: String, modelId: String, planBilled: Boolean = false): AutoProfile {
+    public fun make(llm: Llm, providerId: String, modelId: String, planBilled: Boolean = false, subscription: Boolean = false): AutoProfile {
         val id = idOf(providerId, modelId)
         val today = LocalDate.now()
         var estimated = false
@@ -60,7 +62,11 @@ public object AutoProfiles {
             estimate(llm, providerId, modelId, id, today)
         }
         val unpriced = drafted.priceTable.perMillion.isEmpty() && drafted.priceTable.tiers.isEmpty()
-        val prices = if (planBilled && unpriced) drafted.priceTable.copy(billing = Billing.Plan) else drafted.priceTable
+        val prices = when {
+            subscription -> AiGateProfiles.planPriceTable(llm, providerId, modelId, today) ?: PriceTable(today, "USD", emptyMap(), billing = Billing.Plan)
+            planBilled && unpriced -> drafted.priceTable.copy(billing = Billing.Plan)
+            else -> drafted.priceTable
+        }
         val profile = drafted.copy(priceTable = prices, config = routed(providerId, modelId, drafted.config))
         val violations = try {
             AiGateAdapter.violations(llm, listOf(profile)).map { it.toString() }

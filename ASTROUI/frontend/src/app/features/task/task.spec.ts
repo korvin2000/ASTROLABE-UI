@@ -344,6 +344,9 @@ describe('limits, approach and the outcome label (C4)', () => {
     expect(meterText(t, view)).toBe('$0.42 / $50.00 · 12:40 / limit.short_hours{"n":8} · meter.requests{"n":37,"limit":3000} · meter.context{"used":"41K","limit":"200K"}');
     const free = { ...view, money: { spent: null, unknown: false, estimated: true, limit: null }, time: { ms: 5_000, limitMin: null }, requests: { n: 2, limit: null }, context: { used: 0, limit: null } };
     expect(meterText(t, free)).toBe('meter.money_unknown · 0:05 · meter.requests_free{"n":2}');
+    // C16: nominal spend of a subscription model is shown apart from paid, requests without money accounting are named.
+    const plan = { ...free, money: { spent: '1.20', unknown: false, estimated: true, limit: null, paid: '0', nominal: '1.20', unpriced: 2 } };
+    expect(meterText(t, plan)).toBe('≈ $1.20 (meter.split{"paid":"$0.00","nominal":"$1.20"}) · 0:05 · meter.requests_free{"n":2} · meter.unpriced{"n":2}');
   });
 });
 

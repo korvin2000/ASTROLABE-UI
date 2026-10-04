@@ -77,12 +77,14 @@ export function limitKindOf(code: string | undefined | null): LimitKind | null {
 export function meterText(t: T, v: MeterView): string {
   const m = v.money;
   const spent = m.spent === null ? t('meter.money_unknown') : (m.unknown ? '≥ ' : m.estimated ? '≈ ' : '') + money(m.spent);
-  const parts = [m.limit !== null ? spent + ' / ' + money(m.limit) : spent];
+  const split = m.nominal ? ' (' + t('meter.split', { paid: money(m.paid ?? '0'), nominal: money(m.nominal) }) + ')' : '';
+  const parts = [(m.limit !== null ? spent + ' / ' + money(m.limit) : spent) + split];
   const clock = clockOf(v.time.ms / 1000);
   parts.push(v.time.limitMin !== null ? clock + ' / ' + minutesText(t, v.time.limitMin) : clock);
   parts.push(v.requests.limit !== null ? t('meter.requests', { n: v.requests.n, limit: v.requests.limit }) : t('meter.requests_free', { n: v.requests.n }));
   if (v.context.used > 0) {
     parts.push(v.context.limit ? t('meter.context', { used: tokens(v.context.used), limit: tokens(v.context.limit) }) : t('meter.context_free', { used: tokens(v.context.used) }));
   }
+  if (m.unpriced) parts.push(t('meter.unpriced', { n: m.unpriced }));
   return parts.join(' · ');
 }

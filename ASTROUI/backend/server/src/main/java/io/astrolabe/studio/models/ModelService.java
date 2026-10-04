@@ -4,15 +4,21 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import io.astrolabe.provider.BillingDimension;
+import io.astrolabe.provider.PriceTable;
+import io.astrolabe.provider.aigate.AiGateProfiles;
 import io.astrolabe.studio.bridge.AutoProfile;
 import io.astrolabe.studio.bridge.AutoProfiles;
 import io.astrolabe.studio.bridge.fixture.FixtureBrain;
@@ -71,6 +77,21 @@ public class ModelService {
 
     private Llm llm() { return transport.llm(); }
 
+    /** The official prices of subscription models (C16) by `provider/model@date`; empty when no catalog names one. */
+    private final Map<String, Optional<PriceTable>> officialPrices = new ConcurrentHashMap<>();
+
+    /** The official price of [m] at a paying provider (`AiGateProfiles.planPriceTable`), or null when none is known. */
+    private PriceTable officialPrice(Model m) {
+        LocalDate today = LocalDate.now();
+        return officialPrices.computeIfAbsent(m.providerId() + "/" + m.id() + "@" + today, k -> {
+            try {
+                return Optional.ofNullable(AiGateProfiles.planPriceTable(llm(), m.providerId(), m.id(), today));
+            } catch (RuntimeException e) {
+                return Optional.empty();
+            }
+        }).orElse(null);
+    }
+
     /** Text output and tool calling; no embedding, image, audio, realtime or deprecated model (§6.4). */
     static boolean usable(Model m) { return usable(m, false); }
 
@@ -89,13 +110,25 @@ public class ModelService {
             || id.contains("moderation") || id.contains("guard"));
     }
 
-    /** `included` for a subscription, `free`, `$`, `$$`, `$$$`, or null when the price is unknown. */
+    /** `free`, `$`, `$$`, `$$$` for a model billed per token or free, or null when the price is unknown. A subscription is [subscriptionMark]. */
     static String priceMark(Model m, String accountKind) {
-        if ("oauth".equals(accountKind) && m.prices().isEmpty()) return "included";
         if ("local".equals(accountKind) || "demo".equals(accountKind)) return "free";
         if (m.prices().isEmpty()) return null;
-        BigDecimal in = m.prices().get().inputPerMillion().orElse(null);
-        BigDecimal out = m.prices().get().outputPerMillion().orElse(null);
+        return mark(m.prices().get().inputPerMillion().orElse(null), m.prices().get().outputPerMillion().orElse(null));
+    }
+
+    /**
+     * C16 (plan §4.3a item 5): a subscription model is accounted at its official price as nominal spend — its mark is that
+     * price's — or, without one, has no money accounting: `unpriced`.
+     */
+    static String subscriptionMark(PriceTable official) {
+        if (official == null) return "unpriced";
+        String mark = mark(official.getPerMillion().get(BillingDimension.UNCACHED_INPUT), official.getPerMillion().get(BillingDimension.OUTPUT));
+        return mark == null ? "unpriced" : mark;
+    }
+
+    /** The mark of a price per million input and output tokens, or null when neither is known. */
+    private static String mark(BigDecimal in, BigDecimal out) {
         if (in == null && out == null) return null;
         double blended = (in == null ? 0 : in.doubleValue()) + (out == null ? 0 : out.doubleValue()) / 4;
         if (blended == 0) return "free";
@@ -209,8 +242,11 @@ public class ModelService {
         o.put("provider", account.provider());
         o.put("account", account.name());
         o.put("recommended", recommended);
-        String price = priceMark(m, account.kind());
+        boolean subscription = "oauth".equals(account.kind());
+        String price = subscription ? subscriptionMark(officialPrice(m)) : priceMark(m, account.kind());
         if (price != null) o.put("price", price);
+        // The price of a subscription model is its official one: spend at it is nominal, never paid (C16).
+        if (subscription && !"unpriced".equals(price)) o.put("nominal", true);
         m.contextWindow().ifPresent(c -> o.put("context", c));
         ArrayNode efforts = o.putArray("efforts");
         efforts(m).forEach(efforts::add);
@@ -248,22 +284,24 @@ public class ModelService {
      */
     public Bound bind(String ref) { return bind(ref, List.of()); }
 
-    /** Accounts no token price covers: a subscription signed in with OAuth, a local server, the demo. The same kinds [priceMark] calls `included` or `free`. */
+    /** Accounts no token price covers: a subscription signed in with OAuth, a local server, the demo. The same kinds the price marks call nominal, `unpriced` or `free`. */
     private static final Set<String> PLAN_KINDS = Set.of("oauth", "local", "demo");
 
     /**
      * [accounts]: the usable accounts. A model of a subscription or local account without a token price is bound as
      * plan-billed, so the task's money limit does not hold it back; an account that bills per token keeps a missing price
-     * unknown, and a money limit refuses it.
+     * unknown, and a money limit refuses it. C16: a subscription model is bound at its official price, as nominal spend
+     * the money limit counts; without one it has no money accounting.
      */
     public Bound bind(String ref, List<Account> accounts) {
         Ref r = Ref.parse(ref);
         if (r == null) throw StudioError.of(StudioError.MODEL_UNAVAILABLE, Json.obj().put("model", String.valueOf(ref)), "not a model reference: " + ref);
         ObjectNode params = Json.obj().put("model", r.model()).put("account", r.provider());
         boolean plan = accounts.stream().anyMatch(a -> a.provider().equals(r.provider()) && PLAN_KINDS.contains(a.kind()));
+        boolean subscription = accounts.stream().anyMatch(a -> a.provider().equals(r.provider()) && "oauth".equals(a.kind()));
         AutoProfile made;
         try {
-            made = AutoProfiles.make(llm(), r.provider(), r.model(), plan);
+            made = AutoProfiles.make(llm(), r.provider(), r.model(), plan, subscription);
         } catch (RuntimeException e) {
             throw StudioError.of(StudioError.MODEL_UNAVAILABLE, params, e.getMessage() == null ? e.toString() : e.getMessage());
         }

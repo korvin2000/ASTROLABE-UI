@@ -5,7 +5,12 @@ import { Limits } from '../core/model';
 // between two reports is drawn on while the task works. Replay follows `item.at`, never the wall clock.
 
 export interface MeterView {
-  money: { spent: string | null; unknown: boolean; estimated: boolean; limit: string | null };
+  /**
+   * C16: [nominal] is the spend of a subscription model at its official price, counted in [spent] apart from the [paid]
+   * part (both only when some spend is nominal); [unpriced] the requests of a model without a price, which have no money
+   * accounting (only when there are some).
+   */
+  money: { spent: string | null; unknown: boolean; estimated: boolean; limit: string | null; paid?: string; nominal?: string; unpriced?: number };
   time: { ms: number; limitMin: number | null };
   requests: { n: number; limit: number | null };
   context: { used: number; limit: number | null };
@@ -24,6 +29,10 @@ export class Meter {
   cost: string | null = null;
   costUnknown = false;
   costEstimated = false;
+  /** C16: the nominal and paid parts of [cost], and the requests without money accounting. */
+  nominal: string | null = null;
+  paid: string | null = null;
+  unpriced = 0;
   elapsedMs = 0;
   /** When the last report was made (ms since epoch of `item.at`). */
   reportedAt = 0;
@@ -55,6 +64,10 @@ export class Meter {
         this.cost = s['cost'] ? String(cost['amount'] ?? '0') : null;
         this.costUnknown = !!cost['unknown'];
         this.costEstimated = String(s['costBasis'] ?? '').toLowerCase() !== 'billed';
+        const nominal = s['nominalCost'] ? String(rec(s['nominalCost'])['amount'] ?? '0') : null;
+        this.nominal = nominal !== null && Number(nominal) > 0 ? nominal : null;
+        this.paid = s['paidCost'] ? String(rec(s['paidCost'])['amount'] ?? '0') : '0';
+        this.unpriced = num(s['unpricedRequests']);
         this.elapsedMs = num(s['elapsedMillis']);
         this.reportedAt = Date.parse(at) || 0;
         return;
@@ -71,6 +84,9 @@ export class Meter {
     this.cost = null;
     this.costUnknown = false;
     this.costEstimated = false;
+    this.nominal = null;
+    this.paid = null;
+    this.unpriced = 0;
     this.elapsedMs = 0;
     this.reportedAt = 0;
     this.contextUsed = 0;
@@ -87,7 +103,10 @@ export class Meter {
       l.requests !== null ? this.requests / l.requests : 0,
     ];
     return {
-      money: { spent: this.cost, unknown: this.costUnknown, estimated: this.costEstimated, limit: l.moneyUsd },
+      money: {
+        spent: this.cost, unknown: this.costUnknown, estimated: this.costEstimated, limit: l.moneyUsd,
+        paid: this.nominal !== null ? this.paid ?? '0' : undefined, nominal: this.nominal ?? undefined, unpriced: this.unpriced || undefined,
+      },
       time: { ms, limitMin: l.minutes },
       requests: { n: this.requests, limit: l.requests },
       context: { used: this.contextUsed, limit: this.contextLimit },

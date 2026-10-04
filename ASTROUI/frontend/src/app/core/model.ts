@@ -155,7 +155,10 @@ export interface UsableModel {
   provider: string;
   account: string;
   recommended: boolean;
-  price?: 'included' | 'free' | '$' | '$$' | '$$$';
+  /** `unpriced`: a subscription model without an official price, so no money accounting (C16). */
+  price?: 'unpriced' | 'free' | '$' | '$$' | '$$$';
+  /** A subscription model's price is its official one: spend at it is nominal, not paid (C16). */
+  nominal?: boolean;
   context?: number;
   efforts: Effort[];
   demo: boolean;

@@ -28,6 +28,8 @@ import tools.jackson.databind.node.ObjectNode;
  * Statistics (§16) from the `usage` table priced with the attempt's frozen price tables. Unknown stays unknown
  * (R-STA-01): a call without usage, an unpriced dimension or an unknown quantity makes money "≥" with its coverage
  * stated; currencies are never summed (R-STA-04); totals include helpers, probes, reviews and retries (R-STA-05).
+ * C16 (core D-417): a subscription model's calls at its official price are nominal spend — counted in the money, shown
+ * apart from paid spend; its calls without a price have no money accounting and are counted as such, not as unknown.
  */
 @Service
 public class StatsService {
@@ -47,19 +49,30 @@ public class StatsService {
         this.jdbc = jdbc;
     }
 
-    private static final class Totals {
+    static final class Totals {
         final Map<String, Long> tokens = new TreeMap<>();
+        /** Paid and nominal spend together, per currency. */
         final Map<String, BigDecimal> money = new TreeMap<>();
+        /** The nominal part of [money]. */
+        final Map<String, BigDecimal> nominal = new TreeMap<>();
         int calls;
         int callsWithoutUsage;
         int unpriced;
+        /** Calls of a subscription model without a price (charge `unpriced`): no money accounting. */
+        int withoutMoney;
 
         void add(Totals o) {
             o.tokens.forEach((k, v) -> tokens.merge(k, v, Long::sum));
             o.money.forEach((k, v) -> money.merge(k, v, BigDecimal::add));
+            o.nominal.forEach((k, v) -> nominal.merge(k, v, BigDecimal::add));
             calls += o.calls;
             callsWithoutUsage += o.callsWithoutUsage;
             unpriced += o.unpriced;
+            withoutMoney += o.withoutMoney;
+        }
+
+        private static void amounts(ArrayNode a, Map<String, BigDecimal> m) {
+            m.forEach((cur, amount) -> a.addObject().put("currency", cur).put("amount", amount.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()));
         }
 
         ObjectNode json() {
@@ -71,13 +84,19 @@ public class StatsService {
                 total += e.getValue();
             }
             o.put("totalTokens", total);
-            ArrayNode m = o.putArray("money");
-            money.forEach((cur, amount) -> m.addObject().put("currency", cur).put("amount", amount.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()));
+            amounts(o.putArray("money"), money);
+            Map<String, BigDecimal> paid = new TreeMap<>();
+            money.forEach((cur, amount) -> paid.put(cur, amount.subtract(nominal.getOrDefault(cur, BigDecimal.ZERO))));
+            amounts(o.putArray("paidMoney"), paid);
+            amounts(o.putArray("nominalMoney"), nominal);
             o.put("calls", calls);
             o.put("callsWithoutUsage", callsWithoutUsage);
             o.put("unpricedCalls", unpriced);
+            o.put("callsWithoutMoneyAccounting", withoutMoney);
             o.put("moneyComplete", callsWithoutUsage == 0 && unpriced == 0);
-            o.put("coverage", "priced " + (calls - unpriced - callsWithoutUsage) + " of " + calls + " calls" + (unpriced + callsWithoutUsage > 0 ? "; " + (unpriced + callsWithoutUsage) + " unknown" : ""));
+            o.put("coverage", "priced " + (calls - unpriced - callsWithoutUsage - withoutMoney) + " of " + calls + " calls"
+                + (unpriced + callsWithoutUsage > 0 ? "; " + (unpriced + callsWithoutUsage) + " unknown" : "")
+                + (withoutMoney > 0 ? "; " + withoutMoney + " without money accounting" : ""));
             return o;
         }
     }
@@ -128,7 +147,8 @@ public class StatsService {
         return out;
     }
 
-    private static Totals price(JsonNode row, Map<String, JsonNode> prices) {
+    /** One call priced with its profile's frozen table; [row] is a `usage` row whose body is the core's `CallAccount`. */
+    static Totals price(JsonNode row, Map<String, JsonNode> prices) {
         Totals t = new Totals();
         t.calls = 1;
         JsonNode normalized = row.path("normalized");
@@ -136,6 +156,13 @@ public class StatsService {
         boolean unknown = normalized.path("unknown").isArray() && !normalized.path("unknown").isEmpty();
         if (!quantities.isObject() || quantities.isEmpty()) {
             t.callsWithoutUsage = 1;
+            return t;
+        }
+        // The core's charge of the call (C16); a row written before it has none and was paid.
+        String charge = Json.text(row.path("body"), "charge", "paid");
+        if ("unpriced".equals(charge)) {
+            for (var e : quantities.properties()) t.tokens.merge(e.getKey(), e.getValue().asLong(), Long::sum);
+            t.withoutMoney = 1;
             return t;
         }
         JsonNode table = prices.get(Json.text(row, "profileId", ""));
@@ -154,6 +181,7 @@ public class StatsService {
             money = money.add(new BigDecimal(rate.asString()).multiply(BigDecimal.valueOf(q)).divide(BigDecimal.valueOf(1_000_000), 8, RoundingMode.HALF_UP));
         }
         if (currency != null) t.money.merge(currency, money, BigDecimal::add);
+        if (currency != null && "nominal".equals(charge)) t.nominal.merge(currency, money, BigDecimal::add);
         if (!priced) t.unpriced = 1;
         return t;
     }
@@ -217,9 +245,11 @@ public class StatsService {
         Totals t = new Totals();
         for (var e : n.path("tokens").properties()) t.tokens.put(e.getKey(), e.getValue().asLong());
         for (JsonNode m : Json.each(n.get("money"))) t.money.merge(Json.text(m, "currency"), new BigDecimal(Json.text(m, "amount")), BigDecimal::add);
+        for (JsonNode m : Json.each(n.get("nominalMoney"))) t.nominal.merge(Json.text(m, "currency"), new BigDecimal(Json.text(m, "amount")), BigDecimal::add);
         t.calls = n.path("calls").asInt();
         t.callsWithoutUsage = n.path("callsWithoutUsage").asInt();
         t.unpriced = n.path("unpricedCalls").asInt();
+        t.withoutMoney = n.path("callsWithoutMoneyAccounting").asInt();
         return t;
     }
 
