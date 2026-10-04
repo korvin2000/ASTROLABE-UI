@@ -100,7 +100,8 @@ export interface Task {
   pending: Card[];
   runs?: TaskRun[];
   changes?: { files: number; added: number; removed: number };
-  usage?: { tokens: number; cost?: { amount: string; currency: string }; elapsedMs: number };
+  /** C16: `cost.paidAmount` / `cost.nominalAmount` only when some of the cost is a subscription model's nominal spend. */
+  usage?: { tokens: number; cost?: { amount: string; currency: string; paidAmount?: string; nominalAmount?: string }; elapsedMs: number };
   skipped?: Card[];
   preset?: Approach;
   limits?: Limits;
@@ -155,7 +156,10 @@ export interface UsableModel {
   provider: string;
   account: string;
   recommended: boolean;
-  price?: 'included' | 'free' | '$' | '$$' | '$$$';
+  /** `unpriced`: a subscription model without an official price, so no money accounting (C16). */
+  price?: 'unpriced' | 'free' | '$' | '$$' | '$$$';
+  /** A subscription model's price is its official one: spend at it is nominal, not paid (C16). */
+  nominal?: boolean;
   context?: number;
   efforts: Effort[];
   demo: boolean;

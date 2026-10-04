@@ -98,14 +98,13 @@ class TaskLimitsTest {
 
     @Test
     fun `a spec without limits keeps the stored ones and cleared limits remove them`() {
-        StudioHost().use { host ->
-            kotlin.test.assertNull(host.corePolicy(StartSpec("x", 1)).limits)
-            assertEquals(io.astrolabe.budget.TaskLimits.NONE, host.corePolicy(StartSpec("x", 1, limits = TaskLimits())).limits)
-            val named = host.corePolicy(StartSpec("x", 1, limits = TaskLimits("7.50", 90, null), preset = "thorough"))
-            assertEquals(java.math.BigDecimal("7.50"), named.limits?.maxCost?.amount)
-            assertEquals(90, named.limits?.maxMinutes)
-            assertEquals(io.astrolabe.BalanceProfile.Thorough, named.balance)
-        }
+        val defaults = io.astrolabe.RunSpec.defaults(FixtureBrain.profiles().first()).policy
+        kotlin.test.assertNull(RunSpecs.policy(StartSpec("x", 1), defaults).limits)
+        assertEquals(io.astrolabe.budget.TaskLimits.NONE, RunSpecs.policy(StartSpec("x", 1, limits = TaskLimits()), defaults).limits)
+        val named = RunSpecs.policy(StartSpec("x", 1, limits = TaskLimits("7.50", 90, null), preset = "thorough"), defaults)
+        assertEquals(java.math.BigDecimal("7.50"), named.limits?.maxCost?.amount)
+        assertEquals(90, named.limits?.maxMinutes)
+        assertEquals(io.astrolabe.BalanceProfile.Thorough, named.balance)
     }
 
     /** The journal lines of [work] that say a task limit still holds it after an open. */
@@ -135,14 +134,13 @@ class TaskLimitsTest {
         val economy = io.astrolabe.BalanceProfiles.vector(io.astrolabe.BalanceProfile.Economy)
         Llm.builder().provider(brain.provider()).environment(Environment.none()).catalog { it.offline() }.build().use { llm ->
             val adapter = io.astrolabe.provider.aigate.AiGateAdapter(llm, listOf(main), false)
-            StudioHost().use { host ->
-                val estimator = io.astrolabe.budget.HeuristicEstimator()
-                val byApproach = host.cellModel(adapter, main, estimator, StartSpec("x", 1, effort = "Medium"))
-                val chosen = host.cellModel(adapter, main, estimator, StartSpec("x", 1, effort = "Medium", effortExplicit = true))
-                kotlin.test.assertFalse(byApproach.effortExplicit)
-                assertEquals(io.astrolabe.provider.Effort.Low, io.astrolabe.BalanceProfiles.effort(byApproach, economy))
-                assertEquals(io.astrolabe.provider.Effort.Medium, io.astrolabe.BalanceProfiles.effort(chosen, economy))
-            }
+            val estimator = io.astrolabe.budget.HeuristicEstimator()
+            val config = Config(profiles = mapOf(main.id to main), profileRoles = io.astrolabe.ProfileRoles(main.id, null, null))
+            val byApproach = RunSpecs.of(StartSpec("x", 1, effort = "Medium"), config, main).cellModel(adapter, main, estimator)
+            val chosen = RunSpecs.of(StartSpec("x", 1, effort = "Medium", effortExplicit = true), config, main).cellModel(adapter, main, estimator)
+            kotlin.test.assertFalse(byApproach.effortExplicit)
+            assertEquals(io.astrolabe.provider.Effort.Low, io.astrolabe.BalanceProfiles.effort(byApproach, economy))
+            assertEquals(io.astrolabe.provider.Effort.Medium, io.astrolabe.BalanceProfiles.effort(chosen, economy))
             adapter.close()
         }
     }

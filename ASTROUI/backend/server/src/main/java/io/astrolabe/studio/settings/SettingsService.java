@@ -55,13 +55,13 @@ public class SettingsService {
     public static String projectScope(String projectId) { return "project:" + projectId; }
 
     public static final ObjectNode RUNTIME_DEFAULTS = Json.obj()
-        .put("leaseMinutes", 480)
-        .put("maxCells", 48)
+        .put("leaseMinutes", io.astrolabe.RunSpec.LEASE_MINUTES)
+        .put("maxCells", io.astrolabe.RunSpec.MAX_CELLS)
         .put("autoResumeOnLateAnswer", false)
         .put("decisionReminderMinutes", 15)
         .put("maxConcurrentCampaigns", 3)
         .put("acceptNonWeakening", false)
-        .put("effort", "Medium");
+        .put("effort", io.astrolabe.RunSpec.EFFORT.name());
 
     // ------------------------------------------------------------------------------------------------ layers
 

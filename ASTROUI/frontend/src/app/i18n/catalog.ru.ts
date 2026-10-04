@@ -190,7 +190,8 @@ export const RU: Record<string, string> = {
   'picker.applies_next': 'Применится со следующего сообщения.',
   'picker.refresh': 'Обновить список моделей',
   'picker.refresh_failed': 'Не удалось обновить список моделей. Ниже — последний загруженный список.',
-  'price.included': 'включено',
+  'price.unpriced': 'без денежного учёта',
+  'price.nominal': '{price} условно',
   'price.free': 'бесплатно',
   'effort.low': 'Низкое',
   'effort.medium': 'Среднее',
@@ -198,7 +199,7 @@ export const RU: Record<string, string> = {
   'mode.ask': 'Спрашивать',
   'mode.auto': 'Авто',
   'mode.ask_help': 'Свободно работает внутри проекта. Спрашивает перед рискованными действиями и когда что-то неясно.',
-  'mode.auto_help': 'Никогда не прерывает. Пропускает рискованные действия, которые вы не разрешали раньше, и делает разумные предположения.',
+  'mode.auto_help': 'Не останавливается на вопросах: делает разумные предположения. Спрашивает перед рискованными действиями, которые вы не разрешали раньше.',
 
   // ---------------------------------------------------------------- composer and new task
   'composer.placeholder': 'Опишите, что создать, исправить или изменить…',
@@ -693,6 +694,8 @@ export const RU: Record<string, string> = {
   'meter.context': 'контекст {used} / {limit}',
   'meter.context_free': 'контекст {used}',
   'meter.money_unknown': 'стоимость неизвестна',
+  'meter.split': 'оплачено {paid}, условно {nominal}',
+  'meter.unpriced': 'запросов без денежного учёта: {n}',
   'provenance.independent': 'Проверено независимо',
   'provenance.agent_test': 'Проверено тестом агента',
   'provenance.unverified': 'Не проверено',

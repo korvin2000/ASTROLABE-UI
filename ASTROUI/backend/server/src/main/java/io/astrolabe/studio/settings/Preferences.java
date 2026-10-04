@@ -52,10 +52,10 @@ public class Preferences {
         o.put(SEND_WITH, "enter");
         o.put(LANGUAGE, "en");
         o.putNull(DEFAULT_MODEL);
-        o.put(DEFAULT_EFFORT, "medium");
+        o.put(DEFAULT_EFFORT, io.astrolabe.RunSpec.EFFORT.name().toLowerCase(java.util.Locale.ROOT));
         o.put(DEFAULT_MODE, "ask");
         o.set(TASK_LIMITS, io.astrolabe.studio.tasks.Limits.DEFAULTS.json());
-        o.put(DEFAULT_PRESET, "balanced");
+        o.put(DEFAULT_PRESET, io.astrolabe.BalanceProfile.Balanced.getWire());
         o.put(MAX_TASKS, 3);
         o.put(DEMO_MODE, false);
         o.putObject(ENV_KEYS);

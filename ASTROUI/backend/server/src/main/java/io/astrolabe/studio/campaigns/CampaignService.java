@@ -296,8 +296,8 @@ public class CampaignService {
             text, tokens,
             costAmount == null ? null : Json.text(options, "costCurrency", "USD"), costAmount,
             options != null && Json.bool(options, "resumeExpected", false),
-            (int) (options != null && options.hasNonNull("maxCells") ? options.get("maxCells").asLong() : runtime.path("maxCells").asLong(48)),
-            runtime.path("leaseMinutes").asLong(480), options, runtime);
+            (int) (options != null && options.hasNonNull("maxCells") ? options.get("maxCells").asLong() : runtime.path("maxCells").asLong(io.astrolabe.RunSpec.MAX_CELLS)),
+            runtime.path("leaseMinutes").asLong(io.astrolabe.RunSpec.LEASE_MINUTES), options, runtime);
         boolean demo = FixtureBrain.PROVIDER.equals(main.path("provider").asString(""));
         String workId = host().newWorkId();
         String now = Json.now();
@@ -495,7 +495,7 @@ public class CampaignService {
         JsonNode options = startOptions(workId);
         // C14: the budget the campaign was launched with, never a placeholder (the core keeps the larger of the two).
         StartSpec spec = legacySpec("resume", launchTokens(jdbc, workId, options, config, runtime), null, null, false,
-            runtime.path("maxCells").asInt(48), runtime.path("leaseMinutes").asLong(480), options, runtime);
+            runtime.path("maxCells").asInt(io.astrolabe.RunSpec.MAX_CELLS), runtime.path("leaseMinutes").asLong(io.astrolabe.RunSpec.LEASE_MINUTES), options, runtime);
         opening.add(workId);
         changed(workId, true);
         pipeline.expect(workId, projectId);
@@ -523,10 +523,10 @@ public class CampaignService {
     static StartSpec legacySpec(String text, long tokens, String costCurrency, String costAmount, boolean resumeExpected, int maxCells, long leaseMinutes,
                                 JsonNode options, JsonNode runtime) {
         boolean chosen = options != null && options.hasNonNull("effort");
-        String effort = chosen ? Json.text(options, "effort") : Json.text(runtime, "effort", "Medium");
+        String effort = chosen ? Json.text(options, "effort") : Json.text(runtime, "effort", io.astrolabe.RunSpec.EFFORT.name());
         return new StartSpec(text, tokens, costCurrency, costAmount, resumeExpected, maxCells, leaseMinutes, effort,
             runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null,
-            false, new io.astrolabe.studio.bridge.SavedChecks(), false, null, null, "balanced", chosen);
+            false, new io.astrolabe.studio.bridge.SavedChecks(), false, null, null, io.astrolabe.BalanceProfile.Balanced.getWire(), chosen);
     }
 
     /** The options a campaign was started with (`campaign.start`), or null. */

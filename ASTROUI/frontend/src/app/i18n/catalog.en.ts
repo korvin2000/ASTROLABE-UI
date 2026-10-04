@@ -190,7 +190,8 @@ export const EN: Record<string, string> = {
   'picker.applies_next': 'Applies from your next message.',
   'picker.refresh': 'Refresh the model list',
   'picker.refresh_failed': 'The model list could not be refreshed. The list below is the last one loaded.',
-  'price.included': 'included',
+  'price.unpriced': 'no money accounting',
+  'price.nominal': '{price} nominal',
   'price.free': 'free',
   'effort.low': 'Low',
   'effort.medium': 'Medium',
@@ -198,7 +199,7 @@ export const EN: Record<string, string> = {
   'mode.ask': 'Ask',
   'mode.auto': 'Auto',
   'mode.ask_help': 'Works freely inside the project. Asks before risky actions and when something is unclear.',
-  'mode.auto_help': 'Never interrupts. Skips risky actions you have not allowed before and makes reasonable assumptions.',
+  'mode.auto_help': 'Does not stop for questions: makes reasonable assumptions. Asks before risky actions you have not allowed before.',
 
   // ---------------------------------------------------------------- composer and new task
   'composer.placeholder': 'Describe what to build, fix or change…',
@@ -669,6 +670,8 @@ export const EN: Record<string, string> = {
   'meter.context': 'context {used} / {limit}',
   'meter.context_free': 'context {used}',
   'meter.money_unknown': 'cost unknown',
+  'meter.split': 'paid {paid}, nominal {nominal}',
+  'meter.unpriced': 'requests without money accounting: {n}',
   'provenance.independent': 'Independently verified',
   'provenance.agent_test': 'Verified by the agent\'s own test',
   'provenance.unverified': 'Not verified',

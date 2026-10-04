@@ -9,6 +9,15 @@ const spent = (requests: number, amount: string | null, elapsedMillis: number, b
   ({ status: { requests, cost: amount === null ? null : { currency: 'USD', amount, unknown: false }, costBasis: basis, elapsedMillis } });
 
 describe('meter', () => {
+  it('keeps the nominal spend of a subscription model apart and counts requests without money accounting (C16)', () => {
+    const m = new Meter();
+    m.apply('studio.opened', { limits }, '2026-10-03T10:00:00Z');
+    const usd = (amount: string) => ({ currency: 'USD', amount, unknown: false });
+    m.apply('budget.spent', { status: { requests: 4, cost: usd('1.20'), costBasis: 'nominal', paidCost: usd('0'), nominalCost: usd('1.20'), unpricedRequests: 2, elapsedMillis: 1_000 } }, '2026-10-03T10:00:10Z');
+    const v = m.view(0, false)!;
+    expect(v.money).toEqual({ spent: '1.20', unknown: false, estimated: true, limit: '10.00', paid: '0', nominal: '1.20', unpriced: 2 });
+  });
+
   it('shows nothing before the first report', () => {
     const m = new Meter();
     m.apply('studio.opened', { limits }, '2026-10-03T10:00:00Z');

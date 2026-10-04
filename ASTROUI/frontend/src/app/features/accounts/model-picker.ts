@@ -112,7 +112,8 @@ export class ModelPicker {
 
   price(m: UsableModel): string {
     if (!m.price) return '';
-    return m.price === 'included' || m.price === 'free' ? this.i18n.t('price.' + m.price) : m.price;
+    const mark = m.price === 'unpriced' || m.price === 'free' ? this.i18n.t('price.' + m.price) : m.price;
+    return m.nominal ? this.i18n.t('price.nominal', { price: mark }) : mark;
   }
 
   hint(m: UsableModel): string {
