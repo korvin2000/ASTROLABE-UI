@@ -24,10 +24,10 @@ Run `git status`, `git log -5` and `git worktree list` in `ASTROLABE`, `C:\work.
 `C:\work.astrolab\llm-transport-sdk`; check the `v2/*` branches and `C:\work.astrolab\plan2\reports`.
 
 Known in advance:
-- The plan amendment is committed locally on `main`: root `73d8c13` (plan, `REANALYSE-FABLE.md`), core `60a232f`
-  (`TODO.md`, `CONTINUE-TASK.md`). Nothing is pushed.
-- The hotfix D-407…D-413 is committed locally in the core and not pushed; its Studio half is uncommitted in the root
-  repository (`ASTROUI/`).
+- The plan amendment is on `main` and pushed: root `73d8c13` (plan, `REANALYSE-FABLE.md`), core `60a232f`
+  (`TODO.md`, `CONTINUE-TASK.md`).
+- The hotfix D-407…D-413 is on `main` and pushed: core `7b402d3`, its Studio half in root `bd3a4ca`. The CI status of
+  these pushes is not recorded anywhere: check it before the first merge.
 
 Report in 5–10 lines. Push to `main` only with my permission.
 
