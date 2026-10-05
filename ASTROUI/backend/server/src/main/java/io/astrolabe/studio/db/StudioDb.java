@@ -104,12 +104,18 @@ public class StudioDb {
             "ALTER TABLE campaign_index ADD COLUMN limit_hold_json TEXT",
             "ALTER TABLE campaign_index ADD COLUMN contract_stop_json TEXT"
         ),
-        // ASTROLABE 2.0 W5: a kept acceptance decision is found by the core's `DecisionKey` (D-428), whatever the request id;
+        // ASTROLABE 2.0 W5: a kept acceptance decision is found by the core's `DecisionKey` (D-428) within its work and attempt;
         // a message typed while an acceptance card is open is attached to the card, never a decision (WF-8).
         List.of(
             "ALTER TABLE acceptance_decision ADD COLUMN decision_key TEXT",
-            "CREATE INDEX acceptance_decision_by_key ON acceptance_decision (decision_key)",
-            "ALTER TABLE decision ADD COLUMN note TEXT"
+            "ALTER TABLE acceptance_decision ADD COLUMN attempt_id TEXT",
+            "CREATE INDEX acceptance_decision_by_key ON acceptance_decision (work_id, decision_key)",
+            "ALTER TABLE decision ADD COLUMN note TEXT",
+            // Each attached message with its own time, so a recap orders it among the task's messages (WF-11).
+            "CREATE TABLE acceptance_note (seq INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, work_id TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL)",
+            "CREATE INDEX acceptance_note_by_work ON acceptance_note (work_id, seq)",
+            // The user's own words of a run, kept apart from the recap its request starts with.
+            "ALTER TABLE campaign_index ADD COLUMN user_text TEXT"
         )
     );
 
@@ -150,10 +156,32 @@ public class StudioDb {
         if (version > MIGRATIONS.size()) {
             throw new IllegalStateException("studio.db schema v" + version + " is newer than this Studio (v" + MIGRATIONS.size() + ")");
         }
-        for (int i = version; i < MIGRATIONS.size(); i++) {
-            for (String sql : MIGRATIONS.get(i)) jdbc.execute(sql);
-            jdbc.update("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)", i + 1, java.time.Instant.now().toString());
-        }
+        for (int i = version; i < MIGRATIONS.size(); i++) apply(jdbc, i);
+    }
+
+    /**
+     * Migration [i] and its version row in one transaction on one connection: a crash between them leaves neither, so a
+     * restart applies it again from the start instead of repeating an `ALTER` that already ran (SQLite DDL is transactional).
+     */
+    private static void apply(JdbcTemplate jdbc, int i) {
+        jdbc.execute((org.springframework.jdbc.core.ConnectionCallback<Void>) con -> {
+            boolean auto = con.getAutoCommit();
+            con.setAutoCommit(false);
+            try (var statement = con.createStatement();
+                 var version = con.prepareStatement("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)")) {
+                for (String sql : MIGRATIONS.get(i)) statement.execute(sql);
+                version.setInt(1, i + 1);
+                version.setString(2, java.time.Instant.now().toString());
+                version.executeUpdate();
+                con.commit();
+            } catch (java.sql.SQLException | RuntimeException e) {
+                con.rollback();
+                throw e;
+            } finally {
+                con.setAutoCommit(auto);
+            }
+            return null;
+        });
     }
 
     private static void restrictToOwner(Path dir) {

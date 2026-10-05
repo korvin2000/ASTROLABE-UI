@@ -104,7 +104,7 @@ public class TaskService implements DisposableBean {
     private record Run(String workId, String projectId, String taskId, String parentWork, String title, String customTitle, String status, String phase,
                        String outcome, String reason, String modelRef, String effort, String mode, String requestText, JsonNode verification,
                        JsonNode reasonCode, boolean demo, String createdAt, String updatedAt, String endedAt, String stopCode, String limitsJson, String preset,
-                       boolean effortExplicit, JsonNode limitHold, JsonNode contractStop) {
+                       boolean effortExplicit, JsonNode limitHold, JsonNode contractStop, String userText) {
         /** C4: the run's limits; a run stored before them takes the user's defaults. */
         Limits limits(Limits defaults) { return Limits.of(limitsJson, defaults); }
     }
@@ -119,7 +119,7 @@ public class TaskService implements DisposableBean {
             rs.getInt("demo") != 0, rs.getString("created_at"), rs.getString("updated_at"), rs.getString("ended_at"), rs.getString("stop_code"),
             rs.getString("limits_json"), rs.getString("preset"), rs.getInt("effort_explicit") != 0,
             rs.getString("limit_hold_json") == null ? null : Json.parse(rs.getString("limit_hold_json")),
-            rs.getString("contract_stop_json") == null ? null : Json.parse(rs.getString("contract_stop_json"))), taskId);
+            rs.getString("contract_stop_json") == null ? null : Json.parse(rs.getString("contract_stop_json")), rs.getString("user_text")), taskId);
     }
 
     private List<Run> require(String taskId) {
@@ -395,39 +395,15 @@ public class TaskService implements DisposableBean {
         return o;
     }
 
-    /**
-     * Of [paths], the ones [policy] keeps out of the candidate: untracked files under its output roots. Only paths under a
-     * root are asked about, in one `git ls-files`; a tracked one is a change like any other.
-     */
-    static java.util.Set<String> scratchOutput(Path repo, ScratchPolicy policy, List<String> paths) {
-        List<String> under = paths.stream().filter(p -> policy.excludes(p, false)).toList();
-        if (under.isEmpty()) return java.util.Set.of();
-        List<String> args = new ArrayList<>(List.of("ls-files", "-z", "--"));
-        args.addAll(under);
-        Git.Result tracked = Git.run(repo, args.toArray(String[]::new));
-        if (!tracked.ok()) return java.util.Set.of();
-        java.util.Set<String> known = new java.util.HashSet<>(List.of(tracked.out().split("\0")));
-        java.util.Set<String> out = new java.util.HashSet<>();
-        for (String p : under) if (!known.contains(p)) out.add(p);
-        return out;
-    }
-
     private ObjectNode changeSummary(String projectId, List<Run> runs) {
         ObjectNode o = Json.obj();
-        int files = 0, added = 0, removed = 0, scratch = 0;
+        int files = 0, added = 0, removed = 0;
         try {
             if (hosts.host().isOpen(projectId)) {
+                // W3: snapshots taken under the attempt's scratch list hold no untracked output under its roots, so the
+                // change list counts none; a tracked path there is a change like any other and is never hidden.
                 JsonNode c = changes.taskChanges(projectId, runs.stream().map(Run::workId).toList(), false);
-                ScratchPolicy policy = scratchOf(runs.getLast());
-                List<String> paths = new ArrayList<>();
-                for (JsonNode f : Json.each(c.get("files"))) paths.add(Json.text(f, "path", ""));
-                java.util.Set<String> output = policy == null ? java.util.Set.of() : scratchOutput(hosts.host().repoRoot(projectId), policy, paths);
                 for (JsonNode f : Json.each(c.get("files"))) {
-                    // W3: build output under the frozen scratch list is not the task's change; it is counted apart.
-                    if (output.contains(Json.text(f, "path", ""))) {
-                        scratch++;
-                        continue;
-                    }
                     files++;
                     added += f.path("added").asInt(0);
                     removed += f.path("removed").asInt(0);
@@ -439,7 +415,6 @@ public class TaskService implements DisposableBean {
         o.put("files", files);
         o.put("added", added);
         o.put("removed", removed);
-        if (scratch > 0) o.put("scratch", scratch);
         return o;
     }
 
@@ -542,6 +517,7 @@ public class TaskService implements DisposableBean {
         TaskRun run = new TaskRun(workId, projectId, workId, null, text, text.strip(), model, chosenEffort, chosenMode, model != null && model.startsWith(FixtureBrain.PROVIDER + "/"),
             named(effort));
         campaigns.register(run);
+        jdbc.update("UPDATE campaign_index SET user_text = ? WHERE work_id = ?", text.strip(), workId);
         campaigns.setBudget(workId, Json.write(chosenLimits.json()), chosenPreset);
         pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text.strip()).put("role", "request"));
         preferences.set(Preferences.LAST_PROJECT, Json.MAPPER.valueToTree(project.id()));
@@ -845,10 +821,15 @@ public class TaskService implements DisposableBean {
         // which still asks for Accept or Rework; a Rework without words of its own carries it.
         ObjectNode acceptance = acceptanceCard(last);
         if (acceptance != null) {
-            pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message").put("cardId", Json.text(acceptance, "id")));
-            decisions.attachNote(Json.text(acceptance, "id"), body);
-            publish(taskId);
-            return result.put("effect", "attached");
+            if (decisions.attachNote(Json.text(acceptance, "id"), body)) {
+                pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message").put("cardId", Json.text(acceptance, "id")));
+                publish(taskId);
+                return result.put("effect", "attached");
+            }
+            // The card closed meanwhile (answered, or the run went on): the text is an ordinary message of the task,
+            // routed below like any other — never a decision, never dropped.
+            runs = require(taskId);
+            last = runs.getLast();
         }
         // C2: a run that is opening gets the message as soon as it is live; it never starts another run.
         if (campaigns.isOpening(last.workId()) || "opening".equals(last.status())) {
@@ -857,7 +838,6 @@ public class TaskService implements DisposableBean {
             pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "message_queued"));
             return result.put("effect", "queued");
         }
-        String state = Json.text(stateOf(last), "state");
         boolean live = hosts.host().isLive(last.workId());
         if (live) {
             // The task is working: the agent sees the message at its next step.
@@ -867,14 +847,48 @@ public class TaskService implements DisposableBean {
             campaigns.refresh(last.workId());
             return result.put("effect", "queued");
         }
-        if ("paused".equals(state) && resumable(last)) {
-            pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
-            continueRun(last, body, modelRef, effort, mode);
-            return result.put("effect", "continued");
+        switch (recovery(last)) {
+            // The core takes the message as an amendment of the same work (a campaign-scope rework asks for just that).
+            case IN_PLACE, AMEND_OR_FOLLOW_UP -> {
+                pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
+                continueRun(last, body, modelRef, effort, mode);
+                return result.put("effect", "continued");
+            }
+            // A run that never opened opens again under its own id and takes the message once it is live.
+            case RETRY_START -> {
+                pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
+                queued.computeIfAbsent(last.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(body);
+                retryStart(last, modelRef, effort, mode);
+                return result.put("effect", "continued");
+            }
+            default -> {
+                // Done, stopped, or ended on something the core will not reopen: a follow-up run in the same task.
+                String follow = followUp(runs, body, modelRef, effort, mode, preset, limits);
+                return result.put("effect", "follow_up").put("workId", follow);
+            }
         }
-        // Done, stopped, failed, or paused on something a continue cannot lift: a follow-up run in the same task.
-        String follow = followUp(runs, body, modelRef, effort, mode, preset, limits);
-        return result.put("effect", "follow_up").put("workId", follow);
+    }
+
+    /**
+     * How a stopped run goes on, one decision for a message and for Continue (WD-26): in place, the same work reopened;
+     * a start retried under its own id; an amendment or a follow-up when the core asked for one (a campaign-scope rework,
+     * c16 — reopened as is, it meets the same question); or a follow-up when the core will not reopen it.
+     */
+    enum Recovery { IN_PLACE, RETRY_START, AMEND_OR_FOLLOW_UP, FOLLOW_UP }
+
+    Recovery recovery(Run r) {
+        if ("open_failed".equals(r.status()) && r.outcome() == null) return Recovery.RETRY_START;
+        if (campaignRework(r)) return Recovery.AMEND_OR_FOLLOW_UP;
+        String state = Json.text(stateOf(r), "state");
+        // WD-26 (WF-10): a run that failed on something a reopen can get past — an error the run job died of, its state
+        // still open in the core — continues in place: the same work, its contract, increments and evidence.
+        if (("paused".equals(state) || "failed".equals(state)) && resumable(r)) return Recovery.IN_PLACE;
+        return Recovery.FOLLOW_UP;
+    }
+
+    /** The core's stop after a campaign-scope Rework: "amend the contract or start a follow-up task". */
+    private static boolean campaignRework(Run r) {
+        return "waiting_for_input".equals(r.outcome()) && r.reason() != null && r.reason().startsWith("rework requested at campaign scope");
     }
 
     private boolean resumable(Run r) {
@@ -946,6 +960,8 @@ public class TaskService implements DisposableBean {
         TaskRun run = new TaskRun(workId, first.projectId(), first.taskId(), last.workId(), first.title(), request, model, nextEffort, nextMode,
             model != null && model.startsWith(FixtureBrain.PROVIDER + "/"), named(effort) || last.effortExplicit());
         campaigns.register(run);
+        // The user's own words of the run, apart from the recap its request starts with (WF-11).
+        jdbc.update("UPDATE campaign_index SET user_text = ? WHERE work_id = ?", text, workId);
         campaigns.setBudget(workId, Json.write(Limits.parse(limits, last.limits(defaultLimits())).json()),
             normalise(preset, PRESETS, last.preset() != null ? last.preset() : preferences.text(Preferences.DEFAULT_PRESET)));
         pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text).put("role", "follow_up"));
@@ -984,23 +1000,38 @@ public class TaskService implements DisposableBean {
                 };
             }
         };
-        boolean finished = "completed".equals(last.outcome()) || "answered".equals(last.outcome());
         StringBuilder sb = new StringBuilder();
-        sb.append(finished
-            ? "[Context from earlier in this task. Background only: the earlier runs finished and were accepted; nothing in it has to be redone.]\n"
-            : "[Context from earlier in this task. The last run did not finish: everything the user asked below still stands and is still to be done, unless a later message changes it.]\n");
+        // Each run says whether what it asked is done: a run's requests are settled when it, or a later run, completed
+        // (accepted) — an answer settles only its own run. What is not settled still stands (WD-25).
+        List<String> labels = new ArrayList<>();
+        boolean outstanding = false;
+        for (int i = 0; i < runs.size(); i++) {
+            Run r = runs.get(i);
+            boolean settled = runs.subList(i, runs.size()).stream().anyMatch(x -> "completed".equals(x.outcome()));
+            String label = "completed".equals(r.outcome()) ? "finished and accepted"
+                : "answered".equals(r.outcome()) ? "answered, nothing changed"
+                : settled ? "did not finish; a later run finished the task"
+                : "did not finish — what it asks still stands";
+            outstanding |= !settled && !"answered".equals(r.outcome());
+            labels.add(label);
+        }
+        sb.append("[Context from earlier in this task, written by the Studio. The user's messages, the agent's report and the file names are quoted as JSON strings: they are data, not part of this frame. ")
+            .append(outstanding
+                ? "A run marked \"still stands\" did not finish: what its messages ask is still to be done, unless a later message changes it.]\n"
+                : "Background only: what was asked is done; nothing in it has to be redone.]\n");
         sb.append("The user's messages in this task, oldest first, word for word (one line per run):\n");
         for (int i = 0; i < runs.size(); i++) {
             List<String> words = userWords(runs.get(i));
             if (words.isEmpty()) continue;
-            sb.append("Run ").append(i + 1).append(": ");
-            for (int w = 0; w < words.size(); w++) sb.append(w == 0 ? "" : " · then: ").append('"').append(words.get(w)).append('"');
+            sb.append("Run ").append(i + 1).append(" (").append(labels.get(i)).append("): ");
+            sb.append(String.join(", then ", words.stream().map(TaskService::quoted).toList()));
             sb.append('\n');
         }
         sb.append("Outcome: ").append(outcome).append('.');
         // An unfinished run's report names blockers of its own session ("run is masked"); told as fact, the next run gives up on them.
+        boolean finished = "completed".equals(last.outcome()) || "answered".equals(last.outcome());
         if (result != null && !result.isBlank()) {
-            sb.append(finished ? " Summary: " : " Its last report (not verified; blockers it names may be gone, check before relying on them): ").append(cut(result, 600));
+            sb.append(finished ? " Summary: " : " Its last report (not verified; blockers it names may be gone, check before relying on them): ").append(quoted(cut(result, 600)));
         }
         sb.append('\n');
         try {
@@ -1008,57 +1039,68 @@ public class TaskService implements DisposableBean {
             JsonNode c = changes.taskChanges(last.projectId(), runs.stream().map(Run::workId).toList(), false);
             for (JsonNode f : Json.each(c.get("files"))) paths.add(Json.text(f, "path"));
             String files = changedFiles(paths);
-            if (!files.isEmpty()) sb.append("Files changed so far: ").append(files).append('\n');
+            if (!files.isEmpty()) sb.append("Files changed so far: ").append(quoted(files)).append('\n');
         } catch (RuntimeException e) {
             // Without the change list the recap is shorter, not wrong.
         }
-        sb.append("[End of context]\n\n");
+        sb.append(END_OF_CONTEXT).append("\n\n");
         return sb.toString();
     }
 
-    private record Said(java.time.Instant at, String text) { }
+    /** [text] as a JSON string: every character kept, none able to close the frame it is quoted in. */
+    static String quoted(String text) { return Json.write(text); }
+
+    /** One message, with where it is kept and its place there: [source] and [seq] order messages of the same instant. */
+    private record Said(java.time.Instant at, int source, long seq, String text) { }
 
     /**
-     * The user's own words in run [r], oldest first (WF-11): the requests the core keeps for its contract — the run's own
-     * request without its recap, then every message amended into it — and what only the Studio holds: words given with an
-     * acceptance answer or attached to its card, and answers to the agent's questions. A run the core never opened has
-     * its request as the Studio stored it.
+     * The user's own words in run [r], oldest first (WF-11), each message once by its own record: the requests the core
+     * keeps for its contract — the run's own words, then every message amended into it — and what only the Studio holds:
+     * messages attached to an acceptance card (each with its own time), the words given with an acceptance answer when they
+     * are not those attached notes, and answers to the agent's questions. A run the core never opened has its words as
+     * the Studio stored them. Equal texts of different messages are all kept.
      */
     List<String> userWords(Run r) {
         List<Said> said = new ArrayList<>();
         try {
             if (!hosts.host().isOpen(r.projectId())) projects.open(r.projectId());
             String requests = hosts.host().isOpen(r.projectId()) ? hosts.host().requests(r.projectId(), r.workId()) : null;
-            boolean first = true;
+            long n = 0;
             for (JsonNode q : Json.each(requests == null ? null : Json.parse(requests))) {
                 String text = Json.text(q.path("body"), "text");
                 if (text == null || text.isBlank()) continue;
-                said.add(new Said(instant(Json.text(q.path("body"), "at")), first ? withoutRecap(text) : text));
-                first = false;
+                said.add(new Said(instant(Json.text(q.path("body"), "at")), 0, n, n == 0 ? ownWords(r, text) : text));
+                n++;
             }
         } catch (RuntimeException e) {
             log.debug("requests of {} not read: {}", r.workId(), e.toString());
         }
         if (said.isEmpty()) {
             String own = lastUserText(r);
-            if (own != null && !own.isBlank()) said.add(new Said(instant(r.createdAt()), own));
+            if (own != null && !own.isBlank()) said.add(new Said(instant(r.createdAt()), 0, 0, own));
         }
-        for (Map<String, Object> row : jdbc.queryForList("SELECT text, created_at FROM acceptance_decision WHERE work_id = ? ORDER BY created_at", r.workId())) {
+        for (Map<String, Object> row : jdbc.queryForList("SELECT seq, text, created_at FROM acceptance_note WHERE work_id = ? ORDER BY seq", r.workId())) {
+            said.add(new Said(instant((String) row.get("created_at")), 1, ((Number) row.get("seq")).longValue(), (String) row.get("text")));
+        }
+        for (Map<String, Object> row : jdbc.queryForList("SELECT d.rowid AS seq, d.text, d.created_at, c.note FROM acceptance_decision d LEFT JOIN decision c ON c.id = 'a-' || d.request_id "
+                + "WHERE d.work_id = ? ORDER BY d.rowid", r.workId())) {
             String text = (String) row.get("text");
-            if (text != null && !text.isBlank() && !DEFAULT_REASONS.contains(text)) said.add(new Said(instant((String) row.get("created_at")), text));
+            // The words of a Rework that carried the card's attached messages are those messages, listed above.
+            if (text == null || text.isBlank() || DEFAULT_REASONS.contains(text) || text.equals(row.get("note"))) continue;
+            said.add(new Said(instant((String) row.get("created_at")), 2, ((Number) row.get("seq")).longValue(), text));
         }
-        for (Map<String, Object> row : jdbc.queryForList("SELECT note, coalesce(answered_at, created_at) AS at FROM decision WHERE work_id = ? AND kind = 'acceptance' AND note IS NOT NULL ORDER BY created_at", r.workId())) {
-            said.add(new Said(instant((String) row.get("at")), (String) row.get("note")));
-        }
-        for (Map<String, Object> row : jdbc.queryForList("SELECT reply_json, answered_at FROM decision WHERE work_id = ? AND kind = 'question' AND status = 'answered' AND reply_json IS NOT NULL ORDER BY answered_at", r.workId())) {
+        for (Map<String, Object> row : jdbc.queryForList("SELECT rowid AS seq, reply_json, answered_at FROM decision WHERE work_id = ? AND kind = 'question' AND status = 'answered' AND reply_json IS NOT NULL ORDER BY rowid", r.workId())) {
             String text = Json.text(Json.parse((String) row.get("reply_json")), "text");
-            if (text != null && !text.isBlank()) said.add(new Said(instant((String) row.get("answered_at")), text));
+            if (text != null && !text.isBlank()) said.add(new Said(instant((String) row.get("answered_at")), 3, ((Number) row.get("seq")).longValue(), text));
         }
-        // Stable: words of one source keep their order; a note that became the Rework's words is said once.
-        said.sort(java.util.Comparator.comparing(Said::at));
-        List<String> words = new ArrayList<>();
-        for (Said s : said) if (!words.contains(s.text())) words.add(s.text());
-        return words;
+        said.sort(java.util.Comparator.comparing(Said::at).thenComparingInt(Said::source).thenComparingLong(Said::seq));
+        return said.stream().map(Said::text).toList();
+    }
+
+    /** The user's own words of [r]'s request [text]: kept apart since W5; before, a follow-up's request after its recap. */
+    private static String ownWords(Run r, String text) {
+        if (r.userText() != null) return r.userText();
+        return r.parentWork() != null ? withoutRecap(text) : text;
     }
 
     private static java.time.Instant instant(String at) {
@@ -1139,9 +1181,10 @@ public class TaskService implements DisposableBean {
 
     /** The user's own words of a run: its request without the recap. */
     private static String lastUserText(Run r) {
+        if (r.userText() != null) return r.userText();
         String text = r.requestText() == null ? r.title() : r.requestText();
-        int end = text == null ? -1 : text.indexOf("[End of context]");
-        return end >= 0 ? text.substring(end + "[End of context]".length()).strip() : text;
+        // Only a follow-up's request starts with a recap; the user's own words may contain its closing line.
+        return text != null && r.parentWork() != null ? withoutRecap(text) : text;
     }
 
     /** The last text the agent wrote in [workId], from the recorded model output. */
@@ -1193,7 +1236,6 @@ public class TaskService implements DisposableBean {
         Run last = runs.getLast();
         // C1: a run that is opening or working is not started again; a repeated click changes nothing.
         if (hosts.host().isLive(last.workId()) || campaigns.isOpening(last.workId()) || "opening".equals(last.status())) return task(taskId, false);
-        String state = Json.text(stateOf(last), "state");
         String kind = limitKind(last);
         if (kind != null && limits != null && !limits.isNull()) {
             Limits before = last.limits(defaultLimits());
@@ -1203,17 +1245,14 @@ public class TaskService implements DisposableBean {
             campaigns.setBudget(last.workId(), Json.write(raised.json()), null);
             raising.add(last.workId());
             continueRun(last, null, modelRef, effort, mode);
-        } else if (("paused".equals(state) || "failed".equals(state)) && resumable(last)) {
-            // WD-26 (WF-10): a run that failed on something a reopen can get past — an error the run job died of, its
-            // state still open in the core — continues in place: the same work, its contract, increments and evidence.
-            continueRun(last, null, modelRef, effort, mode);
-        } else if ("open_failed".equals(last.status()) && last.outcome() == null) {
-            // A run that never opened is started again under its own work id.
-            retryStart(last, modelRef, effort, mode);
         } else {
-            // Only what the core will not reopen — a final outcome, spent attempts, a limit kept — becomes a follow-up. Its
-            // recap carries every message of the task (WF-11), so Continue does not repeat the last one as a new request.
-            followUp(runs, CONTINUE_TEXT, modelRef, effort, mode);
+            switch (recovery(last)) {
+                case IN_PLACE -> continueRun(last, null, modelRef, effort, mode);
+                case RETRY_START -> retryStart(last, modelRef, effort, mode);
+                // Only what the core will not reopen as is becomes a follow-up. Its recap carries every message of the task
+                // (WF-11), so Continue does not repeat the last one as a new request.
+                default -> followUp(runs, CONTINUE_TEXT, modelRef, effort, mode);
+            }
         }
         return task(taskId, false);
     }
@@ -1306,6 +1345,12 @@ public class TaskService implements DisposableBean {
             : kind.equals("accept") ? USER_ACCEPT : USER_REWORK;
         boolean fresh = decisions.answerAcceptance((ObjectNode) card, kind, reason, "local");
         if (!fresh || hosts.host().isLive(run.workId()) || campaigns.isOpening(run.workId()) || "opening".equals(run.status())) return;
+        // c16: a campaign-scope Rework is answered by the core with a stop that asks for an amendment or a follow-up task;
+        // reopening the work as is would only meet that stop. The Rework's words start the follow-up now.
+        if (kind.equals("rework") && Json.text(card.path("request"), "incrementId") == null) {
+            followUp(runs(run.taskId()), reason, modelRef, effort, mode);
+            return;
+        }
         continueRun(run, null, modelRef, effort, mode);
     }
 

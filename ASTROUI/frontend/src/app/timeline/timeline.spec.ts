@@ -269,6 +269,19 @@ describe('the acceptance decision (B3)', () => {
     expect(translate('en', 'card.acceptance_rework_text', { text: 'x' })).toBe('You asked for rework: x');
   });
 
+  it('attaches a message typed on the open card to it, decides nothing, and shows it (WF-8)', () => {
+    const t = replay([
+      requested(1, card('a-3', 'unverified')), ended(2), waiting(3),
+      studio(4, 'studio.user_message', { text: 'the header is still blue', role: 'message', cardId: 'a-3' }),
+      studio(5, 'studio.user_message', { text: 'and the footer', role: 'message', cardId: 'a-3' }),
+    ]);
+    const c = of(t, 'card')[0];
+    expect(c.status).toBe('pending');
+    expect(c.card.note).toBe('the header is still blue\nand the footer');
+    expect(of(t, 'user').map(u => u.text)).toEqual(['the header is still blue', 'and the footer']);
+    expect(t.state).toBe('needs_you');
+  });
+
   it('shows an acceptance by the auto mode as a notice and keeps a replayed decision of the user out of the conversation', () => {
     const t = replay([
       studio(1, 'studio.policy_decision', { kind: 'acceptance', status: 'policy', reason: 'accepted', reply: { kind: 'Accept', reason: 'not verified: no tests' }, card: card('p-1', 'unverified') }),

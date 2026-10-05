@@ -158,12 +158,10 @@ describe('acceptance (B3)', () => {
     expect(translate('en', 'verified.unavailable')).toBe('Evidence unavailable right now — open the project to read it');
   });
 
-  it('shows the scratch list the task froze and its build output counted apart (W3)', () => {
+  it('shows the scratch list the task froze (W3)', () => {
     expect(scratchRoots({ scratch: { id: 'x', roots: ['build', 'dist'] } })).toBe('build/, dist/');
     expect(scratchRoots({})).toBe('');
     expect(scratchRoots(null)).toBe('');
-    expect(translatePlural('en', 'result.scratch_files', 3)).toBe('3 build output files');
-    expect(translatePlural('ru', 'result.scratch_files', 5)).toBe('5 файлов вывода сборки');
   });
 
   it('offers no Continue for a contract budget no reopen lifts, and keeps it for the built-in limit (C14)', () => {

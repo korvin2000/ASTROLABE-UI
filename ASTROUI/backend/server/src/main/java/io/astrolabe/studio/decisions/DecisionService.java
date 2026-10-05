@@ -215,7 +215,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     public CompletableFuture<String> decide(String workId, String requestJson) {
         JsonNode request = Json.parse(requestJson);
         String requestId = Json.text(request, "id");
-        ObjectNode stored = storedDecision(request);
+        ObjectNode stored = storedDecision(workId, request);
         if (stored != null) {
             record("acceptance", workId, requestJson, "answered", stored, Json.text(stored, "by"), Json.text(stored, "kind").toLowerCase(Locale.ROOT));
             return CompletableFuture.completedFuture(Json.write(stored));
@@ -264,7 +264,9 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     public boolean attachNote(String cardId, String text) {
         int n = jdbc.update("UPDATE decision SET note = CASE WHEN note IS NULL THEN ? ELSE note || char(10) || ? END WHERE id = ? AND kind = 'acceptance' AND status = 'open'",
             text, text, cardId);
-        return n > 0;
+        if (n == 0) return false;
+        jdbc.update("INSERT INTO acceptance_note (card_id, work_id, text, created_at) SELECT id, work_id, ?, ? FROM decision WHERE id = ?", text, Json.now(), cardId);
+        return true;
     }
 
     /**
@@ -276,8 +278,9 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         JsonNode request = card.get("request");
         String requestId = Json.text(request, "id");
         String candidate = Json.write(request.get("candidate"));
-        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at, decision_key) VALUES (?,?,?,?,?,?,?,?,?)",
-            requestId, Json.text(card, "workId"), candidate, request.path("contractRevision").asInt(), kind, text, "user:" + actor, Json.now(), Json.text(request, "key"));
+        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at, decision_key, attempt_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            requestId, Json.text(card, "workId"), candidate, request.path("contractRevision").asInt(), kind, text, "user:" + actor, Json.now(), Json.text(request, "key"),
+            Json.text(request.path("ids"), "attempt"));
         if (claimed == 0) return false;
         jdbc.update("UPDATE decision SET status = 'answered', reply_json = ?, by_authority = ?, reason = ?, answered_at = ? WHERE id = ? AND status = 'open'",
             Json.write(Json.obj().put("kind", kind).put("text", text)), "user:" + actor, kind, Json.now(), Json.text(card, "id"));
@@ -403,18 +406,23 @@ public class DecisionService implements AuthorityPort, PolicyListener {
 
     /**
      * The user's stored answer to this request, as the core's `AcceptanceDecision` under the request's id; null when none.
-     * D-428 (WF-6): it is found by the request's `key` — the scope, candidate, contract revision and obligations — so a
-     * reissued question gets the answer already given; a row stored before keys is found by the request id.
+     * D-428 (WF-6): it is found by the request's `key` — the scope, candidate, contract revision and obligations — within
+     * the same work and attempt, so a reissued question gets the answer already given and another task's never does. A
+     * row stored before keys is found by the request id only when it has no key, and only for the very candidate and
+     * revision it answered; a binding that cannot be established asks again.
      */
-    private ObjectNode storedDecision(JsonNode request) {
+    private ObjectNode storedDecision(String workId, JsonNode request) {
         String key = Json.text(request, "key");
+        String attempt = Json.text(request.path("ids"), "attempt");
+        String columns = "SELECT kind, text, by_authority, contract_revision, candidate FROM acceptance_decision WHERE work_id = ? AND ";
         List<Map<String, Object>> rows = key != null
-            ? jdbc.queryForList("SELECT kind, text, by_authority, contract_revision FROM acceptance_decision WHERE decision_key = ? ORDER BY created_at DESC", key)
+            ? jdbc.queryForList(columns + "decision_key = ? AND coalesce(attempt_id, '') = coalesce(?, '') ORDER BY created_at DESC", workId, key, attempt)
             : List.of();
-        if (rows.isEmpty()) rows = jdbc.queryForList("SELECT kind, text, by_authority, contract_revision FROM acceptance_decision WHERE request_id = ?", Json.text(request, "id"));
+        if (rows.isEmpty()) rows = jdbc.queryForList(columns + "request_id = ? AND decision_key IS NULL", workId, Json.text(request, "id"));
         if (rows.isEmpty()) return null;
         Map<String, Object> row = rows.getFirst();
         if (((Number) row.get("contract_revision")).intValue() != request.path("contractRevision").asInt()) return null;
+        if (!Json.write(request.get("candidate")).equals(row.get("candidate"))) return null;
         boolean accept = "accept".equals(row.get("kind"));
         String text = (String) row.get("text");
         String reason = text != null && !text.isBlank() ? text : accept ? "accepted by the user" : "the user asked to rework it";

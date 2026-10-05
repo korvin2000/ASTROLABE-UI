@@ -145,7 +145,8 @@ export class AskCard {
   readonly sent = signal(false);
 
   readonly choices = computed(() => acceptanceChoices(this.card()));
-  readonly hint = computed(() => acceptanceHint(this.card()));
+  // The card is mutable in the timeline (a note arrives after it, WF-8): follow the owner's version.
+  readonly hint = computed(() => { this.version(); return acceptanceHint(this.item().card); });
   readonly reasons = computed(() => (this.card().items ?? []).map(i => i.reason).filter(Boolean).join('; '));
   readonly findings = computed(() => this.labelled((this.card().items ?? []).flatMap(i => i.findings ?? [])));
   readonly reviewChoices = reviewChoices();
@@ -379,7 +380,7 @@ export class ErrorCard {
           } @else { <span class="muted">…</span><span></span> }
           @if (scratch()) {
             <span class="l">{{ 'result.scratch' | t }}</span>
-            <span class="muted">@if ((changes()?.scratch ?? 0) > 0) { {{ scratchCount(changes()?.scratch ?? 0) }} · }{{ scratch() }}</span><span></span>
+            <span class="muted">{{ scratch() }}</span><span></span>
           }
           <span class="l">{{ 'result.verified' | t }}</span>
           <span>@if (verified().ok) { <span class="ok" aria-hidden="true">✓</span> } {{ verified().text }}@if (judge()) { · <span class="muted">{{ 'provenance.judge' | t }}</span> }</span>
@@ -444,7 +445,7 @@ export class ResultCard {
   readonly used = computed(() => { this.i18n.lang(); return usageText(this.i18n, this.task()?.usage); });
 
   files(n: number): string { return this.i18n.n('count.files', n); }
-  scratchCount(n: number): string { return this.i18n.n('result.scratch_files', n); }
+
 
   /** C1b/C4: the agent's own test offered as the project's check, until the user says "Not now" for this task. */
   private readonly dismissed = signal(0);

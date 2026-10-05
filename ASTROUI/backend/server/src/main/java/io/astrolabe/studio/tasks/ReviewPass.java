@@ -204,9 +204,16 @@ public class ReviewPass implements DisposableBean {
                 }
             }
             default -> {
-                verdict.put("outcome", "InsufficientEvidence");
-                String said = Json.text(parsed, "missing", "").strip();
-                missing = !said.isEmpty() ? said : !summary.isBlank() ? summary : "the reviewer could not verify the change";
+                if (!substantive.isEmpty()) {
+                    // A concrete defect it located in the shown change stays a rejection, whatever else it could not see.
+                    verdict.put("outcome", "Revise");
+                    substantive.forEach(findings::add);
+                    minor.forEach(findings::add);
+                } else {
+                    verdict.put("outcome", "InsufficientEvidence");
+                    String said = Json.text(parsed, "missing", "").strip();
+                    missing = !said.isEmpty() ? said : !summary.isBlank() ? summary : "the reviewer could not verify the change";
+                }
             }
         }
         if (missing != null) verdict.put("missingCriterion", missing);

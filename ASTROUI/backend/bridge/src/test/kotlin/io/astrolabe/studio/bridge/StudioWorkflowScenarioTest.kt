@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
 
 /**
  * WF-1 and WF-10 (plan §7.2, W5) through the bridge on the real core with a scripted fake model: a start opens its
- * campaign once (WD-04), and Continue reopens the same work, once, and it completes (WD-26). Guards count `phase.counted` opens on the bus, never time.
+ * campaign once (WD-04), and Continue from a resumable stop (a result waiting for the user's word) reopens the same work, once, and it completes. Recovery from a cell error is the core's (its outcome `failed` is final). Guards count `phase.counted` opens on the bus, never time.
  */
 class StudioWorkflowScenarioTest {
     @TempDir
@@ -189,7 +189,7 @@ class StudioWorkflowScenarioTest {
     }
 
     @Test
-    fun `Continue reopens the same work once and it completes`() {
+    fun `Continue from a resumable stop reopens the same work once and it completes`() {
         session("wf1-continue", manifest = false) { s ->
             // No host review and no decision: the run stops waiting for the user's word on its result (resumable).
             val (ref, waiting) = start(s, authority({ CompletableFuture.completedFuture(null) }))
