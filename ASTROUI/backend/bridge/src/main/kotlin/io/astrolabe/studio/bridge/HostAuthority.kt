@@ -14,6 +14,19 @@ import io.astrolabe.verify.AcceptanceDecisionRequest
 import io.astrolabe.verify.ReviewRequest
 import io.astrolabe.verify.Verdict
 import kotlinx.coroutines.future.await
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+
+/**
+ * An acceptance decision request as the host reads it: the core's JSON plus its `key` (D-428), the same for the same
+ * question whatever id a reissue carries — a host keeps the user's answer under it (WF-6).
+ */
+internal fun decisionRequestJson(request: AcceptanceDecisionRequest): String {
+    val json = ConfigSupport.json
+    val fields = json.encodeToJsonElement(AcceptanceDecisionRequest.serializer(), request).jsonObject
+    return JsonObject(fields + ("key" to JsonPrimitive(request.key))).toString()
+}
 
 /** Receives every outcome the autonomous policy decided, so the Studio can show it as a "policy" line (R-THR-01). */
 public fun interface PolicyListener {
@@ -45,7 +58,7 @@ internal class PortAuthority(private val workId: String, private val port: Autho
     }
 
     override suspend fun decide(request: AcceptanceDecisionRequest): AcceptanceDecision? {
-        val reply = port.decide(workId, json.encodeToString(AcceptanceDecisionRequest.serializer(), request)).await() ?: return null
+        val reply = port.decide(workId, decisionRequestJson(request)).await() ?: return null
         return json.decodeFromString(AcceptanceDecision.serializer(), reply)
     }
 }
@@ -92,7 +105,7 @@ internal class RecordingAutonomousAuthority(
 
     override suspend fun decide(request: AcceptanceDecisionRequest): AcceptanceDecision? {
         val decision = delegate.decide(request)
-        listener.onPolicyDecision(workId, "acceptance", json.encodeToString(AcceptanceDecisionRequest.serializer(), request), decision?.let { json.encodeToString(AcceptanceDecision.serializer(), it) })
+        listener.onPolicyDecision(workId, "acceptance", decisionRequestJson(request), decision?.let { json.encodeToString(AcceptanceDecision.serializer(), it) })
         return decision
     }
 }

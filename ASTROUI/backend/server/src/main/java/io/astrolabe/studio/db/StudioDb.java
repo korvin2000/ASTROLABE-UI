@@ -103,6 +103,13 @@ public class StudioDb {
             "ALTER TABLE campaign_index ADD COLUMN effort_explicit INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE campaign_index ADD COLUMN limit_hold_json TEXT",
             "ALTER TABLE campaign_index ADD COLUMN contract_stop_json TEXT"
+        ),
+        // ASTROLABE 2.0 W5: a kept acceptance decision is found by the core's `DecisionKey` (D-428), whatever the request id;
+        // a message typed while an acceptance card is open is attached to the card, never a decision (WF-8).
+        List.of(
+            "ALTER TABLE acceptance_decision ADD COLUMN decision_key TEXT",
+            "CREATE INDEX acceptance_decision_by_key ON acceptance_decision (decision_key)",
+            "ALTER TABLE decision ADD COLUMN note TEXT"
         )
     );
 

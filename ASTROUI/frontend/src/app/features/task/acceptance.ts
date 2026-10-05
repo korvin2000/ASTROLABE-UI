@@ -59,6 +59,14 @@ export function modelVerdictKey(outcome: string | undefined): string {
   }
 }
 
+/**
+ * The line under an acceptance card's buttons (WF-8): typed text never answers the card — it is attached to it, and a
+ * Rework carries it. With a note attached the card shows it.
+ */
+export function acceptanceHint(card: Pick<Card, 'note'>): { key: string; params?: Record<string, string> } {
+  return card.note ? { key: 'card.note_attached', params: { text: card.note } } : { key: 'card.rework_type' };
+}
+
 /** The body of `POST /tasks/{id}/cards/{cardId}` for an acceptance answer. */
 export function acceptanceBody(decision: AcceptanceDecision, text?: string): { decision: AcceptanceDecision; answer?: string } {
   const answer = decision === 'rework' ? text?.trim() : undefined;
@@ -75,6 +83,8 @@ export function reworkable(kind: Task['verified'] | string | undefined): boolean
  * provenance class (C4) only an independent check counts: the agent's own test or a model judge's approval does not.
  */
 export function doneUnverified(state: string | undefined, kind: Task['verified'] | string | undefined, provenance?: ProvenanceClass): boolean {
+  // WD-30: evidence that cannot be read now says nothing about whether a check passed.
+  if (kind === 'unavailable') return false;
   if (provenance) return state === 'done' && provenance !== 'independent';
   return state === 'done' && kind !== 'answer' && !verifiedOf(kind).ok;
 }
@@ -95,6 +105,7 @@ export function verifiedOf(kind: Task['verified'] | string | undefined): { key: 
     case 'user': return { key: 'verified.user', ok: false, output: false };
     case 'unverified': return { key: 'verified.unverified', ok: false, output: false };
     case 'answer': return { key: 'verified.answer', ok: false, output: false };
+    case 'unavailable': return { key: 'verified.unavailable', ok: false, output: false };
     default: return { key: 'verified.none', ok: false, output: false };
   }
 }

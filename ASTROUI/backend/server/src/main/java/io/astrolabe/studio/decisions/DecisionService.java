@@ -238,12 +238,14 @@ public class DecisionService implements AuthorityPort, PolicyListener {
             JsonNode model = modelVerdictFor(workId, request.get("candidate"));
             if (model != null) requestJson = withModelVerdict(request, Json.write(model));
         }
-        // Earlier open requests of this run are replaced by the newest one: one card at a time.
+        // Earlier open requests of this run are replaced by the newest one: one card at a time. What the user attached to
+        // the card it replaces stays attached (WF-8): it is still the user's word on the same work.
+        List<String> notes = jdbc.queryForList("SELECT note FROM decision WHERE work_id = ? AND kind = 'acceptance' AND status = 'open' AND note IS NOT NULL ORDER BY created_at", String.class, workId);
         jdbc.update("UPDATE decision SET status = 'superseded', answered_at = ? WHERE work_id = ? AND kind = 'acceptance' AND status = 'open'", Json.now(), workId);
         String id = "a-" + requestId;
-        jdbc.update("INSERT OR REPLACE INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        jdbc.update("INSERT OR REPLACE INTO decision (id, kind, project_id, work_id, cell_id, contract_revision, request_json, status, created_at, note) VALUES (?,?,?,?,?,?,?,?,?,?)",
             id, "acceptance", projectOf.apply(workId), workId, request.has("ids") ? Json.text(request.get("ids"), "context") : null,
-            request.path("contractRevision").asInt(), requestJson, "open", Json.now());
+            request.path("contractRevision").asInt(), requestJson, "open", Json.now(), notes.isEmpty() ? null : String.join("\n", notes));
         campaignItems.accept(workId, studioItem("studio.decision_requested", get(id)));
         waitingChanged.accept(workId);
         return CompletableFuture.completedFuture(null);
@@ -256,15 +258,26 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     }
 
     /**
+     * WF-8: a message typed while [cardId] is open is attached to it — it decides nothing. The card still asks for Accept
+     * or Rework; a Rework without words of its own takes the attached text. False when the card is no longer open.
+     */
+    public boolean attachNote(String cardId, String text) {
+        int n = jdbc.update("UPDATE decision SET note = CASE WHEN note IS NULL THEN ? ELSE note || char(10) || ? END WHERE id = ? AND kind = 'acceptance' AND status = 'open'",
+            text, text, cardId);
+        return n > 0;
+    }
+
+    /**
      * Stores the user's answer to an acceptance card (B3): `accept` or `rework` with [text], bound to the request, its
-     * candidate and contract revision. A second answer to the same card changes nothing: false.
+     * candidate and contract revision, and to the request's `key` (D-428) — the same key is the same question, whatever
+     * id a reissue carries. A second answer to the same card changes nothing: false.
      */
     public boolean answerAcceptance(ObjectNode card, String kind, String text, String actor) {
         JsonNode request = card.get("request");
         String requestId = Json.text(request, "id");
         String candidate = Json.write(request.get("candidate"));
-        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            requestId, Json.text(card, "workId"), candidate, request.path("contractRevision").asInt(), kind, text, "user:" + actor, Json.now());
+        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at, decision_key) VALUES (?,?,?,?,?,?,?,?,?)",
+            requestId, Json.text(card, "workId"), candidate, request.path("contractRevision").asInt(), kind, text, "user:" + actor, Json.now(), Json.text(request, "key"));
         if (claimed == 0) return false;
         jdbc.update("UPDATE decision SET status = 'answered', reply_json = ?, by_authority = ?, reason = ?, answered_at = ? WHERE id = ? AND status = 'open'",
             Json.write(Json.obj().put("kind", kind).put("text", text)), "user:" + actor, kind, Json.now(), Json.text(card, "id"));
@@ -388,9 +401,17 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         return a;
     }
 
-    /** The user's stored answer to exactly this request, as the core's `AcceptanceDecision`; null when none. */
+    /**
+     * The user's stored answer to this request, as the core's `AcceptanceDecision` under the request's id; null when none.
+     * D-428 (WF-6): it is found by the request's `key` — the scope, candidate, contract revision and obligations — so a
+     * reissued question gets the answer already given; a row stored before keys is found by the request id.
+     */
     private ObjectNode storedDecision(JsonNode request) {
-        List<Map<String, Object>> rows = jdbc.queryForList("SELECT kind, text, by_authority, contract_revision FROM acceptance_decision WHERE request_id = ?", Json.text(request, "id"));
+        String key = Json.text(request, "key");
+        List<Map<String, Object>> rows = key != null
+            ? jdbc.queryForList("SELECT kind, text, by_authority, contract_revision FROM acceptance_decision WHERE decision_key = ? ORDER BY created_at DESC", key)
+            : List.of();
+        if (rows.isEmpty()) rows = jdbc.queryForList("SELECT kind, text, by_authority, contract_revision FROM acceptance_decision WHERE request_id = ?", Json.text(request, "id"));
         if (rows.isEmpty()) return null;
         Map<String, Object> row = rows.getFirst();
         if (((Number) row.get("contract_revision")).intValue() != request.path("contractRevision").asInt()) return null;
@@ -701,6 +722,8 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         o.put("createdAt", rs.getString("created_at"));
         o.put("answeredAt", rs.getString("answered_at"));
         o.put("leaseExpiresAt", rs.getString("lease_expires_at"));
+        String note = rs.getString("note");
+        if (note != null) o.put("note", note);
         return o;
     }
 
@@ -747,6 +770,9 @@ public class DecisionService implements AuthorityPort, PolicyListener {
                 ObjectNode model = modelOf(request);
                 if (model != null) o.set("model", model);
                 o.put("summary", Json.text(request, "summary", ""));
+                // WF-8: what the user typed while the card was open; it waits for Accept or Rework.
+                String note = Json.text(decision, "note");
+                if (note != null) o.put("note", note);
             }
             case "review" -> {
                 // C11: a person's review of a test change; the review of a run that is not a task keeps the plain variant.

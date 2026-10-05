@@ -254,36 +254,40 @@ public class StudioHost @JvmOverloads public constructor(
             )
             val policy = run.policy
             val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text)
-            var opened = controller.open(p.project, request, policy)
-            val fresh = opened.contract.version == 1
-            var verification: VerificationSetup? = null
             // Phase 0 A9 (core D-345): the Studio's instructions are host notes, never the user's words; structural
             // changes to the contract are host amendments that append no request.
-            val notes = ArrayList<String>()
+            // WD-04 (WF-1): the notes are worked out before the open from what it will find — the stored contract, or the
+            // suites a new one is derived from — so one open serves the action.
+            val expected = if (spec.verificationSetup) expectedVerification(p, work, spec.savedChecks) else null
+            val notes = hostNotes(spec, expected)
+            var opened = controller.open(p.project, request, policy.copy(hostNotes = notes))
+            val fresh = opened.contract.version == 1
+            var verification: VerificationSetup? = null
+            var amended = false
             if (spec.verificationSetup) {
                 // Studio 2 §7.3: the core refuses a plan with nothing executable to accept against; supply it and open again.
                 if (opened.state == null) {
                     val setup = Verification.choose(opened.sniffed, spec.savedChecks)
                     opened.contracts.amendByHost(work, "verification setup (${setup.kind})") { Verification.apply(it, setup) }
                     verification = setup
+                    amended = true
                 } else {
                     verification = verificationOf(opened, spec.savedChecks)
                 }
-                notes += Guidance.NOTES
-                notes += Guidance.platform(System.getProperty("os.name"))
-                notes += Verification.text(verification)
             }
             val protectedPaths = spec.protectedPaths
             if (protectedPaths != null && fresh && opened.contract.scope.protectedPaths.toSet() != protectedPaths.toSet()) {
+                // The write protection reads the current contract, so the opened campaign keeps it without a second open.
                 opened.contracts.amendByHost(work, "protected paths") { c ->
                     c.copy(scope = io.astrolabe.contract.Scope(c.scope.writePaths, protectedPaths))
                 }
             }
-            if (protectedPaths != null) notes += protectedRule(protectedPaths)
-            // C14: a campaign this open could not free stays stopped and runs nothing, so the notes change nothing: a second
-            // open would only journal and announce the same hold again — one open per action.
-            if ((notes.isNotEmpty() || opened.state == null) && opened.limitHold == null) {
-                opened = controller.open(p.project, request, policy.copy(hostNotes = notes))
+            val actual = hostNotes(spec, verification)
+            // A second open only when this one could not run (the contract needed its acceptance first) or found other
+            // notes than expected. C14: a campaign this open could not free stays stopped and runs nothing, so the notes
+            // change nothing: a second open would only journal and announce the same hold again.
+            if ((amended || actual != notes) && opened.limitHold == null) {
+                opened = controller.open(p.project, request, policy.copy(hostNotes = actual))
             }
             // The frozen attempt configuration is the truth for this attempt (invariant 12); its main profile is read live.
             val frozen = opened.attempt.config
@@ -354,6 +358,56 @@ public class StudioHost @JvmOverloads public constructor(
         if (runs.isEmpty()) return VerificationSetup("review", "none", emptyList())
         val declared = runs.any { it in opened.sniffed.packages.mapNotNull { p -> p.test } }
         return VerificationSetup("tests", if (declared) "declared" else "saved", runs)
+    }
+
+    /** The host notes of a run (D-345): the Studio's guidance and how the result is checked, and the protected files. */
+    private fun hostNotes(spec: StartSpec, verification: VerificationSetup?): List<String> {
+        val notes = ArrayList<String>()
+        if (verification != null) {
+            notes += Guidance.NOTES
+            notes += Guidance.platform(System.getProperty("os.name"))
+            notes += Verification.text(verification)
+        }
+        spec.protectedPaths?.let { notes += protectedRule(it) }
+        return notes
+    }
+
+    /**
+     * WF-1: the verification an open of [work] will lead to, as far as its notes depend on it — the stored contract's
+     * `run:` items; for a new contract, the suites the repository's manifests declare (what `deriveS0` makes `run:`
+     * items of), else the setup a contract without any gets. A wrong guess costs the second open it saves, never a wrong note.
+     */
+    private fun expectedVerification(p: OpenProject, work: WorkId, saved: SavedChecks): VerificationSetup {
+        val stored = Contracts(SqliteContractRepository(p.project.store, clock), idGen, clock).current(work)
+        if (stored != null) {
+            val runs = stored.acceptance.filterIsInstance<io.astrolabe.contract.Acceptance.Run>().map { it.command.argv }
+            return if (runs.isEmpty()) VerificationSetup("review", "none", emptyList()) else VerificationSetup("tests", "declared", runs)
+        }
+        val sniffed = io.astrolabe.atlas.Sniff.commands(p.project.root, listedPaths(p.project.root))
+        val suites = sniffed.packages.mapNotNull { it.test }
+        return if (suites.isEmpty()) Verification.choose(sniffed, saved) else VerificationSetup("tests", "declared", suites)
+    }
+
+    /** The repository's tracked and unignored files, `/`-separated, by one `git ls-files`; empty when git cannot say. */
+    private fun listedPaths(root: Path): Set<String> {
+        val out = Files.createTempFile("studio-ls-files", ".bin")
+        try {
+            val process = ProcessBuilder("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+                .directory(root.toFile()).redirectOutput(out.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD).start()
+            if (!process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                return emptySet()
+            }
+            if (process.exitValue() != 0) return emptySet()
+            return String(Files.readAllBytes(out), Charsets.UTF_8).split('\u0000').filterTo(HashSet()) { it.isNotEmpty() }
+        } catch (e: java.io.IOException) {
+            return emptySet()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return emptySet()
+        } finally {
+            runCatching { Files.deleteIfExists(out) }
+        }
     }
 
     private fun reconciliationJson(r: Reconciliation): String = json.encodeToString(JsonObject.serializer(), buildJsonObject {
