@@ -60,6 +60,8 @@ export interface Card {
   /** C11: the model's verdict attached to the user's card as information, never as the answer. */
   model?: { outcome: string; summary?: string; findings: Finding[] };
   summary?: string;
+  /** WF-8: what the user typed while an acceptance card was open; it decides nothing until Accept or Rework. */
+  note?: string;
 }
 
 export interface Finding { severity: string; location: string; issue: string; }
@@ -89,7 +91,8 @@ export interface Task {
   title: string;
   state: TaskState;
   reason?: ErrorInfo;
-  verified: 'tests' | 'build' | 'review' | 'user' | 'unverified' | 'answer' | 'none';
+  /** `unavailable`: the run finished but its evidence cannot be read now (WD-30) — not the same as `none`. */
+  verified: 'tests' | 'build' | 'review' | 'user' | 'unverified' | 'answer' | 'unavailable' | 'none';
   verification?: Verification;
   model: { ref: string | null; name: string | null; effort: Effort | null };
   mode: Mode;
@@ -100,6 +103,8 @@ export interface Task {
   pending: Card[];
   runs?: TaskRun[];
   changes?: { files: number; added: number; removed: number };
+  /** The scratch list the task's attempt froze (W3): untracked files under these roots are not its result. */
+  scratch?: { id: string; roots: string[] };
   /** C16: `cost.paidAmount` / `cost.nominalAmount` only when some of the cost is a subscription model's nominal spend. */
   usage?: { tokens: number; cost?: { amount: string; currency: string; paidAmount?: string; nominalAmount?: string }; elapsedMs: number };
   skipped?: Card[];

@@ -90,6 +90,7 @@ public class ReviewPass implements DisposableBean {
                 assessed = new Assessed(null, null, failure(e));
                 log.warn("review pass for {} gave no verdict: {}", workId, assessed.failure());
             }
+            assessed = forCore(request, assessed);
             decisions.recordReview(workId, request, assessed.verdict(), assessed.notes(), assessed.failure());
             return assessed.verdict() == null ? null : Json.write(assessed.verdict());
         }, executor);
@@ -97,6 +98,20 @@ public class ReviewPass implements DisposableBean {
 
     /** What the review pass produced: the core's verdict (or null), the notes for the task, the cause of a missing verdict. */
     record Assessed(ObjectNode verdict, ObjectNode notes, String failure) { }
+
+    static final String UNAVAILABLE = "review unavailable";
+
+    /**
+     * WD-17 (WF-9): this reviewer cannot read files or run anything, so it never blocks. Its "cannot tell" is no review
+     * at all — the core gets no verdict (the result is unverified and goes to the acceptance decision) instead of an
+     * insufficient-evidence verdict, which declines like a rejection. A person's review (C11) keeps the verdict: there it
+     * is only information on the user's card.
+     */
+    static Assessed forCore(JsonNode request, Assessed assessed) {
+        if (assessed.verdict() == null || !"InsufficientEvidence".equals(Json.text(assessed.verdict(), "outcome"))) return assessed;
+        if (request.path("humanOnly").asBoolean(false)) return assessed;
+        return new Assessed(null, assessed.notes(), UNAVAILABLE + ": " + Json.text(assessed.verdict(), "missingCriterion", "the reviewer could not tell"));
+    }
 
     private Assessed assess(String workId, JsonNode request) {
         List<java.util.Map<String, Object>> rows = jdbc.queryForList("SELECT project_id, model_ref, request_text FROM campaign_index WHERE work_id = ?", workId);
@@ -189,9 +204,16 @@ public class ReviewPass implements DisposableBean {
                 }
             }
             default -> {
-                verdict.put("outcome", "InsufficientEvidence");
-                String said = Json.text(parsed, "missing", "").strip();
-                missing = !said.isEmpty() ? said : !summary.isBlank() ? summary : "the reviewer could not verify the change";
+                if (!substantive.isEmpty()) {
+                    // A concrete defect it located in the shown change stays a rejection, whatever else it could not see.
+                    verdict.put("outcome", "Revise");
+                    substantive.forEach(findings::add);
+                    minor.forEach(findings::add);
+                } else {
+                    verdict.put("outcome", "InsufficientEvidence");
+                    String said = Json.text(parsed, "missing", "").strip();
+                    missing = !said.isEmpty() ? said : !summary.isBlank() ? summary : "the reviewer could not verify the change";
+                }
             }
         }
         if (missing != null) verdict.put("missingCriterion", missing);

@@ -170,6 +170,12 @@ export class Timeline {
           if (card) card.answer = str(d['text']);
           return;
         }
+        // WF-8: a message typed while an acceptance card is open is attached to it; the card shows it until Accept or Rework.
+        if (role === 'message' && d['cardId']) {
+          const card = this.cards.get(str(d['cardId']));
+          const text = str(d['text']);
+          if (card && card.status === 'pending' && card.card.kind === 'acceptance') card.card = { ...card.card, note: card.card.note ? card.card.note + '\n' + text : text };
+        }
         this.push({ type: 'user', id: this.id(item), at: item.at, text: str(d['text']), role: role === 'follow_up' ? 'follow_up' : role === 'message' ? 'message' : 'request' });
         if (role !== 'message') {
           this.state = 'working';

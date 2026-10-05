@@ -1,6 +1,7 @@
 package io.astrolabe.studio.tasks;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -379,8 +380,12 @@ class TaskLimitsTest {
             assertEquals(GUARD, tasks.spec(RUN, "fix the discount", BOUND).getTokens());
             tasks.resume("W-1", null, null, null);
             verify(campaigns, org.mockito.Mockito.times(++followUps)).register(any());
+            // Not continued in place: the stopped run is not reopening (the follow-up's recap may open the project to read it).
+            assertNotEquals("opening", jdbc.queryForObject("SELECT status FROM campaign_index WHERE work_id = 'W-1'", String.class));
         }
-        verify(projects, never()).open(any());
+        // And no launch ever reopens W-1 (a continue in place is the only path that would).
+        verify(campaigns, org.mockito.Mockito.after(500).never()).open(org.mockito.ArgumentMatchers.argThat(r -> r != null && "W-1".equals(r.workId())), any(), any(), org.mockito.ArgumentMatchers.eq(true));
+        verify(host, never()).amend(any(), org.mockito.ArgumentMatchers.eq("W-1"), any());
     }
 
     @Test

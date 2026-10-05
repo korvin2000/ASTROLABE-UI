@@ -110,12 +110,15 @@ class TaskAcceptanceTest {
         assertEquals("user:local", stored.getFirst().get("by_authority"));
     }
 
+    /** WD-11 (was: a message on the card was "rework" with its text): the text is attached; Rework carries it. */
     @Test
-    void aMessageOnTheCardIsReworkWithItsText() {
-        waitingCard();
+    void aMessageOnTheCardIsAttachedAndReworkCarriesIt() {
+        String card = waitingCard();
         var result = tasks.message("W-1", "the page does not open, fix the path", null, null, null, null);
-        assertEquals("rework", Json.text(result, "effect"));
+        assertEquals("attached", Json.text(result, "effect"));
         verify(host, never()).amend(anyString(), anyString(), anyString());
+        assertEquals(0, jdbc.queryForList("SELECT * FROM acceptance_decision").size());
+        tasks.card("W-1", card, Json.obj().put("decision", "rework"));
         var stored = jdbc.queryForList("SELECT kind, text FROM acceptance_decision WHERE request_id = 'decide-1'");
         assertEquals("rework", stored.getFirst().get("kind"));
         assertEquals("the page does not open, fix the path", stored.getFirst().get("text"));
@@ -141,11 +144,9 @@ class TaskAcceptanceTest {
 
     private String recapOfCompleted(String receipt) {
         run("stored", "completed", null);
-        when(host.isOpen("p1")).thenReturn(receipt != null);
+        when(host.isOpen("p1")).thenReturn(true);
         when(host.finishReceipt("p1", "W-1")).thenReturn(receipt);
-        String recap = tasks.recap(tasks.runs("W-1"));
-        assertTrue(recap.length() <= 1_500, recap);
-        return recap;
+        return tasks.recap(tasks.runs("W-1"));
     }
 
     /** The recorded follow-up (diags W-uyorz7p4tivk7xvm7iaq): twelve `.gradle` cache files were named, no source file. */
@@ -177,6 +178,17 @@ class TaskAcceptanceTest {
         String recap = recapOfCompleted(null);
         assertTrue(recap.contains("Outcome: finished, not verified (no passing check recorded)."), recap);
         assertTrue(!recap.contains("finished and verified"), recap);
+    }
+
+    /** WD-30: a receipt that cannot be read now (the project is closed) is not "no passing check". */
+    @Test
+    void unreadableEvidenceIsNotMissingEvidence() {
+        run("stored", "completed", null);
+        when(host.isOpen("p1")).thenReturn(false);
+        String recap = tasks.recap(tasks.runs("W-1"));
+        assertTrue(recap.contains("its evidence could not be read now"), recap);
+        assertTrue(!recap.contains("no passing check recorded"), recap);
+        assertEquals("unavailable", Json.text(tasks.task("W-1", false), "verified"));
     }
 
     @Test

@@ -4,7 +4,7 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
-import { acceptanceBody, acceptanceChoices, doneUnverified, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
+import { acceptanceBody, acceptanceChoices, acceptanceHint, doneUnverified, scratchRoots, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
 import { DEFAULT_LIMITS, NO_LIMITS, limitKindOf, limitsText, meterText, parseLimit, raised, raises } from './limits';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { pinnedAfterScroll } from './follow';
@@ -140,6 +140,28 @@ describe('acceptance (B3)', () => {
     expect(acceptanceBody('rework')).toEqual({ decision: 'rework' });
     expect(acceptanceBody('rework', '  ')).toEqual({ decision: 'rework' });
     expect(acceptanceBody('rework', ' handle nulls ')).toEqual({ decision: 'rework', answer: 'handle nulls' });
+  });
+
+  it('attaches typed text to an open card instead of deciding it, and shows it (WF-8)', () => {
+    expect(acceptanceHint({})).toEqual({ key: 'card.rework_type' });
+    const hint = acceptanceHint({ note: 'the header is still blue' });
+    expect(hint).toEqual({ key: 'card.note_attached', params: { text: 'the header is still blue' } });
+    expect(translate('en', hint.key, hint.params)).toBe('Your message is attached: “the header is still blue”. Choose an answer — Rework sends it to the agent.');
+    expect(translate('ru', hint.key, hint.params)).toContain('«the header is still blue»');
+  });
+
+  it('tells evidence that cannot be read now from evidence that is missing (WD-30)', () => {
+    expect(verifiedOf('unavailable')).toEqual({ key: 'verified.unavailable', ok: false, output: false });
+    expect(doneUnverified('done', 'unavailable')).toBe(false);
+    expect(stateKey('done', 'unavailable')).toBe('state.done');
+    expect(stateKey('done', 'none')).toBe('state.done_unverified');
+    expect(translate('en', 'verified.unavailable')).toBe('Evidence unavailable right now — open the project to read it');
+  });
+
+  it('shows the scratch list the task froze (W3)', () => {
+    expect(scratchRoots({ scratch: { id: 'x', roots: ['build', 'dist'] } })).toBe('build/, dist/');
+    expect(scratchRoots({})).toBe('');
+    expect(scratchRoots(null)).toBe('');
   });
 
   it('offers no Continue for a contract budget no reopen lifts, and keeps it for the built-in limit (C14)', () => {
