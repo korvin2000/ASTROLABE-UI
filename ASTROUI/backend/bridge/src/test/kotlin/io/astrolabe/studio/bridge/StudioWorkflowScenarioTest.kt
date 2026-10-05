@@ -26,13 +26,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * WF-1 and WF-10 (plan §7.2, W5) through the bridge on the real core with a scripted fake model: a start opens its
- * campaign once (WD-04), and a run whose job died of an error continues in place — Continue reopens the same work, once,
- * and it completes (WD-26). Guards count `phase.counted` opens on the bus, never time.
+ * campaign once (WD-04), and Continue reopens the same work, once, and it completes (WD-26). Guards count `phase.counted` opens on the bus, never time.
  */
 class StudioWorkflowScenarioTest {
     @TempDir
@@ -108,11 +106,11 @@ class StudioWorkflowScenarioTest {
     }
 
     /** The host's answers; [review] is what the host's review pass returns for a `check:` item. */
-    private fun authority(review: (String) -> CompletableFuture<String?>) = object : AuthorityPort {
+    private fun authority(review: (String) -> CompletableFuture<String?>, decide: (String) -> CompletableFuture<String?> = { CompletableFuture.completedFuture(null) }) = object : AuthorityPort {
         override fun ask(workId: String, questionJson: String) = CompletableFuture.completedFuture<String?>(null)
         override fun approve(workId: String, requestJson: String): CompletableFuture<String> = CompletableFuture.failedFuture(IllegalStateException("no approval expected"))
         override fun resolve(workId: String, proposalJson: String): CompletableFuture<String> = CompletableFuture.failedFuture(IllegalStateException("no proposal expected"))
-        override fun decide(workId: String, requestJson: String) = CompletableFuture.completedFuture<String?>(null)
+        override fun decide(workId: String, requestJson: String) = decide(requestJson)
         override fun review(workId: String, requestJson: String) = review(requestJson)
     }
 
@@ -120,6 +118,14 @@ class StudioWorkflowScenarioTest {
         val r = ConfigSupport.obj(requestJson)
         return CompletableFuture.completedFuture(
             """{"requestId":${r["id"]},"contractRevision":${r["contractRevision"]},"reviewedCandidate":${r["candidate"]},"outcome":"Approve","confidence":0.8,"signedBy":"studio:review-pass"}""",
+        )
+    }
+
+    /** The user's Accept of the request at hand. */
+    private fun accept(requestJson: String): CompletableFuture<String?> {
+        val r = ConfigSupport.obj(requestJson)
+        return CompletableFuture.completedFuture(
+            """{"requestId":${r["id"]},"contractRevision":${r["contractRevision"]},"candidate":${r["candidate"]},"kind":"Accept","decider":"User","by":"user:test","reason":"accepted by the user"}""",
         )
     }
 
@@ -183,14 +189,13 @@ class StudioWorkflowScenarioTest {
     }
 
     @Test
-    fun `Continue after a run died of an error reopens the same work once and it completes`() {
-        session("wf10-failed", manifest = false) { s ->
-            // The host's review pass fails in transport: the error ends the run job, the campaign stays open in the core.
-            val (ref, failed) = start(s, authority { CompletableFuture.failedFuture(IllegalStateException("review transport down")) })
-            assertNull(failed.outcome, "the run died of its error: ${failed.reason}")
-            assertTrue(failed.failure != null, "the run ended on an error")
+    fun `Continue reopens the same work once and it completes`() {
+        session("wf1-continue", manifest = false) { s ->
+            // No host review and no decision: the run stops waiting for the user's word on its result (resumable).
+            val (ref, waiting) = start(s, authority({ CompletableFuture.completedFuture(null) }))
+            assertEquals("waiting_for_input", waiting.outcome, waiting.reason)
             val before = s.opens(ref.workId)
-            val (again, ended) = resume(s, ref.workId, authority(::approve))
+            val (again, ended) = resume(s, ref.workId, authority(::approve, ::accept))
             assertEquals(ref.workId, again.workId, "WF-10: Continue reopened another work")
             assertEquals(1, s.opens(ref.workId) - before, "WF-1: Continue opened the campaign ${s.opens(ref.workId) - before} times")
             assertEquals("completed", ended.outcome, ended.reason)

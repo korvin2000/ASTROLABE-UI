@@ -312,6 +312,8 @@ public class TaskService implements DisposableBean {
             run.setAll(stateOf(r));
         }
         o.set("changes", changeSummary(first.projectId(), runs));
+        ScratchPolicy scratch = scratchOf(last);
+        if (scratch != null) o.set("scratch", scratchJson(scratch));
         o.set("usage", usage(first.projectId(), runs));
         String offer = checkOffer(last, receipt);
         if (offer != null) o.putObject("checkOffer").put("command", offer);
@@ -374,13 +376,58 @@ public class TaskService implements DisposableBean {
 
     static String pattern(JsonNode request) { return DecisionService.patternOf(request); }
 
+    /** The scratch policy the task's latest run froze (W3), or null when it excludes nothing or cannot be read now. */
+    private ScratchPolicy scratchOf(Run r) {
+        try {
+            return hosts.host().isOpen(r.projectId()) ? hosts.host().scratchPolicy(r.projectId(), r.workId()) : null;
+        } catch (RuntimeException e) {
+            log.debug("scratch policy of {}: {}", r.workId(), e.toString());
+            return null;
+        }
+    }
+
+    /** The active scratch list of a task (W3): the output roots whose untracked files are not part of its result. */
+    static ObjectNode scratchJson(ScratchPolicy policy) {
+        ObjectNode o = Json.obj();
+        o.put("id", policy.getId());
+        var roots = o.putArray("roots");
+        policy.getPrefixes().stream().sorted().forEach(roots::add);
+        return o;
+    }
+
+    /**
+     * Of [paths], the ones [policy] keeps out of the candidate: untracked files under its output roots. Only paths under a
+     * root are asked about, in one `git ls-files`; a tracked one is a change like any other.
+     */
+    static java.util.Set<String> scratchOutput(Path repo, ScratchPolicy policy, List<String> paths) {
+        List<String> under = paths.stream().filter(p -> policy.excludes(p, false)).toList();
+        if (under.isEmpty()) return java.util.Set.of();
+        List<String> args = new ArrayList<>(List.of("ls-files", "-z", "--"));
+        args.addAll(under);
+        Git.Result tracked = Git.run(repo, args.toArray(String[]::new));
+        if (!tracked.ok()) return java.util.Set.of();
+        java.util.Set<String> known = new java.util.HashSet<>(List.of(tracked.out().split("\0")));
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String p : under) if (!known.contains(p)) out.add(p);
+        return out;
+    }
+
     private ObjectNode changeSummary(String projectId, List<Run> runs) {
         ObjectNode o = Json.obj();
-        int files = 0, added = 0, removed = 0;
+        int files = 0, added = 0, removed = 0, scratch = 0;
         try {
             if (hosts.host().isOpen(projectId)) {
                 JsonNode c = changes.taskChanges(projectId, runs.stream().map(Run::workId).toList(), false);
+                ScratchPolicy policy = scratchOf(runs.getLast());
+                List<String> paths = new ArrayList<>();
+                for (JsonNode f : Json.each(c.get("files"))) paths.add(Json.text(f, "path", ""));
+                java.util.Set<String> output = policy == null ? java.util.Set.of() : scratchOutput(hosts.host().repoRoot(projectId), policy, paths);
                 for (JsonNode f : Json.each(c.get("files"))) {
+                    // W3: build output under the frozen scratch list is not the task's change; it is counted apart.
+                    if (output.contains(Json.text(f, "path", ""))) {
+                        scratch++;
+                        continue;
+                    }
                     files++;
                     added += f.path("added").asInt(0);
                     removed += f.path("removed").asInt(0);
@@ -392,6 +439,7 @@ public class TaskService implements DisposableBean {
         o.put("files", files);
         o.put("added", added);
         o.put("removed", removed);
+        if (scratch > 0) o.put("scratch", scratch);
         return o;
     }
 

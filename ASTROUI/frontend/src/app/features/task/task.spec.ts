@@ -4,7 +4,7 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
-import { acceptanceBody, acceptanceChoices, acceptanceHint, doneUnverified, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
+import { acceptanceBody, acceptanceChoices, acceptanceHint, doneUnverified, scratchRoots, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
 import { DEFAULT_LIMITS, NO_LIMITS, limitKindOf, limitsText, meterText, parseLimit, raised, raises } from './limits';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { pinnedAfterScroll } from './follow';
@@ -156,6 +156,14 @@ describe('acceptance (B3)', () => {
     expect(stateKey('done', 'unavailable')).toBe('state.done');
     expect(stateKey('done', 'none')).toBe('state.done_unverified');
     expect(translate('en', 'verified.unavailable')).toBe('Evidence unavailable right now — open the project to read it');
+  });
+
+  it('shows the scratch list the task froze and its build output counted apart (W3)', () => {
+    expect(scratchRoots({ scratch: { id: 'x', roots: ['build', 'dist'] } })).toBe('build/, dist/');
+    expect(scratchRoots({})).toBe('');
+    expect(scratchRoots(null)).toBe('');
+    expect(translatePlural('en', 'result.scratch_files', 3)).toBe('3 build output files');
+    expect(translatePlural('ru', 'result.scratch_files', 5)).toBe('5 файлов вывода сборки');
   });
 
   it('offers no Continue for a contract budget no reopen lifts, and keeps it for the built-in limit (C14)', () => {

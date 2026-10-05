@@ -102,7 +102,10 @@ export interface Task {
   updatedAt: string;
   pending: Card[];
   runs?: TaskRun[];
-  changes?: { files: number; added: number; removed: number };
+  /** [scratch]: build output under the task's scratch list, counted apart from its changes (W3). */
+  changes?: { files: number; added: number; removed: number; scratch?: number };
+  /** The scratch list the task's attempt froze (W3): untracked files under these roots are not its result. */
+  scratch?: { id: string; roots: string[] };
   /** C16: `cost.paidAmount` / `cost.nominalAmount` only when some of the cost is a subscription model's nominal spend. */
   usage?: { tokens: number; cost?: { amount: string; currency: string; paidAmount?: string; nominalAmount?: string }; elapsedMs: number };
   skipped?: Card[];

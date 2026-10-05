@@ -7,7 +7,7 @@ import { CardItem, ChecksItem, ErrorItem, ResultItem } from '../../timeline/time
 import { sentence } from '../../ui/error-line';
 import { MarkdownPipe } from '../../ui/markdown';
 import { usageText } from '../../ui/units';
-import { AcceptanceDecision, ReviewDecision, acceptanceChoices, acceptanceHint, modelVerdictKey, reviewChoices, reworkable, testChanges, verifiedOf } from './acceptance';
+import { AcceptanceDecision, ReviewDecision, acceptanceChoices, acceptanceHint, modelVerdictKey, reviewChoices, reworkable, scratchRoots, testChanges, verifiedOf } from './acceptance';
 import { ActionId, actionsOf } from './error-actions';
 import { limitKindOf } from './limits';
 import { TaskActions } from './task-actions';
@@ -377,6 +377,10 @@ export class ErrorCard {
               <button class="lnk" (click)="actions.show({ panel: 'changes' })">{{ 'action.review_changes' | t }}</button>
             } @else { <span class="muted">{{ 'empty.changes' | t }}</span><span></span> }
           } @else { <span class="muted">…</span><span></span> }
+          @if (scratch()) {
+            <span class="l">{{ 'result.scratch' | t }}</span>
+            <span class="muted">@if ((changes()?.scratch ?? 0) > 0) { {{ scratchCount(changes()?.scratch ?? 0) }} · }{{ scratch() }}</span><span></span>
+          }
           <span class="l">{{ 'result.verified' | t }}</span>
           <span>@if (verified().ok) { <span class="ok" aria-hidden="true">✓</span> } {{ verified().text }}@if (judge()) { · <span class="muted">{{ 'provenance.judge' | t }}</span> }</span>
           @if (verified().output) { <button class="lnk" (click)="actions.show({ panel: 'output' })">{{ 'action.show_output' | t }}</button> } @else { <span></span> }
@@ -433,12 +437,14 @@ export class ResultCard {
 
   readonly task = computed(() => this.store.task());
   readonly changes = computed(() => this.task()?.changes ?? null);
+  readonly scratch = computed(() => scratchRoots(this.task()));
   readonly skipped = computed(() => this.task()?.skipped ?? []);
   /** The message the user sends next starts the follow-up run; the button only prepares the composer. */
   readonly rework = computed(() => this.task()?.state === 'done' && reworkable(this.task()?.verified));
   readonly used = computed(() => { this.i18n.lang(); return usageText(this.i18n, this.task()?.usage); });
 
   files(n: number): string { return this.i18n.n('count.files', n); }
+  scratchCount(n: number): string { return this.i18n.n('result.scratch_files', n); }
 
   /** C1b/C4: the agent's own test offered as the project's check, until the user says "Not now" for this task. */
   private readonly dismissed = signal(0);

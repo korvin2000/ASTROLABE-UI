@@ -604,6 +604,14 @@ public class StudioHost @JvmOverloads public constructor(
 
     public fun attemptConfig(projectId: String, workId: String): String? = reads(projectId).attemptConfig(workId)?.toString()
 
+    /**
+     * The scratch policy [workId]'s attempt froze (W3, owner №32), as its contract records it: the output roots whose
+     * untracked files stay outside the candidate. `null` when it excludes nothing — no contract, or one recorded before W3.
+     */
+    public fun scratchPolicy(projectId: String, workId: String): io.astrolabe.verify.ScratchPolicy? =
+        Contracts(SqliteContractRepository(project(projectId).project.store, clock), idGen, clock).current(WorkId(workId))?.scratch
+            ?.takeIf { it.id != null }
+
     public fun storeCounts(projectId: String): String = reads(projectId).counts().toString()
 
     /** Blob metadata `{digest, kind, bytes, recovery}`; the server applies the exposure policy (§30.4) before [blobBytes]. */

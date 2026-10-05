@@ -67,6 +67,11 @@ export function acceptanceHint(card: Pick<Card, 'note'>): { key: string; params?
   return card.note ? { key: 'card.note_attached', params: { text: card.note } } : { key: 'card.rework_type' };
 }
 
+/** The task's active scratch list as the result card shows it (W3): its output roots, `build/, dist/, …`; empty without one. */
+export function scratchRoots(task: Pick<Task, 'scratch'> | null | undefined): string {
+  return (task?.scratch?.roots ?? []).map(r => r + '/').join(', ');
+}
+
 /** The body of `POST /tasks/{id}/cards/{cardId}` for an acceptance answer. */
 export function acceptanceBody(decision: AcceptanceDecision, text?: string): { decision: AcceptanceDecision; answer?: string } {
   const answer = decision === 'rework' ? text?.trim() : undefined;
