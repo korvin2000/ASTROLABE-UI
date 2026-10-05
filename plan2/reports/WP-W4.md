@@ -79,3 +79,64 @@
 - Studio WD-17 и сторона WF-9 в Studio — за W5.
 
 Статус: ГОТОВО К СЛИЯНИЮ — последний коммит ветки `c000b78` (ветка запушена).
+
+## Ревью Codex (gpt-6.1-sol, xhigh, по диффу `7a09bf2..c000b78`, после слияния `408ac40`) — запись оркестратора
+- P1 бинарная совместимость: параметр `boundedOutput` со значением по умолчанию в `CellContext` (`CellContext.kt:195`, `core.api:5802`) заменяет синтетический конструктор с умолчаниями → `NoSuchMethodError` у ранее скомпилированных Kotlin-потребителей. → раунд исправлений.
+- P2 денежный шлюз задачи оценивает неурезанный выход (`Cell.kt:454`, `Limits.kt:414`) → раунд.
+- P2 порог 2048 обходит повтор с резервом C3r, в т. ч. для писателей S3 (`Cell.kt:421`, `Controller.kt:2535`) → раунд.
+- P2 компиляция и маршрутизация резервируют полный выход модели (`Controller.kt:2610`, `Compiler.kt:112`) → хвост (больше карточки).
+- P2 недоступное ревью на уровне кампании теряет числа (`Controller.kt:2736`, `ReviewCell.kt:70`, `CampaignReview.kt:132`) → раунд (критерий карточки п. 3).
+- P2 раннее неудачное открытие (блокировка проекта в `Store.open`, `Controller.kt:541`, `Store.kt:102`) без `phase.counted` → раунд (хвост W0 карточки).
+- P2 страж WF-9 частично пустой (`ReviewScenarioTest.kt:136`, `:108`): отказанный `look` считается, негатив не проверяет исход → раунд.
+Раунд исправлений — после слияния W3 (`Controller.kt` у W3).
+
+## Раунд исправлений
+Ветка `v2/W4`: в неё слит `main` `37a649d` (W4 + W3), слияние прошло без конфликтов. Коммит раунда `6bdbf0f`, ветка запушена.
+Свои изменения: 13 файлов. Циклов «правка → тест»: 1 (L1 зелёный с первого прогона), затем L2.
+- **P1 ABI — исправлено.** `CellContext.boundedOutput` убран из конструктора и стал свойством тела
+  (`public var`, `internal set`; контроллер ставит его через `.also`). Дамп `core.api` относительно `e75d38d` только
+  добавляет `getBoundedOutput()`, оба дескриптора конструктора остались прежними (`updateKotlinAbi` один раз, `checkKotlinAbi`
+  зелёный).
+- **P2 цена в денежном гейте — исправлено.** Новый `internal interface PricedLimitGate : LimitGate` с
+  `check(spend, estimate, outputTokens)`. Новый `internal CellBudget.admit(spend, estimate, outputTokens)`, публичный
+  `admit` его вызывает. `Cell` передаёт `request.maxOutputTokens`. `CellLimits.gate` считает вход как `estimate − output`
+  и выход как запрошенный, а не максимальный выход модели. Публичный API не менялся. Тест:
+  `TaskLimitsTest` «a bounded request is priced at the output it asks for…» — 3 513 + 20 487 при лимите $0.50 проходит,
+  та же сумма по старой цене (64K выхода) — `Exhausted`.
+- **P2 порог 2 048 и C3r — исправлено.** Нехватка выхода больше не завершает ход до допуска. Ход идёт в `budget.admit`
+  с наименьшим выходом. Если резерв лимита задачи (`Reserve`) отклоняет генерацию, ход перерисовывается как резервный
+  (verify-and-report). Иначе `partial` называет числа нехватки; у исчерпанного лимита остаётся его собственная причина.
+  Тест: `TaskLimitTurnTest` «a bounded child whose working tokens cannot hold the least output still takes the reserve
+  turn…» — 1 000 рабочих + 30 000 резерва проверки: генерация отклонена, ход как `Check` допущен, модель вызвана, правки
+  замаскированы.
+- **P2 числа недоступного ревью кампании — исправлено.** `ReviewCellAuthority` запоминает `ladder.reason` по id запроса
+  (`internal unanswered(id)`). `CampaignReview.unanswered` (internal, ставит `Controller.campaignReview`) добавляет причину
+  в запись: `no reviewer answered … (review cell: …)`. Вердикт не выдумывается. Тест: `ReviewCellTest` campaign scope —
+  хост вернул `null`, `unanswered(id)` несёт текст ячейки. Сквозного сценария кампании нет (нужен S2 с ≥ 3 инкрементами
+  или неподписанный пункт `Review`) → хвост.
+- **P2 раннее неудачное открытие — исправлено.** Публичный `open(repo,…)` охватывает `Store.open` и `LocalOs`. При отказе
+  выпускается `PhaseMark.beforeWorkspace` (только счётчики git, без нового `Workspace`, чтобы не вытеснить живое рабочее
+  дерево) и исключение пробрасывается. Тест: `ReviewScenarioTest` «an open the project lock refuses…» — второе открытие
+  получает `ProjectLockHeld`, событий открытия 2, у отказанного `gitProcesses > 0`.
+- **P2 страж WF-9 — усилен (не ослаблен).** Позитивный случай: заголовок результата `look` ревьюера несёт
+  `v={src/a.py: <версия после правки>}`; кампания `Completed`. Негативный случай (бюджет 3 000): числа, 0 запросов,
+  `WaitingForInput` с `AcceptanceDecisionRequest` для `I1`. Неизменное продолжение — 0 вызовов модели, число записей
+  ревью без `reused` не растёт. Явное `Accept` пользователя → `Completed` без вызова модели.
+- **Хвост (не в этом раунде):** компиляция и маршрутизация по-прежнему резервируют полный выход модели
+  (`Controller.kt:2610`, `context/Compiler.kt:112`); сквозной сценарий недоступного ревью кампании.
+
+### Тесты раунда
+- L1 (один раз): `ReviewScenarioTest` 4, `TaskLimitTurnTest` 2, `CellBudgetTest` 4, `TaskLimitsTest` 30,
+  `ReviewCellTest` 8, `CellTest` 62, `S2CampaignTest` 5, `StageCCampaignTest` 2 — 117/0.
+- L2 (один раз): `workflow.*`, `cell.*`, `delegate.*`, `campaign.*`, `tool.verify.*`, `budget.*` — 69 классов, 518 тестов,
+  7 упали: `S3CampaignTest` 6 и `PrecompileCampaignTest` 1. **Регрессия уже на `main`, не от W4.** На `37a649d` без
+  ветки — те же 6 + 1 падения. Бисекция: `03903d2` (W3 до W4) — S3 9/0; `7bfce10` (слияние W4 в W3 без подключения в
+  контроллере) — S3 9/0; падает после `f40fa47` (W3: «the Controller wires the attempt's frozen output policy»: стампер
+  открытия с `frozen.scratch`, атлас из захвата, `deriveS0(scratch=…)`). В этом раунде не чинил: вне замечаний, область
+  W3. Нужна отдельная задача.
+- Набор WF (повтор после L2, Windows): DirtyRepoScenario 83,9 + DirtyRepo 1,7 + Finalization 20,9 + OutputPolicyScenario
+  12,5 + ReviewScenario 26,6 + UnreadableFile 8,9 = **154,6 с** (≤ 180), 18/0.
+- `./gradlew assemble testClasses checkKotlinAbi -Pastrolabe.aiGateBuild=…` — успешно.
+- После L2 `main` ушёл на `36b0f8c` (W5, корневой репозиторий / реестр). В ветку не сливал.
+
+Статус: ГОТОВО К СЛИЯНИЮ (S3/Precompile красные на `main` с `f40fa47` — отдельно) — последний коммит ветки `6bdbf0f`.

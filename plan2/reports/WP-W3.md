@@ -1,66 +1,66 @@
 # WP-W3 — одна объявленная политика расходного вывода для идентичности кандидата
 
-Ветка `v2/W3` от `main` `e75d38d`. Исполнитель: суб-агент (Opus), worktree ядра. Фаза A влита (`7a09bf2`). Фаза B: всё,
-кроме проводки в `Controller.kt`, сделано и запушено (`03903d2`); проводка ждёт слияния W4.
+Ветка `v2/W3` от `main` `e75d38d`; в неё влит `main` с W4 (`408ac40`). Исполнитель: суб-агент (Opus), worktree ядра.
+Фаза A влита (`7a09bf2`). Фаза B готова: `03903d2` (без `Controller`) и `f40fa47` (проводка в `Controller`, ABI).
 
 ## Сделано
-- **Фаза A — время набора WF (`931bd56`).** Сценарии одного класса играют одновременно (`Scenario.concurrently`: у каждого
-  свой репозиторий, хранилище, контроллер и счётчики — D-426 считает их на экземпляр); `DirtyRepoTest` не ждёт racy-окно.
-  Утверждения, пороги и 300/1500 файлов прежние; все 12 строк `WF-counters` совпадают с `main`.
-
-  | Класс (Windows, XML) | до (`e75d38d`) | после (`931bd56`) | фаза B (`03903d2`) |
-  |---|---|---|---|
-  | `DirtyRepoScenarioTest` | 119,8 с | 92,9 с | 90,3 с |
-  | `FinalizationScenarioTest` | 48,4 с | 22,6 с | 21,9 с |
-  | `DirtyRepoTest` | 10,6 с | 1,8 с | 1,7 с |
-  | `UnreadableFileScenarioTest` | 9,2 с | 8,9 с | 8,8 с |
-  | `OutputPolicyScenarioTest` (новый) | — | — | 11,6 с |
-  | **Итого** | **188,0 с** | **126,2 с** | **134,4 с** |
-
-  Замер JFR (1500 файлов): ≈ 60 % времени ячейки — `WorkspacePath.canonicalise` (`toRealPath` → `FindFirstFile` на
-  каждый компонент пути) на каждом штампе; хвост.
+- **Фаза A — время набора WF (`931bd56`).** Сценарии одного класса играют одновременно (`Scenario.concurrently`; у каждого
+  свой репозиторий, хранилище, контроллер и счётчики — D-426 считает их на экземпляр). `DirtyRepoTest` не ждёт racy-окно.
+  Утверждения, пороги и 300/1500 файлов прежние.
 - **Спецификация** пересмотрена по ревью Codex и решениям оркестратора (`WP-W3-spec.md`, раздел «Ревью Codex →
-  решения») и перенесена в `docs/verification/scheduler.md` (§8.1 «Declared output outside the candidate», §8.4 —
-  состав штампа); строка WF-5 в `docs/reference/workflow-invariants.md` дополнена.
-- **Код без `Controller.kt`.**
+  решения») и перенесена в `docs/verification/scheduler.md` (§8.1 «Declared output outside the candidate», §8.4).
+  Строка WF-5 в `docs/reference/workflow-invariants.md` дополнена.
+- **Код.**
   - `ScratchPolicy` версии 2: якорные корни, `excludes`, `id`, `NONE`, `BUILT_IN`; `isScratch` для собственного вывода
     проверки остался прежним.
-  - `Stamper`/`StampReport`: неотслеживаемое под корнями отфильтровано, `scratchCount`, untracked-manifest v2.
-  - `DirtyState`/`Snapshot`: тот же фильтр; перепроверка статуса под политикой (P2-3); `latest`; манифест v2.
-  - `AttemptConfig.scratch`: заморозка до s0, у наследия — `NONE`, в JSON без поля. `Contract.scratch`, `deriveS0(scratch)`.
-  - `Scheduler`: путь, объявленный известным замыканием, и отслеживаемый путь остаются входами при любом имени;
-    закреплённый вход вне идентичности перечитывается; `Receipt.inputPolicy` проверяется до коротких путей;
-    `Currency.rewrittenInputs`; отслеживаемое экспортируется в изолированного кандидата.
-  - `Resolution`: `ObligationResult` и `DecisionItem` получили `rewrittenInputs`, добавлен `Resolved.decisionItems`;
-    красный с переписанным входом остаётся красным.
-  - `Atlas.build(root, captured)`. В S3 (`S3Run`, `Integrator`, `ReplayRebase`) — политика попытки.
-  - Все новые JSON-поля помечены `@EncodeDefault(NEVER)`.
+  - `Stamper`/`StampReport`: фильтр неотслеживаемого под корнями, `scratchCount`, untracked-manifest v2.
+  - `DirtyState`/`Snapshot`: тот же фильтр; перепроверка статуса под политикой; `latest`; манифест v2.
+  - `AttemptConfig.scratch` замораживается до s0, у наследия — `NONE`. `Contract.scratch`, `deriveS0(scratch)`.
+  - `Scheduler`:
+    - путь, объявленный известным замыканием, и отслеживаемый путь — входы при любом имени;
+    - закреплённый вход вне идентичности перечитывается;
+    - `Receipt.inputPolicy` проверяется до коротких путей;
+    - `Currency.rewrittenInputs`;
+    - отслеживаемое экспортируется в изолированного кандидата.
+  - `Resolution`: `rewrittenInputs` в `ObligationResult` и `DecisionItem`, `Resolved.decisionItems`; красный с
+    переписанным входом остаётся красным.
+  - `Atlas.build(root, captured)`.
+  - S3 (`S3Run`, `Integrator`, `ReplayRebase`) берут политику попытки.
+  - `Controller` (в новой `opening(...)` W4):
+    - штамповщик создаётся после заморозки попытки, с её политикой; `deriveS0(scratch)`;
+    - атлас берёт хеши из захвата этого открытия;
+    - `ask` строит пункты через `decisionItems`;
+    - `fullSuite`: красный по P1-4, `NotCertified` передаёт `rewrittenInputs`.
+- **Счётчики WF-2/3** (`DirtyRepoScenarioTest`, было → стало). Процессы git не изменились: открытия 37/25/36, снимки 17/28,
+  финал 16. Объекты не изменились: 1501/301 на первом открытии, 1 на снимок, 0 на второй работе. Чтения на открытии:
+  1500 файлов — 3010 → 1511, 300 файлов — 610 → 311 (атлас больше не читает `devtools/`). Финал — 3012/612, как было.
+  Манифест снимка в байтах вырос примерно на 80 (поля политики). Хуже не стало ни в одном счётчике.
 
 ## Решения
 - Один `ScratchPolicy`, два правила: для идентичности — якорные корни (решение 1), для собственного вывода проверки —
-  прежнее совпадение сегмента (D-45). Иначе в многомодульном проекте (`app/build/`) каждая квитанция была бы негодна:
-  вывод проверки попадает в перечисленные входы. Безопасная альтернатива — общий якорный предикат и для входов — ждёт
-  объявления вложенных корней.
-- P1-2 при неизвестном замыкании: расходный файл, который проверка читает, не заявив его, доверяется так же, как
-  игнорируемый файл сегодня (§8.4) — ограничение принято. Файл, заявленный в замыкании, закрепляется и перечитывается.
-- P1-4: красный остаётся красным, когда квитанция негодна из-за переписанного входа (`rewrittenInputs` не пуст).
-  Негодность из-за неизвестной стабильности (фоновый или незатихший прогон) обрабатывается по-старому: перезапуск.
-- P2-1: квитанции базовой линии (`Regressions.isBaseline`) из проверки политики исключены — их пишет не штамповщик.
+  прежнее совпадение сегмента (D-45). Иначе в многомодульном проекте (`app/build/`) каждая квитанция была бы негодна.
+- P1-2 при неизвестном замыкании: незаявленный расходный вход доверяется так же, как игнорируемый файл сегодня (§8.4) —
+  ограничение принято. Файл, заявленный в замыкании, закрепляется и перечитывается.
+- P1-4: красный остаётся красным, когда квитанция негодна из-за переписанного входа. Негодность из-за неизвестной
+  стабильности (фоновый или незатихший прогон) обрабатывается как раньше: перезапуск.
+- P2-1: квитанции базовой линии из проверки политики исключены (их пишет не штамповщик).
+- **Изменён тест `CadenceTest`** («final gates require current eligible evidence»). Он утверждал поведение до W3: вывод
+  набора в неигнорируемый `build/` сдвигает штамп. По решению владельца №32 это больше не так. Замысел теста сохранён:
+  набор пишет в `src/build/` — это собственный вывод проверки, но не объявленный корень, — и по-прежнему получает
+  `NotCertified` с путём в причине. Добавлен случай W3: вывод в `build/` — `Green`.
 
 ## Тесты
-- Цикл 1 (L1, один прогон): `StamperTest`, `DirtyStateTest`, `CaptureBytesTest`, `SnapshotCaptureRegressionTest`,
-  `SchedulerTest`, `ScratchPolicyTest` (новый), `ExitGateTest`, `AttemptConfigTest`, `io.astrolabe.contract.*`,
-  `AcceptanceDecisionTest`, `CadenceTest`, `IntegratorTest`, `io.astrolabe.workflow.*`. Итог: 174 теста, 4 упали, все
-  ожидаемо.
-  - `CaptureBytesTest` v2: вместо векторов стояли заглушки; вставлены значения этого прогона. Деревья и tracked-delta
-    совпали с v1.
-  - Три сценария `OutputPolicyScenarioTest` красные, пока нет проводки в `Controller` (политика `NONE`):
-    - «принять» покрыло красный финал;
-    - в пункте решения нет `rewrittenInputs`;
-    - в сценарии вывода, помимо этого, гейт `if not exist …` не распознан как pytest — заменён строкой, как у варианта
-      данных.
-  - Набор WF — 134,4 с при пределе 180.
-- Циклов «правка → тест» в фазе B: 1 из 3.
+- Цикл 1 (L1 и `workflow.*`, до проводки): 174 теста, 4 упали ожидаемо: заглушки векторов v2 и три сценария,
+  красные без `Controller`.
+- Цикл 2 (`workflow.*`, `CaptureBytesTest`, `AcceptanceDecisionTest`, `CadenceTest`, после проводки): три сценария
+  `OutputPolicyScenarioTest` зелёные, упал один `CadenceTest` (устаревшее ожидание, см. «Решения»).
+- Цикл 3 = L2 по карточке: `:core:test` по `io.astrolabe.workflow.*`, `workspace.*`, `verify.*`, `contract.*`, плюс
+  `CadenceTest` и `AttemptConfigTest` — **296 тестов, 0 упало, 11 пропущено**.
+- Затем `./gradlew assemble testClasses checkKotlinAbi -Pastrolabe.aiGateBuild=C:/work.astrolab/llm-transport-sdk/llm` —
+  зелёный. `:core:updateKotlinAbi` — один раз, дамп в коммите.
+- Набор WF в L2, по XML: `DirtyRepoScenarioTest` 83,8 / `DirtyRepoTest` 1,7 / `FinalizationScenarioTest` 20,5 /
+  `OutputPolicyScenarioTest` 12,3 / `ReviewScenarioTest` 19,1 / `UnreadableFileScenarioTest` 8,9 = **146,3 с** (≤ 180).
+- Циклов «правка → тест» в фазе B: 3 из 3.
 
 ## Отклонения от карточки
 - Выбор «объявить выводом этой задачи» не реализован (решение оркестратора 3) — хвост в 4B.
@@ -68,32 +68,28 @@
 ## Хвосты и риски
 - «Объявить выводом этой задачи» — 4B (W6/W7).
 - Fail-closed при ошибке обхода `filesUnder` и большие входы (P2-4).
-- Мемоизация `WorkspacePath.canonicalise` (D-47).
+- Мемоизация `WorkspacePath.canonicalise` (≈ 60 % времени ячейки на 1500 файлах, D-47).
 - Переоткрытие перечитывает дерево.
 - `git status -uall` по-прежнему перечисляет расходные файлы.
-- ABI перегенерирую один раз после проводки и L2.
+- Вложенные корни вывода (`app/build/`) в идентичности, пока не объявлены: многомодульный проект, который пишет туда
+  неигнорируемый вывод, по-прежнему сдвигает кандидата.
 
-## БЛОКЕР (место): `Controller.kt` — ждёт слияния W4
-Нужная правка, ≈ 10 строк. Строки — на `e75d38d`; после W4 перенести по смыслу:
-```kotlin
-// open(): убрать  val stamper = Stamper(workspace, EnvFingerprint.compute(env))  (сразу после registry); перед DirtyState:
-val stamper = Stamper(workspace, EnvFingerprint.compute(env), scratch = frozen.scratch)
-val atlas = Atlas.build(workspace.root, dirty.latest?.entries?.associateBy { it.path }.orEmpty())
-val derived = contracts.deriveS0(..., protected, policy.cost, scratch = frozen.scratch)
-// ask():
-val items = waiting.decisionItems
-// fullSuite():
-data class NotCertified(val detail: String, val rewritten: List<String> = emptyList()) : FullSuite
-val red = required.firstOrNull { currency.getValue(it.id).let { c -> c.red && c.applicability == Current && (c.eligible || c.rewrittenInputs.isNotEmpty()) } }
-FullSuite.NotCertified("…", required.flatMap { currency.getValue(it.id).rewrittenInputs }.distinct().sortedWith(Stamper.PATH_ORDER))
-// campaignResults():
-is FullSuite.NotCertified -> results += ObligationResult(FULL_SUITE, Run, Unverified, "final full suite could not certify: ${suite.detail}", rewrittenInputs = suite.rewritten)
-```
-После слияния W4:
-1. `git merge main` в `v2/W3`.
-2. Эта правка.
-3. Цикл 2: WF и затронутые классы.
-4. L2: `workflow.*`, `workspace.*`, `verify.*`, `contract.*`, затем `assemble testClasses checkKotlinAbi`.
-5. `updateKotlinAbi`.
+## Регрессия S3
+- **Симптом.** После `f40fa47` на `main` падали 7 тестов: 6 в `S3CampaignTest` (писатели), 1 в `PrecompileCampaignTest`.
+  Мой L2 не включал `campaign.*`.
+- **Причина S3 (подтверждена журналом).** `Workspaces` (`workspace/Worktrees.kt`) строил штамповщики главной линии и
+  рабочего дерева писателя без политики, то есть в кодировке v1. Кандидат диспетчеризации шёл от штамповщика кампании —
+  под `BUILT_IN`, в кодировке v2. Поэтому каждый писатель получал «the main line is @x, dispatched @y» и завершался
+  ошибкой, после чего S3 возвращался на главную линию. Это место я пропустил, когда искал вызовы `Stamper(` (вывод был
+  обрезан `head`).
+- **Исправление S3.** `Workspaces` получил параметр `scratch` (`@JvmOverloads`, по умолчанию `NONE`); `S3Run` передаёт
+  `c.stamper.scratch`. Других конструкций `Stamper(` без политики в `main` нет — проверено полным поиском.
+- **`PrecompileCampaignTest` FX-44** («a tree that moved while the checks ran»). Проверка сдвигала дерево записью
+  `build/marker.txt`, а по решению владельца №32 такой вывод больше не входит в кандидата. Теперь проверка пишет в
+  `docs/build/`: это её собственный вывод (не tested input, D-45), но не объявленный корень, поэтому дерево по-прежнему
+  сдвигается. Утверждения теста не изменены, сменён только путь.
+- **Тесты.** Цикл 1: воспроизведение (`S3CampaignTest`, `PrecompileCampaignTest`). Цикл 2: те же плюс `WorktreesTest` —
+  все зелёные. L2 (`campaign.*`, `workflow.*`, `workspace.*`, `verify.*`) — **516 тестов, 0 упало, 11 пропущено**, набор
+  WF 150,7 с. `assemble testClasses checkKotlinAbi -Pastrolabe.aiGateBuild=…` — зелёный; ABI перегенерирован.
 
-Статус: В РАБОТЕ: ждёт W4 · последний коммит ветки `03903d2`
+Статус: ГОТОВО К СЛИЯНИЮ · последний коммит ветки `7daaa88`

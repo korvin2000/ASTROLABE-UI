@@ -51,7 +51,7 @@ git в захвате сравнивает членство под полити�
 и читает только разбираемые; строки те же, outline — по запросу; в идентичность атлас не входит (P3). *Переоткрытие
 перечитывает дерево:* хвост (нужен межпроцессный кэш, т.е. доверие метаданным для базы drift — решение владельца).
 
-**8. `Controller.kt` (W4, правлю только после слияния W4):** `Stamper` создаётся после `frozen` со
+**8. `Controller.kt` (сделано после слияния W4, `f40fa47`, в новой `opening(...)`):** `Stamper` создаётся после `frozen` со
 `scratch = frozen.scratch`; `deriveS0(..., scratch = frozen.scratch)`; `Atlas.build(workspace.root, dirty.latest…)`;
 `fullSuite`: красный = `c.red && Current && (c.eligible || c.rewrittenInputs.isNotEmpty())`, `NotCertified` несёт
 `rewrittenInputs` в результат `FULL_SUITE`; `ask` строит пункты через `Resolved.decisionItems`.
