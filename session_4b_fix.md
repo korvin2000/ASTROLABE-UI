@@ -104,6 +104,43 @@ memory between tasks beyond owner №33, transcript persistence (owner №34). A
   says which and why.
 - New guards WF-12…WF-15 get their rows in `docs/reference/workflow-invariants.md` (you write the registry at merge).
 
+## 4a. Tail discipline — the tail count must go down (owner, 2026-10-06)
+
+Tails must not roll from session to session by default.
+
+- **Ledger.** At the start of the session write `plan2/reports/TAILS-4B.md`: one row per open tail. Sources:
+  - `session_4a_results.md` §4;
+  - the 4A tails in `CONTINUE-TASK.md`;
+  - the tails in the `Log:` lines of P8.W.0–W.5.
+
+  Each row has an id `T-nn`, a one-line statement, its source, and its owner line in this session (or "none").
+  Record the opening count.
+- **Owned tails are closed in their line.** A tail assigned to a line in §3 is part of that line's done criteria and
+  is covered by a test. A line may not hand it on silently. If it cannot close a tail, it reports why in «Хвосты и
+  риски» and names the smallest fix.
+- **No new tail without a decision.** A line or a review that wants to leave something open must add it to the ledger
+  with severity, owner and the cost of fixing it now. Before the line merges, you take one decision for it:
+  - **fix now:** in the line's fix round, if it fits the card and the cycle limit;
+  - **drop:** it is not worth fixing; the reason is recorded;
+  - **schedule:** to a named later task in `TODO.md`, with a `Deps` line.
+
+  P1-class tails are never dropped or scheduled. They are fixed, or they become `БЛОКЕР` for the owner.
+- **Unowned tails.** Tails with owner "none" go to the owner once, at the end of stage 1, in the same `AskUserQuestion`
+  batch as the W6 decisions or a second batch of at most four questions. Each tail gets the options "fix in 4B
+  (line)", "schedule to <task>" and "drop", with your recommendation first. Without an answer, apply your recommendation
+  and mark it as such.
+- **Count at the end.** `session_4b_results.md` reports the ledger with these counts:
+  - tails opened with;
+  - closed;
+  - dropped;
+  - scheduled, with their tasks;
+  - new;
+  - open at the end.
+
+  **The open count at the end must be lower than at the start.** If it is not, the results file says why, tail by
+  tail, and the handoff lists the tails as the first item for the owner. Only scheduled tails carry into the next
+  handoff, each with its task id.
+
 ## 5. How to run the lines — economy rules (plan §8.8)
 
 - **You stay thin.** Do not write or read code yourself. Keep in your context only cards, line reports (≤ 40 lines),
@@ -178,7 +215,8 @@ memory between tasks beyond owner №33, transcript persistence (owner №34). A
 - Push to `main` is allowed after the checks of §5 pass.
 - End of session: the checklist of plan §8.7, the handoff (≤ 40 lines), `actual_state.md` (≤ 60 lines), and
   `C:\work.astrolab\session_4b_results.md` in the form of `session_4a_results.md`: counters before/after against the 4A
-  baseline, the integration review per invariant and stop state, the owner's W6 decisions, the open tails for session 5,
+  baseline, the integration review per invariant and stop state, the owner's W6 decisions, the tail ledger counts of
+  §4a (only scheduled tails, with their task ids, go to session 5),
   and a checklist of at most eight steps by which the owner repeats `play5` in Studio (now including a follow-up and a
   message to a finished task).
 
@@ -191,6 +229,9 @@ The session as a whole is done when, shown by command output in the last report:
 - P8.W.6–P8.W.10 are `DONE` or `BLOCKED` with the reason in their `Log:`;
 - the integration review of the merged `main` has no open P1; the guards of WF-1…WF-15 are green and registered;
 - the live runs reach a terminal state without `agent_error` and the counters are recorded against the 4A baseline;
+- the tail ledger `plan2/reports/TAILS-4B.md` is closed out by §4a. It shows the opening count, each tail closed,
+  dropped or scheduled with its task id, the new tails and their decisions, and an open count lower than the opening
+  one (or the per-tail reason why not);
 - Gate P8.W is ticked with the run link and the tag `v2-wave-W` is pushed, or the reason is in the handoff;
 - `main` of both repositories (and of the SDK, if W10 changed it) is pushed;
 - `TODO.md` P8, `CONTINUE-TASK.md` (naming session 5 as next), `actual_state.md`, plan §11/§17,
