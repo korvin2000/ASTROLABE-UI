@@ -6,6 +6,7 @@ import io.astrolabe.ProfileRoles
 import io.astrolabe.Project
 import io.astrolabe.auth.Stage
 import io.astrolabe.budget.HeuristicEstimator
+import io.astrolabe.campaign.Attempts
 import io.astrolabe.campaign.CampaignRequest
 import io.astrolabe.campaign.Controller
 import io.astrolabe.campaign.DeployTarget
@@ -15,8 +16,11 @@ import io.astrolabe.campaign.PublicationRequest
 import io.astrolabe.campaign.PublicationRun
 import io.astrolabe.campaign.Reconciliation
 import io.astrolabe.campaign.S0Run
+import io.astrolabe.cell.Protocol
+import io.astrolabe.cell.Roles
 import io.astrolabe.contract.Contracts
 import io.astrolabe.contract.MessageKind
+import io.astrolabe.contract.Shape
 import io.astrolabe.contract.SqliteContractRepository
 import io.astrolabe.event.Authority
 import io.astrolabe.event.AutonomousAuthority
@@ -261,7 +265,7 @@ public class StudioHost @JvmOverloads public constructor(
             // WD-04 (WF-1): the notes are worked out before the open from what it will find — the stored contract, or the
             // suites a new one is derived from — so one open serves the action.
             val expected = if (spec.verificationSetup) expectedVerification(p, work, spec.savedChecks) else null
-            val notes = hostNotes(spec, expected)
+            val notes = hostNotes(spec, expected, expectedProtocol(p, work, run.config))
             // T-01 (WF-1, task-workflow §3.6): a new contract the core derives nothing executable for takes the saved check
             // or the review item through the core's declaredChecks hook, so it opens once — no host amendment, no second open.
             val declared = if (expected != null && !(expected.kind == "tests" && expected.source == "declared") && p.reads.currentContractVersion(work.value) == null) Verification.items(expected) else emptyList()
@@ -287,7 +291,7 @@ public class StudioHost @JvmOverloads public constructor(
                     c.copy(scope = io.astrolabe.contract.Scope(c.scope.writePaths, protectedPaths))
                 }
             }
-            val actual = hostNotes(spec, verification)
+            val actual = hostNotes(spec, verification, protocolOf(opened))
             // A second open only when this one could not run (the contract needed its acceptance first) or found other
             // notes than expected. C14: a campaign this open could not free stays stopped and runs nothing, so the notes
             // change nothing: a second open would only journal and announce the same hold again.
@@ -363,16 +367,32 @@ public class StudioHost @JvmOverloads public constructor(
     /** How an opened contract is verified (§3.6, WD-23): read from the stored contract by origin and purpose, never by matching sniffed suites. */
     private fun verificationOf(opened: OpenedCampaign): VerificationSetup = Verification.of(opened.contract)
 
-    /** The host notes of a run (D-345): the Studio's guidance and how the result is checked, and the protected files. */
-    private fun hostNotes(spec: StartSpec, verification: VerificationSetup?): List<String> {
+    /**
+     * The host notes of a run (D-345): the Studio's guidance for the main line's [protocol] and how the result is checked,
+     * and the protected files.
+     */
+    private fun hostNotes(spec: StartSpec, verification: VerificationSetup?, protocol: Protocol): List<String> {
         val notes = ArrayList<String>()
         if (verification != null) {
-            notes += Guidance.NOTES
+            notes += Guidance.notes(protocol)
             notes += Guidance.platform(System.getProperty("os.name"))
             notes += Verification.text(verification)
         }
         spec.protectedPaths?.let { notes += protectedRule(it) }
         return notes
+    }
+
+    /** The protocol the opened campaign's main line speaks: the frozen attempt's, in the contract's shape (A-D.1). */
+    private fun protocolOf(opened: OpenedCampaign): Protocol = Roles.mainLine(opened.attempt.config.protocol, opened.contract.shape).protocol
+
+    /**
+     * WF-1: [protocolOf] before the open — the frozen attempt's protocol, else [config]'s, which the open freezes; the stored
+     * contract's shape, else S0, the shape a new contract is derived in. A wrong guess costs a second open, never a wrong note.
+     */
+    private fun expectedProtocol(p: OpenProject, work: WorkId, config: Config): Protocol {
+        val frozen = Attempts(p.project.store, clock).load(work, AttemptId(Astrolabe.FIRST_ATTEMPT))?.config?.protocol ?: config.protocol
+        val shape = Contracts(SqliteContractRepository(p.project.store, clock), idGen, clock).current(work)?.shape ?: Shape.S0
+        return Roles.mainLine(frozen, shape).protocol
     }
 
     /**
