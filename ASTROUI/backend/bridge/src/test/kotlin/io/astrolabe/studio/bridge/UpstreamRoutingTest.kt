@@ -11,9 +11,9 @@ class UpstreamRoutingTest {
     private val drafted = Json.parseToJsonElement("""{"gate":{"v":1,"api":"openai-chat"}}""") as JsonObject
 
     @Test
-    fun `a z-ai model on OpenRouter ignores the Together upstream`() {
+    fun `a z-ai model on OpenRouter ignores the Together and InferenceNet upstreams`() {
         assertEquals(
-            """{"gate":{"v":1,"api":"openai-chat","body":{"provider":{"ignore":["Together"]}}}}""",
+            """{"gate":{"v":1,"api":"openai-chat","body":{"provider":{"ignore":["Together","InferenceNet"]}}}}""",
             AutoProfiles.routed("openrouter", "z-ai/glm-5.3-flash", drafted).toString(),
         )
     }
