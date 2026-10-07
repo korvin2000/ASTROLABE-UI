@@ -999,7 +999,8 @@ public class TaskService implements DisposableBean {
         String model = modelFor(modelRef, last);
         String nextEffort = models.fitEffort(model, normalise(effort, List.of("low", "medium", "high"), last.effort()));
         String nextMode = normalise(mode, List.of("ask", "auto"), last.mode());
-        String request = recap(runs) + text;
+        String recap = recap(runs);
+        String request = recap + text;
         String workId = hosts.host().newWorkId();
         TaskRun run = new TaskRun(workId, first.projectId(), first.taskId(), last.workId(), first.title(), request, model, nextEffort, nextMode,
             model != null && model.startsWith(FixtureBrain.PROVIDER + "/"), named(effort) || last.effortExplicit());
@@ -1010,6 +1011,11 @@ public class TaskService implements DisposableBean {
             normalise(preset, PRESETS, last.preset() != null ? last.preset() : preferences.text(Preferences.DEFAULT_PRESET)));
         pipeline.studioItem(workId, "studio.user_message", Json.obj().put("text", text).put("role", "follow_up"));
         if (last.modelRef() != null && model != null && !last.modelRef().equals(model)) pipeline.studioItem(workId, "studio.notice", Json.obj().put("code", "model_changed").put("model", model));
+        // T-10 (task-workflow §4.5): the recap keeps every message uncut (WF-11) and grows with the task, while the core carries
+        // the parent's state within its own budget. Past this length the Studio offers a new task; it never cuts the recap.
+        if (recap.length() > RECAP_NEW_TASK_CHARS) {
+            pipeline.studioItem(workId, "studio.notice", Json.obj().put("code", "new_task_suggested").put("recapChars", recap.length()));
+        }
         publish(first.taskId());
         executor.execute(() -> launch(run, request, false));
         return workId;
@@ -1162,6 +1168,9 @@ public class TaskService implements DisposableBean {
     }
 
     private static final String END_OF_CONTEXT = "[End of context]";
+
+    /** T-10: the recap length (characters, about 8K tokens) past which a follow-up's run carries a "start a new task" notice. */
+    static final int RECAP_NEW_TASK_CHARS = 32_000;
 
     /** Folders a build, a cache or an IDE writes: never what a recap names as changed. */
     private static final ScratchPolicy RECAP_NOISE = new ScratchPolicy(
