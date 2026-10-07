@@ -80,4 +80,13 @@ class TaskScratchTest {
         assertTrue(roots.size() == ScratchPolicy.DEFAULT_PREFIXES.size() && roots.toString().contains("\"build\""), roots.toString());
         assertEquals(ScratchPolicy.BUILT_IN.getId(), Json.text(task.path("scratch"), "id"));
     }
+
+    /** T-46 (task-workflow §5.1): the active scratch list shows the task's declared outputs the attempt froze. */
+    @Test
+    void theScratchListShowsTheDeclaredOutputs() {
+        ScratchPolicy effective = ScratchPolicy.BUILT_IN.withOutputs(java.util.List.of("reports"));
+        var scratch = TaskService.scratchJson(effective);
+        assertTrue(scratch.path("roots").toString().contains("\"reports\""), scratch.toString());
+        assertEquals(effective.getId(), Json.text(scratch, "id"));
+    }
 }

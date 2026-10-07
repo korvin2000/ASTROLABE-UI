@@ -75,7 +75,17 @@ public class TaskService implements DisposableBean {
     private final ExecutorService executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("task-", 0).factory());
     private final Map<String, Boolean> stopRequested = new ConcurrentHashMap<>();
     /** C2: messages sent while a run was opening, delivered once it is live. */
-    private final Map<String, List<String>> queued = new ConcurrentHashMap<>();
+    private final Map<String, List<Queued>> queued = new ConcurrentHashMap<>();
+
+    /**
+     * WF-13: a message held while its run opens — its text, its kind (`null`: the core's) and its delivery identity
+     * together, so the core records it once with the kind it was sent as (task-workflow §2.2).
+     */
+    private record Queued(String text, String kind, String hostRef) { }
+
+    private void enqueue(String workId, String text, String kind, String hostRef) {
+        queued.computeIfAbsent(workId, w -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(new Queued(text, kind, hostRef));
+    }
 
     public TaskService(JdbcTemplate jdbc, HostService hosts, CampaignService campaigns, ProjectService projects, ProjectSettings projectSettings,
                        SettingsService settings, Preferences preferences, AccountService accounts, ModelService models, DecisionService decisions,
@@ -397,7 +407,8 @@ public class TaskService implements DisposableBean {
         ObjectNode o = Json.obj();
         o.put("id", policy.getId());
         var roots = o.putArray("roots");
-        policy.getPrefixes().stream().sorted().forEach(roots::add);
+        // T-46: the task's declared outputs (task-workflow §5.1) are roots of the same list.
+        java.util.stream.Stream.concat(policy.getPrefixes().stream(), policy.getOutputs().stream()).distinct().sorted().forEach(roots::add);
         return o;
     }
 
@@ -691,13 +702,13 @@ public class TaskService implements DisposableBean {
 
     /** C2: the messages sent while [r] was opening reach the agent now, in order; a run that ended already takes them on its next start. */
     private void deliverQueued(TaskRun r) {
-        List<String> messages = queued.remove(r.workId());
+        List<Queued> messages = queued.remove(r.workId());
         if (messages == null || messages.isEmpty()) return;
         if (!hosts.host().isLive(r.workId())) {
             queued.computeIfAbsent(r.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).addAll(0, messages);
             return;
         }
-        for (String m : messages) hosts.host().message(r.projectId(), r.workId(), null, m, null);
+        for (Queued m : messages) hosts.host().message(r.projectId(), r.workId(), m.kind(), m.text(), m.hostRef());
     }
 
     private static final class Stopped extends RuntimeException {
@@ -853,7 +864,7 @@ public class TaskService implements DisposableBean {
         // C2: a run that is opening gets the message as soon as it is live; it never starts another run.
         if (campaigns.isOpening(last.workId()) || "opening".equals(last.status())) {
             pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
-            queued.computeIfAbsent(last.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(body);
+            enqueue(last.workId(), body, change ? AMENDMENT : null, "msg-" + java.util.UUID.randomUUID());
             pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "message_queued"));
             return result.put("effect", "queued");
         }
@@ -879,7 +890,7 @@ public class TaskService implements DisposableBean {
             // A run that never opened opens again under its own id and takes the message once it is live.
             case RETRY_START -> {
                 pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
-                queued.computeIfAbsent(last.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(body);
+                enqueue(last.workId(), body, change ? AMENDMENT : null, "msg-" + java.util.UUID.randomUUID());
                 retryStart(last, modelRef, effort, mode);
                 return result.put("effect", "continued");
             }
@@ -1119,6 +1130,9 @@ public class TaskService implements DisposableBean {
             for (JsonNode q : Json.each(requests == null ? null : Json.parse(requests))) {
                 String text = Json.text(q.path("body"), "text");
                 if (text == null || text.isBlank()) continue;
+                // A card's note sent to the agent, or a Rework's words amended into the work: listed below from the card's records.
+                String ref = Json.text(q.path("body"), "hostRef");
+                if (ref != null && ref.startsWith("card-")) continue;
                 said.add(new Said(instant(Json.text(q.path("body"), "at")), 0, n, n == 0 ? ownWords(r, text) : text));
                 n++;
             }
@@ -1350,13 +1364,21 @@ public class TaskService implements DisposableBean {
             }
             case "send" -> {
                 // W7 (task-workflow §2.1, D-430): the card's note reaches the agent only by this explicit action — as steering
-                // under the card's reference, so a retried send is one message; the request stays open under its key.
+                // under the card's reference and its last attached note, so a retried send is one message and a send after
+                // another note is a message of its own; the request stays open under its key. WF-13: a working run gets
+                // it now, an opening one once live, a stopped one goes on with it.
                 if (!kind.equals("acceptance")) throw ApiException.invalid("this card is not an acceptance decision");
                 String note = Json.text(decision, "note");
                 if (note == null || note.isBlank()) throw ApiException.invalid("the card has no note to send");
                 Run owner = runs.stream().filter(r -> r.workId().equals(Json.text(decision, "workId"))).findFirst().orElse(runs.getLast());
-                if (!hosts.host().isLive(owner.workId()) && !campaigns.isOpening(owner.workId()) && !"opening".equals(owner.status())) {
-                    continueRun(owner, note, "steering", "card-" + cardId, null, null, null);
+                String ref = "card-" + cardId + "-" + jdbc.queryForObject("SELECT coalesce(max(seq), 0) FROM acceptance_note WHERE card_id = ?", Long.class, cardId);
+                if (hosts.host().isLive(owner.workId())) {
+                    hosts.host().message(owner.projectId(), owner.workId(), "steering", note, ref);
+                    campaigns.refresh(owner.workId());
+                } else if (campaigns.isOpening(owner.workId()) || "opening".equals(owner.status())) {
+                    enqueue(owner.workId(), note, "steering", ref);
+                } else {
+                    continueRun(owner, note, "steering", ref, null, null, null);
                 }
             }
             case "answer" -> {
@@ -1409,10 +1431,10 @@ public class TaskService implements DisposableBean {
             : kind.equals("accept") ? USER_ACCEPT : USER_REWORK;
         boolean fresh = decisions.answerAcceptance((ObjectNode) card, kind, reason, "local");
         if (!fresh || hosts.host().isLive(run.workId()) || campaigns.isOpening(run.workId()) || "opening".equals(run.status())) return;
-        // c16: a campaign-scope Rework is answered by the core with a stop that asks for an amendment or a follow-up task;
-        // reopening the work as is would only meet that stop. The Rework's words start the follow-up now.
+        // T-33 (task-workflow §2.1): a campaign-scope rework(text) is by the decider's authority also an amendment of the
+        // same work, recorded before the reopen, so the core derives its increment instead of the c16 stop.
         if (kind.equals("rework") && Json.text(card.path("request"), "incrementId") == null) {
-            followUp(runs(run.taskId()), reason, modelRef, effort, mode);
+            continueRun(run, reason, AMENDMENT, "card-" + Json.text(card, "id") + "-rework", modelRef, effort, mode);
             return;
         }
         continueRun(run, null, null, null, modelRef, effort, mode);

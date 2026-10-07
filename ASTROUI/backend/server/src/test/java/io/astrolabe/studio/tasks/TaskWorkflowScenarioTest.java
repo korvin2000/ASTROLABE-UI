@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -461,9 +462,53 @@ class TaskWorkflowScenarioTest {
         verify(campaigns, never()).open(any(), anyString(), any(), eq(true));
         var card = tasks.task("W-1", false).path("pending").get(0);
         tasks.card("W-1", Json.text(card, "id"), Json.obj().put("decision", "send"));
-        verify(host).message("p1", "W-1", "steering", "the header is still blue", "card-" + Json.text(card, "id"));
+        verify(host).message(eq("p1"), eq("W-1"), eq("steering"), eq("the header is still blue"), startsWith("card-" + Json.text(card, "id") + "-"));
         verify(campaigns, timeout(10_000)).open(any(), anyString(), any(), eq(true));
         assertEquals(0, jdbc.queryForList("SELECT * FROM acceptance_decision").size(), "WF-8: Send to agent decides nothing");
+    }
+
+    /** WF-13: Send to agent while the run works delivers the note now; a send after another note is a message of its own. */
+    @Test
+    void sendToAgentWhileTheRunWorksDeliversEachSendUnderItsOwnIdentity() {
+        taskService();
+        run("W-1", "open the page in a browser", "stored", "waiting_for_input", "acceptance_decision", null, "2026-10-05T10:00:00Z");
+        decisions.decide("W-1", request("decide-1", "dk-1")).join();
+        String cardId = Json.text(decisions.openAcceptance("W-1"), "id");
+        assertTrue(decisions.attachNote(cardId, "the header is still blue"));
+        when(host.isLive("W-1")).thenReturn(true);
+        tasks.card("W-1", cardId, Json.obj().put("decision", "send"));
+        ArgumentCaptor<String> refs = ArgumentCaptor.forClass(String.class);
+        verify(host).message(eq("p1"), eq("W-1"), eq("steering"), eq("the header is still blue"), refs.capture());
+        assertTrue(decisions.attachNote(cardId, "and the footer"));
+        tasks.card("W-1", cardId, Json.obj().put("decision", "send"));
+        verify(host).message(eq("p1"), eq("W-1"), eq("steering"), eq("the header is still blue" + (char) 10 + "and the footer"), refs.capture());
+        assertNotNull(refs.getAllValues().getFirst());
+        assertNotEquals(refs.getAllValues().getFirst(), refs.getAllValues().getLast(), "WF-13: the second send was deduplicated as the first");
+        verify(campaigns, never()).open(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    /** WF-13: a change of the task and a card's Send to agent made while the run opens reach it once live, each with its kind and identity. */
+    @Test
+    void whatIsQueuedWhileTheRunOpensKeepsItsKindAndIdentity() throws Exception {
+        launchable();
+        java.util.concurrent.atomic.AtomicBoolean live = new java.util.concurrent.atomic.AtomicBoolean();
+        when(host.isLive("W-1")).thenAnswer(i -> live.get());
+        when(campaigns.open(any(), anyString(), any(), org.mockito.ArgumentMatchers.anyBoolean())).thenAnswer(i -> {
+            live.set(true);
+            return mock(CampaignRef.class);
+        });
+        run("W-1", "open the page in a browser", "opening", null, null, null, "2026-10-05T10:00:00Z");
+        decisions.decide("W-1", request("decide-1", "dk-1")).join();
+        String cardId = Json.text(decisions.openAcceptance("W-1"), "id");
+        assertTrue(decisions.attachNote(cardId, "the header is still blue"));
+        tasks.card("W-1", cardId, Json.obj().put("decision", "send"));
+        assertEquals("queued", Json.text(tasks.message("W-1", "open it in Firefox too", null, null, null, null, null, null, "amendment"), "effect"));
+        verify(host, never()).message(anyString(), anyString(), any(), anyString(), any());
+        jdbc.update("UPDATE campaign_index SET status = 'open_failed' WHERE work_id = 'W-1'");
+        tasks.resume("W-1", null, null, null);
+        verify(host, timeout(10_000)).message(eq("p1"), eq("W-1"), eq("amendment"), eq("open it in Firefox too"), org.mockito.ArgumentMatchers.notNull());
+        verify(host).message(eq("p1"), eq("W-1"), eq("steering"), eq("the header is still blue"), startsWith("card-" + cardId + "-"));
+        verify(host, times(2)).message(anyString(), anyString(), any(), anyString(), any());
     }
 
     /** T-11: a kept decision answers the obligation set it was given for; the same key over another set is asked again. */
@@ -490,19 +535,17 @@ class TaskWorkflowScenarioTest {
         assertNotEquals("opening", jdbc.queryForObject("SELECT status FROM campaign_index WHERE work_id = 'W-1'", String.class), "c16: the work was reopened as is");
     }
 
-    /** c16 at the card: a campaign-scope Rework's words start the follow-up at once (reopened, the core would only stop again). */
+    /** T-33 (task-workflow §2.1): a campaign-scope Rework's words amend the same work; no follow-up, no c16 stop to meet. */
     @Test
-    void aCampaignScopeReworkOnTheCardStartsTheFollowUp() {
-        taskService();
-        when(host.newWorkId()).thenReturn("W-2");
+    void aCampaignScopeReworkOnTheCardAmendsTheSameWork() throws Exception {
+        launchable();
         run("W-1", "open the page in a browser", "stored", "waiting_for_input", "acceptance_decision", null, "2026-10-05T10:00:00Z");
         decisions.decide("W-1", request("decide-1", "dk-1").replace("\"incrementId\":\"I1\",", "")).join();
         var card = tasks.task("W-1", false).path("pending").get(0);
         tasks.card("W-1", Json.text(card, "id"), Json.obj().put("decision", "rework").put("answer", "the header must be green"));
-        ArgumentCaptor<TaskRun> started = ArgumentCaptor.forClass(TaskRun.class);
-        verify(campaigns).register(started.capture());
-        assertTrue(started.getValue().requestText().endsWith("the header must be green"), started.getValue().requestText());
-        assertNotEquals("opening", jdbc.queryForObject("SELECT status FROM campaign_index WHERE work_id = 'W-1'", String.class), "c16: the work was reopened as is");
+        verify(host).message(eq("p1"), eq("W-1"), eq("amendment"), eq("the header must be green"), startsWith("card-" + Json.text(card, "id") + "-"));
+        verify(campaigns, timeout(10_000)).open(any(), anyString(), any(), eq(true));
+        verify(campaigns, never()).register(any());
     }
 
     private static String requests(String... bodies) {
@@ -538,8 +581,10 @@ class TaskWorkflowScenarioTest {
         run("W-1", original, "stored", "failed", null, null, "2026-10-05T10:00:00Z");
         when(host.isOpen("p1")).thenReturn(true);
         // The same words twice are two messages; a note attached at 10:01:30 comes before a message of 10:02 whatever the card's answer time.
-        when(host.requests("p1", "W-1")).thenReturn(requests("2026-10-05T10:00:00Z", original, "2026-10-05T10:01:00Z", "make it green",
-            "2026-10-05T10:01:10Z", "make it blue", "2026-10-05T10:02:00Z", "make it green"));
+        // The note sent to the agent (Send to agent) is a request of the core too: the recap says it once, at the note's time.
+        String sent = requests("2026-10-05T10:00:00Z", original, "2026-10-05T10:01:00Z", "make it green",
+            "2026-10-05T10:01:10Z", "make it blue", "2026-10-05T10:02:00Z", "make it green", "2026-10-05T10:04:00Z", "the logo is too small");
+        when(host.requests("p1", "W-1")).thenReturn(sent.replace("\"text\":\"the logo is too small\"", "\"text\":\"the logo is too small\",\"hostRef\":\"card-a-d-1-1\""));
         jdbc.update("INSERT INTO decision (id, kind, project_id, work_id, request_json, status, created_at, answered_at, note) VALUES "
             + "('a-d-1','acceptance','p1','W-1','{}','answered','2026-10-05T10:01:20Z','2026-10-05T10:05:00Z','the logo is too small')");
         jdbc.update("INSERT INTO acceptance_note (card_id, work_id, text, created_at) VALUES ('a-d-1','W-1','the logo is too small','2026-10-05T10:01:30Z')");
