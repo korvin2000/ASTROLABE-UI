@@ -69,6 +69,11 @@ public final class SettingsSchema {
         f("runtime.effort", "models", "Main-model effort", "enum", null, List.of("Minimal", "Low", "Medium", "High"), null, null, "S P C", "next-attempt", "editable", null, "Mapped to a reasoning level by the profile's gate.effort");
         f("runtime.maxOutputTokens", "models", "Output narrowing", "int?", "tokens", null, 1.0, null, "S P C", "next-attempt", "editable", null, "Optional cap below the profile's output limit");
         f("config.tierTable", "models", "Tier table", "json", null, null, null, null, "S P", "next-attempt", "editable", null, "Profiles per tier (Low, Medium, High, ExtraHigh) with a calibration date; untiered = main serves every tier");
+        // P8.D.4: Studio keys beside Config, resolved into Config.protocol for the task's model (bridge StudioProtocol).
+        f("config.protocol", "models", "Main-line protocol", "enum", null, io.astrolabe.studio.bridge.StudioProtocol.CHOICES, null, null, "S P", "next-attempt", "editable", null,
+            "How the main line works with the model: structured (typed STATE) or direct (notes and task(finish)). Auto picks by the main model's class in the table below; a model without a class runs structured.");
+        f("config.protocolByModelClass", "models", "Protocol by model class", "json", null, null, null, null, "S P", "next-attempt", "editable", null,
+            "For auto: the protocol of each model class (Low, Medium, High, ExtraHigh); the class is the main profile's tier in the tier table. Every class is structured until the choice is calibrated.");
         unwired("config.defaults.probeTier", "models", "Probe tier", "enum", null);
         unwired("config.defaults.reviewTier", "models", "Review tier", "enum", null);
         unwired("config.defaults.reviewRoutineTier", "models", "Routine review tier", "enum", null);

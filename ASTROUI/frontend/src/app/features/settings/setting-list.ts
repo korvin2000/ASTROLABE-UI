@@ -1,4 +1,4 @@
-// The settings of Studio 2 (section 9): five sections, nineteen settings. The list is part of the complexity budget.
+// The settings of Studio 2 (section 9): five sections, twenty settings. The list is part of the complexity budget.
 
 export const SECTIONS = ['general', 'models', 'permissions', 'project', 'advanced'] as const;
 export type Section = typeof SECTIONS[number];
@@ -24,4 +24,6 @@ export const SETTINGS: readonly { n: number; id: string; section: Section }[] = 
   { n: 17, id: 'data_folder', section: 'advanced' },
   { n: 18, id: 'diagnostics', section: 'advanced' },
   { n: 19, id: 'reset', section: 'advanced' },
+  // P8.D.4: the main line's protocol, auto by the model's class until it is calibrated.
+  { n: 20, id: 'protocol', section: 'advanced' },
 ];

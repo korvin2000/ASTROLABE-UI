@@ -307,7 +307,7 @@ describe('complexity budget (section 2)', () => {
   it('has twenty settings at most, in five sections', () => {
     expect(SECTIONS).toHaveLength(5);
     expect(SETTINGS.length).toBeLessThanOrEqual(20);
-    expect(SETTINGS.map(s => s.n)).toEqual(Array.from({ length: 19 }, (_, i) => i + 1));
+    expect(SETTINGS.map(s => s.n)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
     for (const s of SETTINGS) expect(SECTIONS).toContain(s.section);
   });
 

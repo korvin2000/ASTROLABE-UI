@@ -68,6 +68,10 @@ export class Settings {
   limitFields: Record<LimitKind, string> = { money: '', minutes: '', requests: '' };
   readonly limitKinds: LimitKind[] = ['money', 'minutes', 'requests'];
   readonly limitInvalid = signal(false);
+  /** Setting 20 (P8.D.4): the Studio layer's protocol choice and its table by model class, saved as that layer. */
+  readonly protocol = signal<{ revision: number; layer: any; choice: string; table: Record<string, string> } | null>(null);
+  readonly protocolChoices = ['auto', 'structured', 'direct'] as const;
+  readonly protocolClasses = ['Low', 'Medium', 'High', 'ExtraHigh'] as const;
 
   readonly current = computed<Section>(() => (SECTIONS.includes(this.section() as Section) ? (this.section() as Section) : 'general'));
   readonly prefs = computed<Preferences | null>(() => this.app.preferences());
@@ -106,6 +110,7 @@ export class Settings {
     });
     effect(() => { if (this.choose()) untracked(() => this.choosing.set(true)); });
     effect(() => { if (this.current() === 'advanced') untracked(() => this.advancedOpen.set(true)); });
+    effect(() => { if ((this.advancedOpen() || this.matches()) && !this.protocol()) untracked(() => void this.loadProtocol()); });
     effect(() => {
       const l = this.prefs()?.taskLimits;
       untracked(() => { this.limitFields = { money: l?.moneyUsd ?? '', minutes: l?.minutes?.toString() ?? '', requests: l?.requests?.toString() ?? '' }; });
@@ -117,6 +122,28 @@ export class Settings {
     const m = this.matches();
     if (!m) return section === this.current();
     return SETTINGS.some(s => s.section === section && m.has(s.id));
+  }
+
+  private async loadProtocol(): Promise<void> {
+    try {
+      const v = await this.api.get<any>('/settings');
+      const config = v?.effective?.config ?? {};
+      this.protocol.set({ revision: v.revision, layer: v.layer ?? { config: {}, runtime: {} }, choice: config.protocol ?? 'auto', table: config.protocolByModelClass ?? {} });
+    } catch (e) {
+      this.failure.set(errorInfo(e));
+    }
+  }
+
+  /** Saves [choice] or one row of the table into the Studio layer; the next run takes it, a running one keeps its own. */
+  async setProtocol(choice: string | null, modelClass?: string, value?: string): Promise<void> {
+    const cur = this.protocol();
+    if (!cur) return;
+    const layer = structuredClone(cur.layer);
+    layer.config = layer.config ?? {};
+    if (choice) layer.config.protocol = choice;
+    if (modelClass && value) layer.config.protocolByModelClass = { ...cur.table, [modelClass]: value };
+    const saved = await this.act('protocol', () => this.api.command('settings.save', { scope: 'studio', layer }, {}, { settingsRevision: cur.revision }));
+    if (saved !== null) { this.protocol.set(null); await this.loadProtocol(); }
   }
 
   show(id: string): boolean {

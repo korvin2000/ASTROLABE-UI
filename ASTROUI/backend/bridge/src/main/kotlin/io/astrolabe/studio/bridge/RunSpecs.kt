@@ -25,11 +25,12 @@ public object RunSpecs {
     /**
      * The configuration of a Studio task: [configJson] — the settings layers with the task's one profile [profileId] —
      * with the run fields of [RunSpec.defaults]: that profile for every function, the task's mode, D-class actions asked,
-     * unknown outcomes reconciled automatically. Everything else, instructions included, stays the settings'.
+     * unknown outcomes reconciled automatically. Everything else, instructions included, stays the settings'. The
+     * settings' protocol choice is resolved for [profileId] (P8.D.4, [StudioProtocol]): `auto` reads its model class.
      */
     @JvmStatic
     public fun taskConfigJson(configJson: String, profileId: String, taskMode: String?): String {
-        val config = ConfigSupport.decodeOrInvalid(configJson)
+        val config = ConfigSupport.decodeOrInvalid(configJson, profileId)
         val profile = config.profiles[profileId]
             ?: throw InvalidConfig(listOf(ConfigViolation("profileRoles.main", "profile '$profileId' is not configured")))
         val run = RunSpec.defaults(profile, config.stateRoot, mode(taskMode)).config

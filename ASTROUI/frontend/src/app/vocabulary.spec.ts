@@ -55,8 +55,8 @@ const FAMILIES = ['action', 'gate', 'banner', 'error', 'sidebar', 'demo', 'dialo
   'new', 'example', 'card', 'effect', 'checks', 'verified', 'result', 'state', 'step', 'now', 'notice', 'group', 'flow', 'rail', 'progress', 'plan', 'output', 'changes', 'commit',
   'undo', 'panel', 'watchdog', 'settings', 'theme', 'account', 'confirm', 'empty', 'time', 'usage', 'count', 'notify', 'task',
   'preset', 'limit', 'meter', 'provenance'];
-/** Names of events and topics that look like keys. */
-const NOT_KEYS = new Set(['task.updated', 'task.deleted', 'task.done', 'task.failed', 'task.paused', 'notice.', 'accounts.changed']);
+/** Names of events, topics and commands that look like keys. */
+const NOT_KEYS = new Set(['task.updated', 'task.deleted', 'task.done', 'task.failed', 'task.paused', 'notice.', 'accounts.changed', 'settings.save']);
 
 function usedKeys(): Map<string, string> {
   const used = new Map<string, string>();
