@@ -355,7 +355,7 @@ export const RU: Record<string, string> = {
   'card.acceptance': 'Ваше решение',
   'card.acceptance_unverified': 'Результат не удалось проверить автоматически: {reasons}. Задача выполнена?',
   'card.acceptance_rejected': 'Проверка нашла проблемы:',
-  'card.note_attached': 'Ваше сообщение прикреплено: «{text}». Выберите ответ — с «Доработать» оно уйдёт агенту.',
+  'card.note_attached': 'Ваше сообщение прикреплено: «{text}». «Отправить агенту» отправит его сейчас; или выберите ответ — с «Доработать» оно уйдёт вместе с доработкой.',
   'card.rework_type': 'напишите ниже, что изменить, затем выберите ответ',
   'card.severity.blocker': 'Критично',
   'card.severity.major': 'Важно',

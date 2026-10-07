@@ -161,10 +161,10 @@ class StudioWorkflowScenarioTest {
 
     private fun spec() = StartSpec("Create hello.txt containing the text Hello, world!", 400_000, verificationSetup = true, protectedPaths = emptyList())
 
-    private fun start(s: Session, port: AuthorityPort): Pair<CampaignRef, Ended> {
+    private fun start(s: Session, port: AuthorityPort, spec: StartSpec = spec()): Pair<CampaignRef, Ended> {
         val latch = CountDownLatch(1)
         var ended = Ended(null, null, null)
-        val ref = s.host.start("p1", null, spec(), s.configJson, s.llm, port, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, _, f ->
+        val ref = s.host.start("p1", null, spec, s.configJson, s.llm, port, { _, _, _, _ -> }, AutonomousPolicyOptions()) { _, o, r, _, f ->
             ended = Ended(o, r, f); latch.countDown()
         }
         assertTrue(latch.await(180, TimeUnit.SECONDS), "run ended")
@@ -179,6 +179,32 @@ class StudioWorkflowScenarioTest {
         }
         assertTrue(latch.await(180, TimeUnit.SECONDS), "resumed run ended")
         return ref to ended
+    }
+
+    /**
+     * SavedCommandScenarioTest (task-workflow §3.6, D-434, WD-23): a test command saved in Studio beside a sniffed suite is the
+     * user's regression check of its package — it replaces the sniffed one in the contract the first open stores, so the
+     * start opens once, and one run realizes it (one receipt, never inconclusive).
+     */
+    @Test
+    fun `a saved test command beside a sniffed suite opens once as the user's regression check and one run realizes it`() {
+        val saved = listOf("python", "-m", "unittest", "discover", "-s", "tests", "-v")
+        val workId = session("wf-saved", manifest = true) { s ->
+            val (ref, ended) = start(s, authority(::approve), spec().copy(savedChecks = SavedChecks(test = saved)))
+            assertEquals(1, s.opens(ref.workId), "WF-1: a start with a saved command opened the campaign ${s.opens(ref.workId)} times")
+            assertEquals("saved" to "python -m unittest discover -s tests -v", ref.verification?.source to ref.verification?.commandText)
+            println("saved command: outcome=${ended.outcome} reason=${ended.reason}")
+            ref.workId
+        }
+        val repo = dir.resolve("repos").resolve("wf-saved")
+        io.astrolabe.store.Store.open(dir.resolve("state-wf-saved"), io.astrolabe.os.Git(repo), java.time.Clock.systemUTC()).use { store ->
+            val contract = checkNotNull(io.astrolabe.contract.SqliteContractRepository(store, java.time.Clock.systemUTC()).latest(io.astrolabe.id.WorkId(workId)))
+            val run = contract.acceptance.filterIsInstance<io.astrolabe.contract.Acceptance.Run>().single()
+            assertEquals(Triple(saved, io.astrolabe.contract.Origin.User as io.astrolabe.contract.Origin, io.astrolabe.contract.EvidencePurpose.Regression),
+                Triple(run.command.argv, run.origin, run.evidencePurpose), "the saved command replaced the sniffed suite of its package: ${contract.acceptance}")
+            val receipts = io.astrolabe.evidence.SqliteReceipts(store, java.time.Clock.systemUTC()).forCheck(io.astrolabe.verify.Checks.acceptId(run.id))
+            assertEquals(listOf(io.astrolabe.evidence.Outcome.Passed), receipts.map { it.outcome }, "one run realizes it: $receipts")
+        }
     }
 
     @Test
