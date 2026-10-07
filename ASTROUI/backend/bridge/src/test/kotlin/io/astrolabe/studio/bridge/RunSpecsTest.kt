@@ -3,10 +3,18 @@ package io.astrolabe.studio.bridge
 import io.astrolabe.Config
 import io.astrolabe.Mode
 import io.astrolabe.ProfileRoles
+import io.astrolabe.InvalidConfig
 import io.astrolabe.RunSpec
+import io.astrolabe.cell.Protocol
+import io.astrolabe.route.Tier
+import io.astrolabe.route.TierTable
 import io.astrolabe.studio.bridge.fixture.FixtureBrain
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** P8.B.7: a Studio start is built from the core's `RunSpec`, never from a second copy of its numbers. */
 class RunSpecsTest {
@@ -36,5 +44,43 @@ class RunSpecsTest {
         assertEquals(1, run.maxCells)
         assertEquals(1L, run.leaseMinutes)
         assertEquals(1, run.maxOutputTokens)
+    }
+
+    /**
+     * The settings as the server layers them: the library defaults (the Studio's protocol choice included) under [base],
+     * then the Studio keys of [studio] on top.
+     */
+    private fun layered(base: Config, vararg studio: Pair<String, Any>): String {
+        val library = ConfigSupport.obj(ConfigSupport.libraryDefaultsJson())
+        val config = ConfigSupport.obj(ConfigSupport.encode(base))
+        val keys = studio.associate { (k, v) -> k to if (v is Map<*, *>) JsonObject(v.entries.associate { it.key as String to JsonPrimitive(it.value as String) }) else JsonPrimitive(v as String) }
+        return JsonObject(library + config + keys).toString()
+    }
+
+    /** The protocol of the run a task on the fixture profile starts with under [settings]. */
+    private fun protocolOf(settings: String): Protocol {
+        val config = ConfigSupport.runConfig(RunSpecs.taskConfigJson(settings, profile.id, "ask")).config
+        return RunSpecs.of(StartSpec("request", 1), config, profile).config.protocol
+    }
+
+    @Test
+    fun `the Studio protocol is structured by default, an explicit choice reaches the run and auto reads the model class`() {
+        val library = ConfigSupport.obj(ConfigSupport.libraryDefaultsJson())
+        assertEquals(JsonPrimitive("auto"), library[StudioProtocol.KEY])
+        assertEquals(listOf("Low", "Medium", "High", "ExtraHigh"), StudioProtocol.MODEL_CLASSES)
+        assertEquals(JsonObject(StudioProtocol.MODEL_CLASSES.associateWith { JsonPrimitive("structured") }), library[StudioProtocol.TABLE_KEY])
+        assertTrue("\"direct\"" in ConfigSupport.declaredRolesJson(), "the ninth declared role")
+
+        val untiered = Config(profiles = mapOf(profile.id to profile))
+        val high = untiered.copy(tierTable = TierTable(version = "t1", profiles = mapOf(Tier.High to setOf(profile.id))))
+        val highDirect = mapOf("High" to "direct")
+        assertEquals(Protocol.Structured, protocolOf(layered(high)), "the defaults: auto, every class structured")
+        assertEquals(Protocol.Direct, protocolOf(layered(untiered, "protocol" to "direct")), "an explicit choice needs no class")
+        assertEquals(Protocol.Structured, protocolOf(layered(high, "protocol" to "structured", "protocolByModelClass" to highDirect)), "the table is read by auto only")
+        assertEquals(Protocol.Direct, protocolOf(layered(high, "protocolByModelClass" to highDirect)), "auto: the class of the task's model")
+        assertEquals(Protocol.Structured, protocolOf(layered(untiered, "protocolByModelClass" to highDirect)), "auto: a model without a class is structured")
+        assertEquals(Protocol.Structured, protocolOf(layered(high, "protocolByModelClass" to mapOf("Low" to "direct"))))
+        assertFailsWith<InvalidConfig> { RunSpecs.taskConfigJson(layered(high, "protocol" to "fast"), profile.id, "ask") }
+        assertFailsWith<InvalidConfig> { RunSpecs.taskConfigJson(layered(high, "protocolByModelClass" to mapOf("Deterministic" to "direct")), profile.id, "ask") }
     }
 }

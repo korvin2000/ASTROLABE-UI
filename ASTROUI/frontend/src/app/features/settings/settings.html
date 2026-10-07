@@ -224,6 +224,30 @@
               </div>
             </div>
           }
+          @if (show('protocol')) {
+            <div class="opt-row">
+              <div><b>{{ 'settings.protocol' | t }}</b><small>{{ 'settings.protocol.help' | t }}</small></div>
+              <div class="v col">
+                @if (protocol(); as pr) {
+                  <div class="seg" role="radiogroup" [attr.aria-label]="'settings.protocol' | t">
+                    @for (c of protocolChoices; track c) { <button role="radio" [class.on]="pr.choice === c" [attr.aria-checked]="pr.choice === c" [disabled]="busy() === 'protocol'" (click)="setProtocol(c)">{{ ('settings.protocol.' + c) | t }}</button> }
+                  </div>
+                  <table class="protocol-table">
+                    @for (k of protocolClasses; track k) {
+                      <tr>
+                        <td>{{ ('settings.protocol.class.' + k.toLowerCase()) | t }}</td>
+                        <td>
+                          <select class="input" [attr.aria-label]="('settings.protocol.class.' + k.toLowerCase()) | t" [disabled]="busy() === 'protocol'" (change)="setProtocol(null, k, $any($event.target).value)">
+                            @for (v of ['structured', 'direct']; track v) { <option [value]="v" [selected]="(pr.table[k] ?? 'structured') === v">{{ ('settings.protocol.' + v) | t }}</option> }
+                          </select>
+                        </td>
+                      </tr>
+                    }
+                  </table>
+                }
+              </div>
+            </div>
+          }
           @if (show('demo')) {
             <div class="opt-row">
               <div><b>{{ 'settings.demo' | t }}</b><small>{{ 'settings.demo.help' | t }}</small></div>
