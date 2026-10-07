@@ -64,6 +64,15 @@ public object Verification {
         return VerificationSetup("review", "none", emptyList())
     }
 
+    /**
+     * T-01 (WF-1): the items of [setup] as the core's `CampaignPolicy.declaredChecks` — the user's declared test commands as
+     * `run:` items, or the review item a project without one is accepted through — for a contract stored with them at its
+     * first open (the core numbers them).
+     */
+    internal fun items(setup: VerificationSetup): List<Acceptance> =
+        if (setup.commands.isEmpty()) listOf(Acceptance.Check("AC-review", REVIEW_TEXT, Origin.User))
+        else setup.commands.mapIndexed { i, argv -> Acceptance.Run("AC-saved-${i + 1}", Command(argv), Origin.User) }
+
     /** [contract] with the items of [setup] appended and every requirement bound to them. */
     internal fun apply(contract: Contract, setup: VerificationSetup): Contract {
         val version = contract.version + 1

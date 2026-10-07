@@ -245,11 +245,14 @@ export class TaskView {
 
   clock(seconds: number): string { return clockOf(seconds); }
 
-  send(text: string): void {
+  send(text: string, change = false): void {
     this.pinned = true;
     this.hint.set(null);
-    void this.actions.message(text).then(() => this.actions.next.set({}));
+    void this.actions.message(text, change).then(() => this.actions.next.set({}));
   }
+
+  /** W7: "Change the task" — the text changes what the task is (an amendment), never a note or a decision. */
+  change(text: string): void { this.send(text, true); }
 
   choose(patch: { model?: string; effort?: Effort; mode?: Mode; preset?: Approach; limits?: Limits }): void { this.actions.next.update(n => ({ ...n, ...patch })); }
 

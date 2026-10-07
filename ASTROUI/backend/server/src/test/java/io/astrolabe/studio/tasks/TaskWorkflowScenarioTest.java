@@ -407,17 +407,74 @@ class TaskWorkflowScenarioTest {
         assertEquals(1, tasks.runs("W-1").size(), "WF-10: Continue started another run");
     }
 
-    /** One recovery decision for both endpoints: a message to the same failed run reopens W-1 too, with the message as its amendment. */
+    /**
+     * One recovery decision for both endpoints: a message to the same failed run reopens W-1 too, with the message recorded
+     * untyped — the core takes it as steering, never an amendment (W7, task-workflow §2.2).
+     */
     @Test
     void aMessageAfterAFailureContinuesTheSameWorkToo() throws Exception {
         launchable();
         run("W-1", "open the page in a browser", "stored", null, null, AGENT_ERROR, "2026-10-05T10:00:00Z");
         assertEquals("continued", Json.text(tasks.message("W-1", "use the staging URL", null, null, null, null), "effect"));
-        verify(host).amend("p1", "W-1", "use the staging URL");
+        verify(host).message("p1", "W-1", null, "use the staging URL", null);
+        verify(host, never()).amend(anyString(), anyString(), anyString());
         ArgumentCaptor<TaskRun> opened = ArgumentCaptor.forClass(TaskRun.class);
         verify(campaigns, timeout(10_000)).open(opened.capture(), anyString(), any(), eq(true));
         assertEquals("W-1", opened.getValue().workId());
         verify(campaigns, never()).register(any());
+    }
+
+    /** WF-10 (W7): a run whose cell failed on an exception — the core's resumable `failed` — continues the same work. */
+    @Test
+    void continueAfterACellExceptionContinuesTheSameWork() throws Exception {
+        launchable();
+        run("W-1", "open the page in a browser", "stored", "failed", "cell_failure", null, "2026-10-05T10:00:00Z");
+        tasks.resume("W-1", null, null, null);
+        ArgumentCaptor<TaskRun> opened = ArgumentCaptor.forClass(TaskRun.class);
+        verify(campaigns, timeout(10_000)).open(opened.capture(), anyString(), any(), eq(true));
+        assertEquals("W-1", opened.getValue().workId(), "WF-10: Continue after a cell's exception opened another work");
+        verify(campaigns, never()).register(any());
+    }
+
+    /** WF-13 (W7): "change the task" is the one way to an amendment; with the card open it supersedes the request, never a note. */
+    @Test
+    void changeTheTaskSendsAnAmendmentEvenWithTheCardOpen() throws Exception {
+        launchable();
+        run("W-1", "open the page in a browser", "stored", "waiting_for_input", "acceptance_decision", null, "2026-10-05T10:00:00Z");
+        decisions.decide("W-1", request("decide-1", "dk-1")).join();
+        var result = tasks.message("W-1", "open it in Firefox too", null, null, null, null, null, null, "amendment");
+        assertEquals("continued", Json.text(result, "effect"), "the change of the task is no note on the card");
+        verify(host).message("p1", "W-1", "amendment", "open it in Firefox too", null);
+        verify(campaigns, timeout(10_000)).open(any(), anyString(), any(), eq(true));
+        assertEquals(0, jdbc.queryForList("SELECT * FROM acceptance_decision").size(), "WF-8: never a decision");
+    }
+
+    /** WF-13, WF-8 (W7): a note stays on the card until Send to agent sends it, as steering under the card's reference, and the work goes on. */
+    @Test
+    void sendToAgentSendsTheCardsNoteAsSteering() throws Exception {
+        launchable();
+        run("W-1", "open the page in a browser", "stored", "waiting_for_input", "acceptance_decision", null, "2026-10-05T10:00:00Z");
+        decisions.decide("W-1", request("decide-1", "dk-1")).join();
+        assertEquals("attached", Json.text(tasks.message("W-1", "the header is still blue", null, null, null, null), "effect"));
+        verify(host, never()).message(anyString(), anyString(), any(), anyString(), any());
+        verify(campaigns, never()).open(any(), anyString(), any(), eq(true));
+        var card = tasks.task("W-1", false).path("pending").get(0);
+        tasks.card("W-1", Json.text(card, "id"), Json.obj().put("decision", "send"));
+        verify(host).message("p1", "W-1", "steering", "the header is still blue", "card-" + Json.text(card, "id"));
+        verify(campaigns, timeout(10_000)).open(any(), anyString(), any(), eq(true));
+        assertEquals(0, jdbc.queryForList("SELECT * FROM acceptance_decision").size(), "WF-8: Send to agent decides nothing");
+    }
+
+    /** T-11: a kept decision answers the obligation set it was given for; the same key over another set is asked again. */
+    @Test
+    void aStoredDecisionAnswersOnlyItsObligationSet() {
+        decisions.policy(w -> new DecisionService.HostPolicy("ask", List.of()), (w, r) -> CompletableFuture.completedFuture(null));
+        String first = request("decide-1", "dk-1").replace("\"code\":", "\"obligationSet\":\"os-1\",\"code\":");
+        assertNull(decisions.decide("W-1", first).join());
+        assertTrue(decisions.answerAcceptance(decisions.openAcceptance("W-1"), "accept", "accepted by the user", "local"));
+        assertEquals("os-1", jdbc.queryForObject("SELECT obligation_set FROM acceptance_decision", String.class), "the decision keeps its obligation set");
+        assertEquals("Accept", Json.text(Json.parse(decisions.decide("W-1", first.replace("decide-1", "decide-2")).join()), "kind"), "the same set is answered");
+        assertNull(decisions.decide("W-1", first.replace("decide-1", "decide-3").replace("os-1", "os-2")).join(), "T-11: another obligation set is asked anew");
     }
 
     /** c16: after a campaign-scope Rework the core asks for an amendment or a follow-up; Continue starts the follow-up, never a reopen as is. */

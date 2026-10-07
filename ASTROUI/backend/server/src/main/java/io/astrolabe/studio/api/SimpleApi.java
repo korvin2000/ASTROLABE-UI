@@ -278,7 +278,7 @@ public class SimpleApi {
     @PostMapping("/tasks/{id}/messages")
     public ResponseEntity<String> message(@PathVariable String id, @RequestBody JsonNode body) {
         return Raw.json(tasks.message(id, Json.text(body, "text"), Json.text(body, "questionId"), Json.text(body, "model"), Json.text(body, "effort"), Json.text(body, "mode"),
-            Json.text(body, "preset"), body.get("limits")));
+            Json.text(body, "preset"), body.get("limits"), Json.text(body, "kind")));
     }
 
     @PostMapping("/tasks/{id}/project-check")

@@ -313,7 +313,13 @@ public class TaskService implements DisposableBean {
         }
         o.set("changes", changeSummary(first.projectId(), runs));
         ScratchPolicy scratch = scratchOf(last);
-        if (scratch != null) o.set("scratch", scratchJson(scratch));
+        if (scratch != null) {
+            ObjectNode s = scratchJson(scratch);
+            // T-28: how many untracked output files the core kept out of the latest snapshot, while it holds the run.
+            Integer count = hosts.host().scratchCount(last.workId());
+            if (count != null) s.put("count", count);
+            o.set("scratch", s);
+        }
         o.set("usage", usage(first.projectId(), runs));
         String offer = checkOffer(last, receipt);
         if (offer != null) o.putObject("checkOffer").put("command", offer);
@@ -691,7 +697,7 @@ public class TaskService implements DisposableBean {
             queued.computeIfAbsent(r.workId(), w -> new java.util.concurrent.CopyOnWriteArrayList<>()).addAll(0, messages);
             return;
         }
-        for (String m : messages) hosts.host().amend(r.projectId(), r.workId(), m);
+        for (String m : messages) hosts.host().message(r.projectId(), r.workId(), null, m, null);
     }
 
     private static final class Stopped extends RuntimeException {
@@ -741,11 +747,13 @@ public class TaskService implements DisposableBean {
             case "high" -> "High";
             default -> RunSpec.EFFORT.name();
         };
+        // W7 (task-workflow §1.4): the core links a follow-up to its parent only after the parent's final outcome.
+        String parent = r.parentWork() != null && finalOutcome(run(r.parentWork())) ? r.parentWork() : null;
         return new StartSpec(requestText, tokens, null, null, false,
             runtime.path("maxCells").asInt(RunSpec.MAX_CELLS), runtime.path("leaseMinutes").asLong(RunSpec.LEASE_MINUTES), effort,
             runtime.hasNonNull("maxOutputTokens") ? runtime.get("maxOutputTokens").asInt() : null,
             true, projectSettings.savedChecks(r.projectId()), true, projectSettings.protectedOverride(r.projectId()),
-            limits == null ? null : limits.toBridge(), preset, r.effortExplicit());
+            limits == null ? null : limits.toBridge(), preset, r.effortExplicit(), parent);
     }
 
     // ------------------------------------------------------------------------------------------------ run end
@@ -798,15 +806,25 @@ public class TaskService implements DisposableBean {
 
     /** C4: [preset] and [limits] apply to a follow-up run it starts; a run continued in place keeps its own. */
     public ObjectNode message(String taskId, String text, String questionId, String modelRef, String effort, String mode, String preset, JsonNode limits) {
+        return message(taskId, text, questionId, modelRef, effort, mode, preset, limits, null);
+    }
+
+    /**
+     * W7 (task-workflow §2.2, D-433): [kind] `amendment` is the explicit "change the task" — the one way to change what the
+     * task is; any other text is untyped and the core takes it as steering, never as an amendment or a decision.
+     */
+    public ObjectNode message(String taskId, String text, String questionId, String modelRef, String effort, String mode, String preset, JsonNode limits, String kind) {
         if (text == null || text.isBlank()) throw ApiException.invalid("a message needs text");
+        if (kind != null && !kind.isBlank() && !AMENDMENT.equals(kind)) throw ApiException.invalid("unknown message kind " + kind);
+        boolean change = AMENDMENT.equals(kind);
         List<Run> runs = require(taskId);
         Run last = runs.getLast();
         String body = text.strip();
         ObjectNode result = Json.obj().put("taskId", taskId);
 
-        // A question is pending: the message answers it.
+        // A question is pending: the message answers it — unless the user changes the task.
         JsonNode question = null;
-        for (JsonNode d : decisions.list("pending", last.workId(), 50)) {
+        for (JsonNode d : change ? List.<JsonNode>of() : decisions.list("pending", last.workId(), 50)) {
             if ("question".equals(Json.text(d, "kind")) && (questionId == null || questionId.equals(Json.text(d, "id")))) {
                 question = d;
                 break;
@@ -818,8 +836,9 @@ public class TaskService implements DisposableBean {
         }
 
         // WD-11 (WF-8): while the core waits for the user's word, free text decides nothing: it is attached to the card,
-        // which still asks for Accept or Rework; a Rework without words of its own carries it.
-        ObjectNode acceptance = acceptanceCard(last);
+        // which still asks for Accept or Rework; a Rework without words of its own carries it, and Send to agent sends it.
+        // A change of the task supersedes the request instead (task-workflow §2.4 D).
+        ObjectNode acceptance = change ? null : acceptanceCard(last);
         if (acceptance != null) {
             if (decisions.attachNote(Json.text(acceptance, "id"), body)) {
                 pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message").put("cardId", Json.text(acceptance, "id")));
@@ -842,16 +861,19 @@ public class TaskService implements DisposableBean {
         if (live) {
             // The task is working: the agent sees the message at its next step.
             pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
-            hosts.host().amend(last.projectId(), last.workId(), body);
+            hosts.host().message(last.projectId(), last.workId(), change ? AMENDMENT : null, body, null);
             pipeline.studioItem(last.workId(), "studio.notice", Json.obj().put("code", "message_queued"));
             campaigns.refresh(last.workId());
             return result.put("effect", "queued");
         }
-        switch (recovery(last)) {
-            // The core takes the message as an amendment of the same work (a campaign-scope rework asks for just that).
+        // №31: a change of the task to a work the core can continue — a decision it waits for included — goes on in place.
+        Recovery recovery = change && last.outcome() != null && resumable(last) ? Recovery.IN_PLACE : recovery(last);
+        switch (recovery) {
+            // The same work goes on with the message: steering, or the change of the task the user chose — and the
+            // amendment a campaign-scope rework asked for (c16).
             case IN_PLACE, AMEND_OR_FOLLOW_UP -> {
                 pipeline.studioItem(last.workId(), "studio.user_message", Json.obj().put("text", body).put("role", "message"));
-                continueRun(last, body, modelRef, effort, mode);
+                continueRun(last, body, change || recovery == Recovery.AMEND_OR_FOLLOW_UP ? AMENDMENT : null, null, modelRef, effort, mode);
                 return result.put("effect", "continued");
             }
             // A run that never opened opens again under its own id and takes the message once it is live.
@@ -902,7 +924,25 @@ public class TaskService implements DisposableBean {
             String cause = contractCause(r);
             return "cell_cap".equals(r.stopCode()) || "tokens".equals(cause) || "turns".equals(cause);
         }
+        // WF-10 (task-workflow §1.3): a cell that failed on an exception ends the run `failed`, and the core continues it.
+        if ("failed".equals(r.outcome())) return CELL_FAILURE.equals(r.stopCode());
         return List.of("waiting_for_input", "waiting_for_process", "blocked_external").contains(r.outcome());
+    }
+
+    /** The core's stop code of a `failed` run a reopen continues (`StudioHost`, WF-10). */
+    static final String CELL_FAILURE = "cell_failure";
+
+    /** The message kind of the explicit "change the task" (task-workflow §2.2, `MessageKind.Amendment`). */
+    static final String AMENDMENT = "amendment";
+
+    /** Whether [r] ended with a final outcome in the core (task-workflow §1.3): only such a work is followed up by link. */
+    private static boolean finalOutcome(Run r) {
+        if (r == null || r.outcome() == null) return false;
+        return switch (r.outcome()) {
+            case "completed", "answered", "cancelled" -> true;
+            case "failed" -> !CELL_FAILURE.equals(r.stopCode());
+            default -> false;
+        };
     }
 
     private static boolean attemptsSpent(Run r) {
@@ -927,9 +967,13 @@ public class TaskService implements DisposableBean {
         return fallback != null ? fallback : last.modelRef();
     }
 
-    private void continueRun(Run last, String amendment, String modelRef, String effort, String mode) {
+    /**
+     * Reopens [last]'s work with [message], if any, recorded first as a message of [kind] (`null`: the core's — steering)
+     * under [hostRef], so a retried delivery is recorded once (task-workflow §1.1).
+     */
+    private void continueRun(Run last, String message, String kind, String hostRef, String modelRef, String effort, String mode) {
         projects.open(last.projectId());
-        if (amendment != null) hosts.host().amend(last.projectId(), last.workId(), amendment);
+        if (message != null) hosts.host().message(last.projectId(), last.workId(), kind, message, hostRef);
         String model = modelFor(modelRef, last);
         String nextEffort = models.fitEffort(model, normalise(effort, List.of("low", "medium", "high"), last.effort()));
         // C14: an effort chosen now, or the one the user chose for this run before, stays the user's.
@@ -1244,10 +1288,10 @@ public class TaskService implements DisposableBean {
             // The core stores these limits with the campaign on the reopen, freed or not: the run's row says the same.
             campaigns.setBudget(last.workId(), Json.write(raised.json()), null);
             raising.add(last.workId());
-            continueRun(last, null, modelRef, effort, mode);
+            continueRun(last, null, null, null, modelRef, effort, mode);
         } else {
             switch (recovery(last)) {
-                case IN_PLACE -> continueRun(last, null, modelRef, effort, mode);
+                case IN_PLACE -> continueRun(last, null, null, null, modelRef, effort, mode);
                 case RETRY_START -> retryStart(last, modelRef, effort, mode);
                 // Only what the core will not reopen as is becomes a follow-up. Its recap carries every message of the task
                 // (WF-11), so Continue does not repeat the last one as a new request.
@@ -1294,6 +1338,17 @@ public class TaskService implements DisposableBean {
                 Run owner = runs.stream().filter(r -> r.workId().equals(Json.text(decision, "workId"))).findFirst().orElse(runs.getLast());
                 String text = Json.text(body, "answer");
                 decideAcceptance(owner, decision, choice.equals("done") ? "accept" : "rework", text == null ? null : text.strip(), null, null, null);
+            }
+            case "send" -> {
+                // W7 (task-workflow §2.1, D-430): the card's note reaches the agent only by this explicit action — as steering
+                // under the card's reference, so a retried send is one message; the request stays open under its key.
+                if (!kind.equals("acceptance")) throw ApiException.invalid("this card is not an acceptance decision");
+                String note = Json.text(decision, "note");
+                if (note == null || note.isBlank()) throw ApiException.invalid("the card has no note to send");
+                Run owner = runs.stream().filter(r -> r.workId().equals(Json.text(decision, "workId"))).findFirst().orElse(runs.getLast());
+                if (!hosts.host().isLive(owner.workId()) && !campaigns.isOpening(owner.workId()) && !"opening".equals(owner.status())) {
+                    continueRun(owner, note, "steering", "card-" + cardId, null, null, null);
+                }
             }
             case "answer" -> {
                 if (!kind.equals("question")) throw ApiException.invalid("this card is not a question");
@@ -1351,7 +1406,7 @@ public class TaskService implements DisposableBean {
             followUp(runs(run.taskId()), reason, modelRef, effort, mode);
             return;
         }
-        continueRun(run, null, modelRef, effort, mode);
+        continueRun(run, null, null, null, modelRef, effort, mode);
     }
 
     /** C4: the agent's own test of [r] the user may make the project's test check (Provenance.checkOffer). */

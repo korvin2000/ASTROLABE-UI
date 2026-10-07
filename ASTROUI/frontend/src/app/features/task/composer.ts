@@ -37,6 +37,9 @@ export class Composer {
   readonly up = input(true);
 
   readonly send = output<string>();
+  /** W7: the text as "Change the task" — the one way to change what the task is; offered only in a task's conversation. */
+  readonly changeable = input(false);
+  readonly changeTask = output<string>();
   readonly stop = output<void>();
   readonly projectChange = output<string>();
   readonly modelChange = output<string>();
@@ -102,10 +105,10 @@ export class Composer {
     }
   }
 
-  submit(): void {
+  submit(change = false): void {
     const text = this.text.trim();
     if (!text || this.busy()) return;
-    this.send.emit(text);
+    if (change) this.changeTask.emit(text); else this.send.emit(text);
     this.text = '';
     this.canSend.set(false);
     queueMicrotask(() => this.grow());

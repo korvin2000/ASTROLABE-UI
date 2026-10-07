@@ -278,9 +278,9 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         JsonNode request = card.get("request");
         String requestId = Json.text(request, "id");
         String candidate = Json.write(request.get("candidate"));
-        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at, decision_key, attempt_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        int claimed = jdbc.update("INSERT OR IGNORE INTO acceptance_decision (request_id, work_id, candidate, contract_revision, kind, text, by_authority, created_at, decision_key, attempt_id, obligation_set) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             requestId, Json.text(card, "workId"), candidate, request.path("contractRevision").asInt(), kind, text, "user:" + actor, Json.now(), Json.text(request, "key"),
-            Json.text(request.path("ids"), "attempt"));
+            Json.text(request.path("ids"), "attempt"), Json.text(request, "obligationSet"));
         if (claimed == 0) return false;
         jdbc.update("UPDATE decision SET status = 'answered', reply_json = ?, by_authority = ?, reason = ?, answered_at = ? WHERE id = ? AND status = 'open'",
             Json.write(Json.obj().put("kind", kind).put("text", text)), "user:" + actor, kind, Json.now(), Json.text(card, "id"));
@@ -414,7 +414,7 @@ public class DecisionService implements AuthorityPort, PolicyListener {
     private ObjectNode storedDecision(String workId, JsonNode request) {
         String key = Json.text(request, "key");
         String attempt = Json.text(request.path("ids"), "attempt");
-        String columns = "SELECT kind, text, by_authority, contract_revision, candidate FROM acceptance_decision WHERE work_id = ? AND ";
+        String columns = "SELECT kind, text, by_authority, contract_revision, candidate, obligation_set FROM acceptance_decision WHERE work_id = ? AND ";
         List<Map<String, Object>> rows = key != null
             ? jdbc.queryForList(columns + "decision_key = ? AND coalesce(attempt_id, '') = coalesce(?, '') ORDER BY created_at DESC", workId, key, attempt)
             : List.of();
@@ -423,6 +423,10 @@ public class DecisionService implements AuthorityPort, PolicyListener {
         Map<String, Object> row = rows.getFirst();
         if (((Number) row.get("contract_revision")).intValue() != request.path("contractRevision").asInt()) return null;
         if (!Json.write(request.get("candidate")).equals(row.get("candidate"))) return null;
+        // T-11: a decision kept with the campaign gate's obligation set answers that set only; one kept before W7 has none.
+        String kept = (String) row.get("obligation_set");
+        String asked = Json.text(request, "obligationSet");
+        if (kept != null && !kept.equals(asked)) return null;
         boolean accept = "accept".equals(row.get("kind"));
         String text = (String) row.get("text");
         String reason = text != null && !text.isBlank() ? text : accept ? "accepted by the user" : "the user asked to rework it";

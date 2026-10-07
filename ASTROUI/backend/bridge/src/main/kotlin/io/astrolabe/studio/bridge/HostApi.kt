@@ -48,6 +48,12 @@ public data class StartSpec @JvmOverloads constructor(
      * default effort — lets the approach move it.
      */
     val effortExplicit: Boolean = false,
+    /**
+     * W7 (task-workflow §1.3, §1.4): the work this run follows up, passed to the core only when that work ended with a
+     * final outcome — the core refuses to follow up a work that can still be continued. `null`: a first run, or a link the
+     * Studio keeps alone.
+     */
+    val parentWork: String? = null,
 )
 
 /**

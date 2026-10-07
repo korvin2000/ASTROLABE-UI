@@ -90,6 +90,7 @@
         }
         <as-composer #composer [placeholder]="placeholder()" [projectId]="task()?.projectId ?? null" [projectFixed]="true" [model]="model()" [effort]="effort()" [mode]="mode()"
           [working]="store.state() === 'working'" [busy]="actions.busy()"
+          [changeable]="!!task()" (changeTask)="change($event)"
           (send)="send($event)" (stop)="actions.stop()" (modelChange)="choose({ model: $event })" (effortChange)="choose({ effort: $event })" (modeChange)="choose({ mode: $event })"
           [approach]="approach()" [limits]="limits()" [raise]="raising()" [reached]="task()?.limits ?? null"
           (approachChange)="choose({ preset: $event })" (limitsChange)="choose({ limits: $event })" (raiseConfirm)="raiseAndContinue()" (limitsClosed)="leaveRaise()" />
