@@ -277,7 +277,7 @@ public class StudioHost @JvmOverloads public constructor(
                     verification = setup
                     amended = true
                 } else {
-                    verification = verificationOf(opened, spec.savedChecks)
+                    verification = verificationOf(opened)
                 }
             }
             val protectedPaths = spec.protectedPaths
@@ -358,13 +358,8 @@ public class StudioHost @JvmOverloads public constructor(
         }
     }
 
-    /** How an opened contract is verified: by its declared or saved tests, or by a review pass. */
-    private fun verificationOf(opened: OpenedCampaign, saved: SavedChecks): VerificationSetup {
-        val runs = opened.contract.acceptance.filterIsInstance<io.astrolabe.contract.Acceptance.Run>().map { it.command.argv }
-        if (runs.isEmpty()) return VerificationSetup("review", "none", emptyList())
-        val declared = runs.any { it in opened.sniffed.packages.mapNotNull { p -> p.test } }
-        return VerificationSetup("tests", if (declared) "declared" else "saved", runs)
-    }
+    /** How an opened contract is verified (§3.6, WD-23): read from the stored contract by origin and purpose, never by matching sniffed suites. */
+    private fun verificationOf(opened: OpenedCampaign): VerificationSetup = Verification.of(opened.contract)
 
     /** The host notes of a run (D-345): the Studio's guidance and how the result is checked, and the protected files. */
     private fun hostNotes(spec: StartSpec, verification: VerificationSetup?): List<String> {
@@ -385,13 +380,11 @@ public class StudioHost @JvmOverloads public constructor(
      */
     private fun expectedVerification(p: OpenProject, work: WorkId, saved: SavedChecks): VerificationSetup {
         val stored = Contracts(SqliteContractRepository(p.project.store, clock), idGen, clock).current(work)
-        if (stored != null) {
-            val runs = stored.acceptance.filterIsInstance<io.astrolabe.contract.Acceptance.Run>().map { it.command.argv }
-            return if (runs.isEmpty()) VerificationSetup("review", "none", emptyList()) else VerificationSetup("tests", "declared", runs)
-        }
+        if (stored != null) return Verification.of(stored)
         val sniffed = io.astrolabe.atlas.Sniff.commands(p.project.root, listedPaths(p.project.root))
         val suites = sniffed.packages.mapNotNull { it.test }
-        return if (suites.isEmpty()) Verification.choose(sniffed, saved) else VerificationSetup("tests", "declared", suites)
+        // Task-workflow §3.6 (WD-23): a saved test command is used whatever the repository's manifests declare.
+        return if (suites.isEmpty() || saved.test != null) Verification.choose(sniffed, saved) else VerificationSetup("tests", "declared", suites)
     }
 
     /** The repository's tracked and unignored files, `/`-separated, by one `git ls-files`; empty when git cannot say. */

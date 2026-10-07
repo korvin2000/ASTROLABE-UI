@@ -339,7 +339,7 @@ export const EN: Record<string, string> = {
   'card.acceptance': 'Your decision',
   'card.acceptance_unverified': 'The result could not be checked automatically: {reasons}. Is the task done?',
   'card.acceptance_rejected': 'The review found problems:',
-  'card.note_attached': 'Your message is attached: “{text}”. Choose an answer — Rework sends it to the agent.',
+  'card.note_attached': 'Your message is attached: “{text}”. Send to agent sends it now; or choose an answer — Rework sends it with the rework.',
   'card.rework_type': 'type below what to change, then choose an answer',
   'card.severity.blocker': 'Blocker',
   'card.severity.major': 'Major',

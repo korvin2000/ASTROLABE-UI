@@ -5,6 +5,7 @@ import io.astrolabe.atlas.Sniffed
 import io.astrolabe.contract.Acceptance
 import io.astrolabe.contract.Command
 import io.astrolabe.contract.Contract
+import io.astrolabe.contract.EvidencePurpose
 import io.astrolabe.contract.Origin
 
 /**
@@ -65,13 +66,26 @@ public object Verification {
     }
 
     /**
-     * T-01 (WF-1): the items of [setup] as the core's `CampaignPolicy.declaredChecks` — the user's declared test commands as
+     * T-01 (WF-1): the items of [setup] as the core's `CampaignPolicy.declaredChecks` — the user's saved test commands as
      * `run:` items, or the review item a project without one is accepted through — for a contract stored with them at its
-     * first open (the core numbers them).
+     * first open (the core numbers them). Task-workflow §3.6 (D-434): a saved test command is a user-declared **regression**
+     * check, never goal-level evidence; the core lets it replace the sniffed suite of its package.
      */
     internal fun items(setup: VerificationSetup): List<Acceptance> =
         if (setup.commands.isEmpty()) listOf(Acceptance.Check("AC-review", REVIEW_TEXT, Origin.User))
-        else setup.commands.mapIndexed { i, argv -> Acceptance.Run("AC-saved-${i + 1}", Command(argv), Origin.User) }
+        else setup.commands.mapIndexed { i, argv -> Acceptance.Run("AC-saved-${i + 1}", Command(argv), Origin.User, scope = "all", purpose = EvidencePurpose.Regression) }
+
+    /**
+     * How a stored [contract] is verified (task-workflow §3.6, WD-23), read by origin and purpose: `saved` for the user's
+     * own `run:` items (the saved command), `declared` when only the sniffed suites are, `review` when nothing runs.
+     */
+    internal fun of(contract: Contract): VerificationSetup {
+        val runs = contract.acceptance.filterIsInstance<Acceptance.Run>()
+        if (runs.isEmpty()) return VerificationSetup("review", "none", emptyList())
+        val users = runs.filter { it.origin is Origin.User || it.origin is Origin.Amended }
+        return if (users.isNotEmpty()) VerificationSetup("tests", "saved", users.map { it.command.argv })
+            else VerificationSetup("tests", "declared", runs.map { it.command.argv })
+    }
 
     /** [contract] with the items of [setup] appended and every requirement bound to them. */
     internal fun apply(contract: Contract, setup: VerificationSetup): Contract {
