@@ -292,6 +292,8 @@ public class StudioHost @JvmOverloads public constructor(
             // notes than expected. C14: a campaign this open could not free stays stopped and runs nothing, so the notes
             // change nothing: a second open would only journal and announce the same hold again.
             if ((amended || actual != notes) && opened.limitHold == null) {
+                // WF-1: a preflight that guessed other notes than the open found costs a second open; it is never silent.
+                if (!amended) events.emit(io.astrolabe.event.AgentEvent.Warning(opened.ids, "preflight-diverged", "the host notes the preflight expected differ from the opened contract's; the campaign opens again with them (WF-1)"))
                 opened = controller.open(p.project, request, policy.copy(hostNotes = actual))
             }
             // The frozen attempt configuration is the truth for this attempt (invariant 12); its main profile is read live.
@@ -619,12 +621,16 @@ public class StudioHost @JvmOverloads public constructor(
     public fun attemptConfig(projectId: String, workId: String): String? = reads(projectId).attemptConfig(workId)?.toString()
 
     /**
-     * The scratch policy [workId]'s attempt froze (W3, owner №32), as its contract records it: the output roots whose
-     * untracked files stay outside the candidate. `null` when it excludes nothing — no contract, or one recorded before W3.
+     * The scratch policy [workId]'s latest attempt froze (W3, owner №32): the output roots whose untracked files stay
+     * outside the candidate, with the task's declared outputs (T-46, task-workflow §5.1) — the live attempt's, else the
+     * last stored attempt's, else the one its contract recorded at the first open. `null` when it excludes nothing.
      */
-    public fun scratchPolicy(projectId: String, workId: String): io.astrolabe.verify.ScratchPolicy? =
-        Contracts(SqliteContractRepository(project(projectId).project.store, clock), idGen, clock).current(WorkId(workId))?.scratch
-            ?.takeIf { it.id != null }
+    public fun scratchPolicy(projectId: String, workId: String): io.astrolabe.verify.ScratchPolicy? {
+        live[workId]?.let { return it.opened.attempt.scratch.takeIf { s -> s.id != null } }
+        val store = project(projectId).project.store
+        return io.astrolabe.campaign.Attempts(store, clock).all(WorkId(workId)).lastOrNull()?.second?.scratch?.takeIf { it.id != null }
+            ?: Contracts(SqliteContractRepository(store, clock), idGen, clock).current(WorkId(workId))?.scratch?.takeIf { it.id != null }
+    }
 
     public fun storeCounts(projectId: String): String = reads(projectId).counts().toString()
 

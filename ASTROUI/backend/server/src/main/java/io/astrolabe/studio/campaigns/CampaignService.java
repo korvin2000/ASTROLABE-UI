@@ -129,7 +129,10 @@ public class CampaignService {
     static String stopCodeOf(JsonNode state) {
         if (state == null) return null;
         String code = Json.text(state, "stopCode");
-        return code != null ? io.astrolabe.studio.bridge.StopCodes.wire(code) : io.astrolabe.studio.bridge.StopCodes.budgetStop(Json.text(state, "budgetStop"));
+        if (code != null) return io.astrolabe.studio.bridge.StopCodes.wire(code);
+        String budget = io.astrolabe.studio.bridge.StopCodes.budgetStop(Json.text(state, "budgetStop"));
+        // WF-10: a cell's exception ends the run `failed` and resumable; a refresh keeps that, or Continue would follow up.
+        return budget != null || !state.path("failedResumably").asBoolean(false) ? budget : StudioHost.CELL_FAILURE;
     }
 
     /** Re-reads one campaign from its store into the index and notifies clients (R-SHL-01). */
@@ -460,7 +463,8 @@ public class CampaignService {
         pipeline.runEnded(workId, data);
         markEnded(workId);
         refresh(workId);
-        jdbc.update("UPDATE campaign_index SET stop_code = ? WHERE work_id = ?", "waiting_for_input".equals(outcome) || "budget_exhausted".equals(outcome) ? stopCode : null, workId);
+        boolean kept = "waiting_for_input".equals(outcome) || "budget_exhausted".equals(outcome) || "failed".equals(outcome) && StudioHost.CELL_FAILURE.equals(stopCode);
+        jdbc.update("UPDATE campaign_index SET stop_code = ? WHERE work_id = ?", kept ? stopCode : null, workId);
         try {
             runEnded.ended(workId, outcome, reason, stopCode, failure);
         } catch (RuntimeException e) {
