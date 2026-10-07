@@ -30,6 +30,8 @@
 |---|---|---|---|---|---|---|---|---|
 | B6a | t2 | — (тройная самопроверка приёмок) | +4092 −16 (163 файла, 3 задачи) | 3 | 0 | 362 тыс. (80 ходов + продолжение) | → | port-framework, large-tree, two-sessions; T-12 (opens = 1, тест), T-14; `:eval-live:test` 42/0; слито `ac88f6b` |
 | B6b | t3 | — (тройная самопроверка приёмок) | +5072 −12 (190 файлов, 5 задач) | 1 | 0 | 275 тыс. | → | scenario-1004, api-callers, merge-conflict, node-api, second-task-pairs; режим пар в runner (`PairTest`); `:eval-live:test` 44/0; слито `0192f4f` |
+| C17 (п. 1 + P2) | t3 | — (тесты) | 10 коммитов; core/eval/eval-live + ABI | 2 | 0 | 300 тыс. | → | предел вывода verify, recall по квитанции, D-424 снято, summary.csv, пересчёт по ценам, плечо direct в eval-live; T-31/T-49/T-50/T-51 закрыты; L2 463/0 + eval 87 + eval-live 46; слито |
+| Studio `*WorkflowScenario*` против ядра `62afbee` | фоновая команда | — | — | — | — | — | — | bridge 4/0, server 21/0 (25/0) |
 
 ## Шлюз P8.D — живые прогоны (база: `plan2/reports/SESSION-4B.md`, `bench/wb2`)
 | Прогон | Исход | Открытий | Открытие git / файлов (на открытие), МБ | Финал git / файлов | Снимки git / объектов | Запросов | $ | с |
