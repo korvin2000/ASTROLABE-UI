@@ -27,8 +27,8 @@ P8.D.5) и `session_4_results.md` §4 (открытые хвосты, назва
 | T5-19 | `summary.csv` затирается вторым плечом (B5) | S4 §4 | C17 п. 1 | открыт |
 | T5-20 | Пересчёт потоков по таблице цен в офлайн-аудиторе («что-если», D-421) | S4 §4 (аудитор B1) | C17 п. 1 | открыт |
 | T5-21 | Подстановка wrapper при `gradle` вне PATH: сравнение с блобом базового коммита или `gradlew*` как вход (`git mv`, `--skip-worktree`, symlink) | S4 §4 / P8.C.17 п. 2 | C17 п. 2 (после D5, если есть место) | открыт |
-| T5-22 | T-12: `eval-live` открывает как прежняя Studio — 2 открытия на старт (`StudioAttempt`; WF-1) | TAILS-4B | B6 | открыт |
-| T5-23 | T-14: `real-dirty-repo` `dir` принимает абсолютные/UNC пути (`eval-live` `Tasks.kt:69-85`) | TAILS-4B | B6 | открыт |
+| T5-22 | T-12: `eval-live` открывает как прежняя Studio — 2 открытия на старт (`StudioAttempt`; WF-1) | TAILS-4B | B6 | закрыт B6a (`ee0361d`): один open на старт, `OpenCountTest`; живое подтверждение — шлюз P8.D (`opens` в result.json) |
+| T5-23 | T-14: `real-dirty-repo` `dir` принимает абсолютные/UNC пути (`eval-live` `Tasks.kt:69-85`) | TAILS-4B | B6 | закрыт B6a (`ee0361d`): абсолютный/UNC путь, `DirtPlacementTest` ×6 |
 | T5-24 | T-30: SDK шлёт `session-id`; Codex CLI, возможно, `session_id`/`conversation_id` — один живой замер роста кэша `openai-codex`, правка заголовка только по свидетельству | TAILS-4B | E1 | закрыт E1 (живой замер `openai-codex`: `session_id` не меняет рост кэша 0 → 10752 → 11776; заголовок SDK не трогаем; одна выборка) |
 | T5-25 | T-03 живой: открытие `real-dirty-repo` считает 3014 файлов / 21,02 МБ при 1500 файлах — двойное чтение мелких файлов или двойной счёт | TAILS-4B | W11 | открыт |
 | T5-26 | T-22: чтения recovery-блобов `hash-object` — первое открытие читает 20 МБ дважды; объект git из чтения захвата (путь W2) без нарушения WF-2 | TAILS-4B | W11 | открыт |
@@ -43,6 +43,12 @@ P8.D.5) и `session_4_results.md` §4 (открытые хвосты, назва
 ## Новые хвосты сессии 5 (каждый — с решением: исправить / снять (причина) / перенести (задача с `Deps`))
 | ID | Хвост | Источник | Решение | Статус |
 |---|---|---|---|---|
+| T5-34 | 11 полей `Defaults` без потребителя (`noteBodyMaxTokens`, `noteSummaryMaxChars`, `injectionMaxNotes`, `injectionMaxTokens`, `campaignRecoveryReserve`, `probeTurns`, `probeTier`, `reviewTier`, `reviewRoutineTier`, `flakyIsolatedReruns`, `admissionConfidenceMax`) | C18 | перенести → P8.C.19 (Deps P8.C.18; сессия 6, вместе с решениями H0 по ролям/ярусам) | перенесён |
+| T5-35 | `seedsMaxTokens` доходит только до переноса родителя follow-up; граница ячейки (`Controller.kt` ~1793) и pressure-rebuild (`Cell.kt` ~1419) передают 4000 | C18 | исправить сейчас → E1w | закрыт E1w (`11b3e4c`): граница ячейки достигнута (CARRY, 920 → 836 строк при 1); pressure-rebuild передаётся, ненаблюдаем без фикстуры → P8.C.19 (T5-37) |
+| T5-36 | Оракул `SettingsReachabilityTest`: базы расходятся в `Checks @<stamp>` и CAL-id — случайное совпадение даёт ложное «достигнуто» (`m`, возможно `k`) | C18 | исправить сейчас → E1w (нормализация) | закрыт E1w: маскирование `@xxxx`, `temprepo\d+`, `finishReceiptRef`; `k` держится, `m` → отложено |
+| T5-37 | 5 отложенных полей достижимости (`probeTokens`, `writerDepth`, `probeDepth`, `parallelCells` — путь дочерней ячейки; `m` — pressure-фикстура) | C18 | перенести → P8.C.19 | перенесён |
+| T5-38 | На машинах с `rg` в `PATH` campaign- и WF-тесты ищут через ripgrep (паритет — `SearchBackendParityTest`; известный сбой `café` в Linux-песочнице) | C18 | снять: паритет покрыт тестом, поведение документировано D-441 | снят |
+| T5-39 | `routing_log`/снимок E1 не подключены в продукте (`Controller.kt` selectProfile, `recover/Repair.kt:109`) | E1 | исправить сейчас → E1w | закрыт E1w: `RoutingLogWiringTest` через настоящую сборку |
 
 ## Счёт
 | Открыто на старте | Закрыто | Снято | Перенесено | Новых | Открыто в конце |
