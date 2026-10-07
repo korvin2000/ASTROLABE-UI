@@ -308,6 +308,7 @@ class TaskWorkflowScenarioTest {
     private final Preferences preferences = mock(Preferences.class);
     private final SettingsService settings = mock(SettingsService.class);
     private final ProjectSettings projectSettings = mock(ProjectSettings.class);
+    private final EventPipeline pipeline = mock(EventPipeline.class);
 
     private void taskService() { taskService(decisions); }
 
@@ -318,7 +319,7 @@ class TaskWorkflowScenarioTest {
         when(host.contractRevision(any(), any())).thenReturn(2);
         decisions.policy(w -> new DecisionService.HostPolicy("ask", List.of()), (w, r) -> CompletableFuture.completedFuture(null));
         tasks = new TaskService(jdbc, hosts, campaigns, projects, projectSettings, settings, preferences,
-            accounts, models, with, mock(EventPipeline.class), new TopicBroker(), mock(ChangesService.class), mock(StatsService.class),
+            accounts, models, with, pipeline, new TopicBroker(), mock(ChangesService.class), mock(StatsService.class),
             mock(ReviewPass.class));
     }
 
@@ -510,6 +511,23 @@ class TaskWorkflowScenarioTest {
             a.add(Json.obj().put("id", "U" + i).put("seq", i / 2).set("body", Json.obj().put("id", "U" + i).put("at", bodies[i]).put("text", bodies[i + 1])));
         }
         return Json.write(a);
+    }
+
+    /**
+     * T-10 (task-workflow §4.5): a recap past the Studio's length offers a new task and still carries every message uncut (WF-11).
+     */
+    @Test
+    void aLongTaskHistoryOffersANewTaskAndCutsNoMessage() {
+        taskService();
+        String original = "Rename every handler and keep the routes: " + "handler, ".repeat(TaskService.RECAP_NEW_TASK_CHARS / 9);
+        run("W-1", original, "stored", "completed", null, null, "2026-10-05T10:00:00Z");
+        when(host.isOpen("p1")).thenReturn(true);
+        when(host.requests("p1", "W-1")).thenReturn(requests("2026-10-05T10:00:00Z", original));
+        ArgumentCaptor<TaskRun> started = ArgumentCaptor.forClass(TaskRun.class);
+        tasks.message("W-1", "and the docs", null, null, null, null);
+        verify(campaigns).register(started.capture());
+        assertTrue(started.getValue().requestText().contains(TaskService.quoted(original)), "WF-11: the long original is carried uncut");
+        verify(pipeline).studioItem(any(), eq("studio.notice"), org.mockito.ArgumentMatchers.argThat(n -> "new_task_suggested".equals(n.path("code").asString(""))));
     }
 
     /** WF-11: each run's request carries every message of the task word for word, in order, the original first and uncut. */
