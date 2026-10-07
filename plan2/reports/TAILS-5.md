@@ -30,9 +30,9 @@ P8.D.5) и `session_4_results.md` §4 (открытые хвосты, назва
 | T5-22 | T-12: `eval-live` открывает как прежняя Studio — 2 открытия на старт (`StudioAttempt`; WF-1) | TAILS-4B | B6 | закрыт B6a (`ee0361d`): один open на старт, `OpenCountTest`; живое подтверждение — шлюз P8.D (`opens` в result.json) |
 | T5-23 | T-14: `real-dirty-repo` `dir` принимает абсолютные/UNC пути (`eval-live` `Tasks.kt:69-85`) | TAILS-4B | B6 | закрыт B6a (`ee0361d`): абсолютный/UNC путь, `DirtPlacementTest` ×6 |
 | T5-24 | T-30: SDK шлёт `session-id`; Codex CLI, возможно, `session_id`/`conversation_id` — один живой замер роста кэша `openai-codex`, правка заголовка только по свидетельству | TAILS-4B | E1 | закрыт E1 (живой замер `openai-codex`: `session_id` не меняет рост кэша 0 → 10752 → 11776; заголовок SDK не трогаем; одна выборка) |
-| T5-25 | T-03 живой: открытие `real-dirty-repo` считает 3014 файлов / 21,02 МБ при 1500 файлах — двойное чтение мелких файлов или двойной счёт | TAILS-4B | W11 | открыт |
-| T5-26 | T-22: чтения recovery-блобов `hash-object` — первое открытие читает 20 МБ дважды; объект git из чтения захвата (путь W2) без нарушения WF-2 | TAILS-4B | W11 | открыт |
-| T5-27 | T-59: пред-скан перечитывает разобранные исходники для динамических импортов | TAILS-4B | W11 | открыт |
+| T5-25 | T-03 живой: открытие `real-dirty-repo` считает 3014 файлов / 21,02 МБ при 1500 файлах — двойное чтение мелких файлов или двойной счёт | TAILS-4B | W11 | закрыт W11 (`acff636`): причина — повторное чтение outline `Language.Other` через `def`; фикстура WF-2 падала до правки; вживую 3014 → 1509 файлов на открытие (живой прогон согласен) |
+| T5-26 | T-22: чтения recovery-блобов `hash-object` — первое открытие читает 20 МБ дважды; объект git из чтения захвата (путь W2) без нарушения WF-2 | TAILS-4B | W11 | закрыт W11: снимок пишет объекты из удержанных байтов захвата одним `fast-import`; 20 МБ читается один раз |
+| T5-27 | T-59: пред-скан перечитывает разобранные исходники для динамических импортов | TAILS-4B | W11 | закрыт W11: динамические импорты из того же чтения (`seedDynamic`), −6 чтений вживую |
 | T5-28 | T-40: закреплённые строки после результатов инструментов — проверить адаптеры других семейств провайдеров вживую | TAILS-4B | D5 | открыт |
 | T5-29 | Golden `[S]` остальных структурных ролей; прогон S0 с `Config.protocol = Direct`; тест «старая попытка без `config-frozen`»; девятая роль `direct` в настройках Studio (`ConfigSupport.kt`); текст «poll the handle» | S4 §4 / P8.D.1 Log | D4 | закрыт D4: golden всех 9 ролей, DX-01 (S0 direct через Controller), DX-02 (без `config-frozen`), девятая роль в `declaredRolesJson` (тест); «poll the handle» — остался (`Run.kt:778`) → P8.H.1 вместе с T5-31 |
 | T5-30 | Fixture «`state(blocked)` после split запускает replan» (прочитано по коду, не исполнено) | S4 §4 / P8.D.6 Log | D4 | закрыт D4: DX-03 |
@@ -49,14 +49,14 @@ P8.D.5) и `session_4_results.md` §4 (открытые хвосты, назва
 | T5-37 | 5 отложенных полей достижимости (`probeTokens`, `writerDepth`, `probeDepth`, `parallelCells` — путь дочерней ячейки; `m` — pressure-фикстура) | C18 | перенести → P8.C.19 | перенесён |
 | T5-38 | На машинах с `rg` в `PATH` campaign- и WF-тесты ищут через ripgrep (паритет — `SearchBackendParityTest`; известный сбой `café` в Linux-песочнице) | C18 | снять: паритет покрыт тестом, поведение документировано D-441 | снят |
 | T5-39 | `routing_log`/снимок E1 не подключены в продукте (`Controller.kt` selectProfile, `recover/Repair.kt:109`) | E1 | исправить сейчас → E1w | закрыт E1w: `RoutingLogWiringTest` через настоящую сборку |
-| T5-40 | Ревью P1 №1: сбой между `Cell.Ended` и записью `returned_handoff` теряет флаги целостности и public-impact (terminal packet их не несёт) | ревью 5 | исправить сейчас → WR5 | открыт |
-| T5-41 | Ревью P1 №2: host override роли без `protocol` переключает retention на Structured при исполнении Direct | ревью 5 | исправить сейчас → WR5 | открыт |
-| T5-42 | Ревью P1 №3: Studio и eval-live дают direct-ячейке руководство для structured (`state.patch`) | ревью 5 | исправить сейчас → WR5s | открыт |
+| T5-40 | Ревью P1 №1: сбой между `Cell.Ended` и записью `returned_handoff` теряет флаги целостности и public-impact (terminal packet их не несёт) | ревью 5 | исправить сейчас → WR5 | закрыт WR5 (`a4d225a`): `PacketHandoff` в terminal packet, восстановление при open до `Lost`; fixture падала до правки (Failed → Partial) |
+| T5-41 | Ревью P1 №2: host override роли без `protocol` переключает retention на Structured при исполнении Direct | ревью 5 | исправить сейчас → WR5 | закрыт WR5 (`b6ec84b`): протокол retention через `RoleTexts.worded`, тест override без `protocol` |
+| T5-42 | Ревью P1 №3: Studio и eval-live дают direct-ячейке руководство для structured (`state.patch`) | ревью 5 | исправить сейчас → WR5s | закрыт WR5s (ядро `8acbab2`, корень `4ebb226`): `Guidance.notes(protocol)`, `HostGuidanceTest`/`StudioGuidanceTest`, structured-байты закреплены хешем |
 | T5-43 | Ревью P1 №4: плечо `direct` в eval-live отвергалось | ревью 5 | закрыт C17 `d6403b6` (до ревью) | закрыт |
-| T5-44 | Ревью P2 №1: eval-live ask/reopen делает второй open (expected по origin, actual по sniff) | ревью 5 | исправить сейчас → WR5s | открыт |
-| T5-45 | Ревью P2 №2: Windows shim `rg.cmd` выбирается как backend без fallback | ревью 5 | исправить сейчас → WR5 | открыт |
-| T5-46 | Ревью P2 №3: cap переноса родителя считается по structured-рендеру для direct | ревью 5 | исправить сейчас → WR5 | открыт |
-| T5-47 | Ревью P2 №4: eval-live завышает `cells` при продолжении того же work | ревью 5 | исправить сейчас → WR5s | открыт |
+| T5-44 | Ревью P2 №1: eval-live ask/reopen делает второй open (expected по origin, actual по sniff) | ревью 5 | исправить сейчас → WR5s | закрыт WR5s: `verificationOf` → `of(contract)`, `OpenCountTest` reopen 1 open |
+| T5-45 | Ревью P2 №2: Windows shim `rg.cmd` выбирается как backend без fallback | ревью 5 | исправить сейчас → WR5 | закрыт WR5 (`61e2ab4`): `HostProbe.launchable`, JVM-fallback при падении первого запуска rg |
+| T5-46 | Ревью P2 №3: cap переноса родителя считается по structured-рендеру для direct | ревью 5 | исправить сейчас → WR5 | закрыт WR5 (`f22ded7`): cap по переносимому протоколу, `CarryForwardTest` |
+| T5-47 | Ревью P2 №4: eval-live завышает `cells` при продолжении того же work | ревью 5 | исправить сейчас → WR5s | закрыт WR5s: сегмент считает только новые `CellId`, `AskModeTest` [1, 0] |
 | T5-48 | Ревью P2 №5: продление гранта — отдельное окно сбоя (Resumed до записи renewal) | ревью 5 | перенести → P8.D.8 | перенесён |
 | T5-49 | Ревью P2 №6: STATUS не восстанавливается из пакета без STATUS; S0 без boundary-записи | ревью 5 | перенести → P8.D.8 | перенесён |
 | T5-50 | Ревью P2 №7: WF-4 на первом capture (= T-35, T5-09) | ревью 5 | дубликат T5-09 (P8.C.17) | снят (дубликат) |
