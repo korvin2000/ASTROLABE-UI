@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
 
 /**
  * WF-1 and WF-10 (plan §7.2, W5) through the bridge on the real core with a scripted fake model: a start opens its
- * campaign once (WD-04), and Continue from a resumable stop (a result waiting for the user's word) reopens the same work, once, and it completes. Recovery from a cell error is the core's (its outcome `failed` is final). Guards count `phase.counted` opens on the bus, never time.
+ * campaign once (WD-04) — a project without declared checks too (W7) — and Continue from a resumable stop (a result waiting for the user's word) reopens the same work, once, and it completes; WF-13 (W7): the card's note sent to the agent reaches a model. A cell's exception is the core's resumable `failed` (`cell_failure`, routed by `TaskService`). Guards count `phase.counted` opens and model requests, never time.
  */
 class StudioWorkflowScenarioTest {
     @TempDir
@@ -129,9 +129,12 @@ class StudioWorkflowScenarioTest {
         )
     }
 
-    private class Session(val host: StudioHost, val llm: Llm, val configJson: String, val opens: MutableList<String>) {
+    private class Session(val host: StudioHost, val llm: Llm, val configJson: String, val opens: MutableList<String>, val brain: FakeProvider) {
         /** `phase.counted` opens of [workId] seen on the bus so far. */
         fun opens(workId: String): Int = opens.count { it == workId }
+
+        /** Model requests the scripted provider answered so far. */
+        fun requests(): Int = brain.sends()
     }
 
     private fun <T> session(name: String, manifest: Boolean, body: (Session) -> T): T {
@@ -143,13 +146,14 @@ class StudioWorkflowScenarioTest {
         )
         val configJson = ConfigSupport.encode(config)
         val opens = CopyOnWriteArrayList<String>()
-        Llm.builder().provider(brain().provider()).environment(Environment.none()).catalog { it.offline() }.build().use { llm ->
+        val brain = brain()
+        Llm.builder().provider(brain.provider()).environment(Environment.none()).catalog { it.offline() }.build().use { llm ->
             StudioHost().use { host ->
                 host.subscribe { work, _, kind, json ->
                     if (kind == "phase.counted" && ConfigSupport.obj(json)["event"]?.jsonObject?.get("counted")?.jsonPrimitive?.content == "open") opens += work
                 }.use {
                     host.openProject("p1", repo, configJson, llm)
-                    return body(Session(host, llm, configJson, opens))
+                    return body(Session(host, llm, configJson, opens, brain))
                 }
             }
         }
@@ -194,6 +198,9 @@ class StudioWorkflowScenarioTest {
             // No host review and no decision: the run stops waiting for the user's word on its result (resumable).
             val (ref, waiting) = start(s, authority({ CompletableFuture.completedFuture(null) }))
             assertEquals("waiting_for_input", waiting.outcome, waiting.reason)
+            // T-01 (W7): a project with no declared check opens once — the review item through the core's declaredChecks hook.
+            assertEquals(1, s.opens(ref.workId), "WF-1: a start without declared checks opened the campaign ${s.opens(ref.workId)} times")
+            assertEquals("review", ref.verification?.kind)
             val before = s.opens(ref.workId)
             val (again, ended) = resume(s, ref.workId, authority(::approve, ::accept))
             assertEquals(ref.workId, again.workId, "WF-10: Continue reopened another work")
@@ -201,6 +208,26 @@ class StudioWorkflowScenarioTest {
             assertEquals("completed", ended.outcome, ended.reason)
             val campaigns = ConfigSupport.parse(s.host.campaigns("p1")) as JsonArray
             assertEquals(1, campaigns.size, "one work for the task: $campaigns")
+        }
+    }
+
+    @Test
+    fun `WF-13 the card's note sent to the agent reaches a model before the same work completes`() {
+        session("wf13-send", manifest = false) { s ->
+            val (ref, waiting) = start(s, authority({ CompletableFuture.completedFuture(null) }))
+            assertEquals("waiting_for_input", waiting.outcome, waiting.reason)
+            val requests = s.requests()
+            val stored = s.host.contractRevision("p1", ref.workId)
+            // Send to agent (task-workflow §2.1): the note as steering under the card's reference; a retried send is one message.
+            val revision = s.host.message("p1", ref.workId, "steering", "check the greeting once more", "card-1")
+            assertEquals(revision, s.host.message("p1", ref.workId, "steering", "check the greeting once more", "card-1"))
+            assertEquals(stored, revision, "steering keeps the revision")
+            val before = s.opens(ref.workId)
+            val (again, ended) = resume(s, ref.workId, authority(::approve, ::accept))
+            assertEquals(ref.workId, again.workId)
+            assertEquals(1, s.opens(ref.workId) - before, "WF-1: one open for the action")
+            assertTrue(s.requests() > requests, "WF-13: the sent note reached no model")
+            assertEquals("completed", ended.outcome, ended.reason)
         }
     }
 }

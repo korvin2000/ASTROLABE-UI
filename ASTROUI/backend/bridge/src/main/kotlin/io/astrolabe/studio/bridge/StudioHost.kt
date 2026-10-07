@@ -9,12 +9,14 @@ import io.astrolabe.budget.HeuristicEstimator
 import io.astrolabe.campaign.CampaignRequest
 import io.astrolabe.campaign.Controller
 import io.astrolabe.campaign.DeployTarget
+import io.astrolabe.campaign.Messages
 import io.astrolabe.campaign.OpenedCampaign
 import io.astrolabe.campaign.PublicationRequest
 import io.astrolabe.campaign.PublicationRun
 import io.astrolabe.campaign.Reconciliation
 import io.astrolabe.campaign.S0Run
 import io.astrolabe.contract.Contracts
+import io.astrolabe.contract.MessageKind
 import io.astrolabe.contract.SqliteContractRepository
 import io.astrolabe.event.Authority
 import io.astrolabe.event.AutonomousAuthority
@@ -253,18 +255,21 @@ public class StudioHost @JvmOverloads public constructor(
                 estimators = estimators,
             )
             val policy = run.policy
-            val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text)
+            val request = CampaignRequest(work, AttemptId(Astrolabe.FIRST_ATTEMPT), text, spec.parentWork?.let(::WorkId))
             // Phase 0 A9 (core D-345): the Studio's instructions are host notes, never the user's words; structural
             // changes to the contract are host amendments that append no request.
             // WD-04 (WF-1): the notes are worked out before the open from what it will find — the stored contract, or the
             // suites a new one is derived from — so one open serves the action.
             val expected = if (spec.verificationSetup) expectedVerification(p, work, spec.savedChecks) else null
             val notes = hostNotes(spec, expected)
-            var opened = controller.open(p.project, request, policy.copy(hostNotes = notes))
+            // T-01 (WF-1, task-workflow §3.6): a new contract the core derives nothing executable for takes the saved check
+            // or the review item through the core's declaredChecks hook, so it opens once — no host amendment, no second open.
+            val declared = if (expected != null && !(expected.kind == "tests" && expected.source == "declared") && p.reads.currentContractVersion(work.value) == null) Verification.items(expected) else emptyList()
+            var opened = controller.open(p.project, request, policy.copy(hostNotes = notes, declaredChecks = declared))
             val fresh = opened.contract.version == 1
-            var verification: VerificationSetup? = null
+            var verification: VerificationSetup? = if (declared.isNotEmpty() && opened.state != null) expected else null
             var amended = false
-            if (spec.verificationSetup) {
+            if (spec.verificationSetup && verification == null) {
                 // Studio 2 §7.3: the core refuses a plan with nothing executable to accept against; supply it and open again.
                 if (opened.state == null) {
                     val setup = Verification.choose(opened.sniffed, spec.savedChecks)
@@ -324,6 +329,7 @@ public class StudioHost @JvmOverloads public constructor(
                     outcome = result.outcome?.wire ?: opened.stop?.outcome?.wire
                     reason = result.state?.reason ?: opened.stop?.reason
                     code = (result.state?.stopCode ?: opened.stop?.code)?.wire ?: result.budgetStop?.wire
+                        ?: CELL_FAILURE.takeIf { result.state?.failedResumably == true }
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     reason = "run job cancelled by the host (resumable)"
                     throw cancelled
@@ -424,15 +430,30 @@ public class StudioHost @JvmOverloads public constructor(
     }
 
     /**
-     * A user amendment (§4.1, R-CMP-09): appended to the contract as a new request and version. A live campaign
-     * sees it next turn; a stopped one is amended through the project's store so the next open unblocks.
+     * The user's explicit "change the task" (§4.1, R-CMP-09): an `amendment` — a new request and version. A live campaign
+     * sees it next turn; a stopped one is amended through the project's store and its next open derives the work.
      */
-    public fun amend(projectId: String, workId: String, text: String): Int {
-        live[workId]?.let { return it.opened.contracts.amendByUser(WorkId(workId), text).version }
+    public fun amend(projectId: String, workId: String, text: String): Int = message(projectId, workId, MessageKind.Amendment.wire, text, null)
+
+    /**
+     * W7 (task-workflow §2.1, §2.2, D-433): a message of [kind] (`MessageKind.wire`; `null` lets the core take it from the
+     * work's state — `steering`, never an amendment) recorded verbatim once per [hostRef]. A live campaign pins it from its
+     * next turn; a stopped one gets its work at the next open (a response increment when every increment is closed).
+     * Returns the contract revision after it.
+     */
+    public fun message(projectId: String, workId: String, kind: String?, text: String, hostRef: String?): Int {
+        val typed = kind?.let { wire -> MessageKind.entries.firstOrNull { it.wire == wire } ?: throw IllegalArgumentException("unknown message kind '$wire'") }
+        live[workId]?.let { c -> return Messages.record(c.opened.contracts, c.opened.store, clock, WorkId(workId), typed, text, hostRef).version }
         val p = project(projectId)
         val contracts = Contracts(SqliteContractRepository(p.project.store, clock), idGen, clock, events)
-        return contracts.amendByUser(WorkId(workId), text).version
+        return Messages.record(contracts, p.project.store, clock, WorkId(workId), typed, text, hostRef).version
     }
+
+    /**
+     * T-28: the untracked output files the attempt's output policy kept out of [workId]'s latest snapshot — counted, never
+     * read; `null` when the backend holds no open campaign of it.
+     */
+    public fun scratchCount(workId: String): Int? = live[workId]?.opened?.scratchCount()
 
     /** The contract revision replies are checked against (`Replies.check`). */
     public fun contractRevision(projectId: String, workId: String): Int? =
@@ -686,6 +707,9 @@ public class StudioHost @JvmOverloads public constructor(
 
     private companion object {
         val log = LoggerFactory.getLogger(StudioHost::class.java)
+
+        /** WF-10 (task-workflow §1.3): the stop code of a `failed` run a reopen continues — a cell's exception. */
+        const val CELL_FAILURE: String = "cell_failure"
     }
 }
 

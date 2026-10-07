@@ -89,6 +89,9 @@
     @if (working() && !canSend()) {
       <button class="send stop" (click)="stop.emit()" [attr.aria-label]="'action.stop' | t" [title]="'action.stop' | t"><span class="sq"></span></button>
     } @else {
+      @if (changeable() && canSend()) {
+        <button class="btn sm" [disabled]="busy()" (click)="submit(true)" [title]="'action.change_task_hint' | t">{{ 'action.change_task' | t }}</button>
+      }
       <button class="send" [disabled]="!canSend() || busy()" (click)="submit()" [attr.aria-label]="'action.send' | t" [title]="'action.send' | t">↑</button>
     }
   </div>

@@ -116,6 +116,10 @@ public class StudioDb {
             "CREATE INDEX acceptance_note_by_work ON acceptance_note (work_id, seq)",
             // The user's own words of a run, kept apart from the recap its request starts with.
             "ALTER TABLE campaign_index ADD COLUMN user_text TEXT"
+        ),
+        // ASTROLABE 2.0 W7 (T-11): a kept acceptance decision is bound to the campaign gate's obligation set it answered.
+        List.of(
+            "ALTER TABLE acceptance_decision ADD COLUMN obligation_set TEXT"
         )
     );
 

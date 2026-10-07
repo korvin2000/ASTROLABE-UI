@@ -4,7 +4,7 @@ import { describe as steps, hidden, nodeOf, opOf, statusOf } from '../../timelin
 import { folderOf, grouped } from '../panel/change-groups';
 import { SECTIONS, SETTINGS } from '../settings/setting-list';
 import { fitEffort } from './effort';
-import { acceptanceBody, acceptanceChoices, acceptanceHint, doneUnverified, scratchRoots, modelVerdictKey, reviewBody, reviewChoices, reworkable, stateKey, testChanges, verifiedOf } from './acceptance';
+import { acceptanceBody, acceptanceChoices, acceptanceHint, doneUnverified, messageBody, scratchRoots, modelVerdictKey, reviewBody, reviewChoices, reworkable, sendToAgentBody, stateKey, testChanges, verifiedOf } from './acceptance';
 import { DEFAULT_LIMITS, NO_LIMITS, limitKindOf, limitsText, meterText, parseLimit, raised, raises } from './limits';
 import { ERROR_CODES, actionsOf } from './error-actions';
 import { pinnedAfterScroll } from './follow';
@@ -140,6 +140,12 @@ describe('acceptance (B3)', () => {
     expect(acceptanceBody('rework')).toEqual({ decision: 'rework' });
     expect(acceptanceBody('rework', '  ')).toEqual({ decision: 'rework' });
     expect(acceptanceBody('rework', ' handle nulls ')).toEqual({ decision: 'rework', answer: 'handle nulls' });
+  });
+
+  it('sends typed text untyped, only "Change the task" as an amendment, and the card note by Send to agent (W7, WF-13)', () => {
+    expect(messageBody('go on', {})).toEqual({ text: 'go on', model: undefined, effort: undefined, mode: undefined, preset: undefined, limits: undefined });
+    expect(messageBody('also IE11', { mode: 'ask' }, true)).toEqual({ text: 'also IE11', model: undefined, effort: undefined, mode: 'ask', preset: undefined, limits: undefined, kind: 'amendment' });
+    expect(sendToAgentBody()).toEqual({ decision: 'send' });
   });
 
   it('attaches typed text to an open card instead of deciding it, and shows it (WF-8)', () => {

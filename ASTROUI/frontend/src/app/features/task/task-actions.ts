@@ -4,7 +4,7 @@ import { Api, errorInfo } from '../../core/api';
 import { Approach, Card, Effort, ErrorInfo, Limits, Mode, Task } from '../../core/model';
 import { AppStore } from '../../state/app.store';
 import { TaskStore } from '../../state/task.store';
-import { AcceptanceDecision, ReviewDecision, acceptanceBody, reviewBody } from './acceptance';
+import { AcceptanceDecision, ReviewDecision, acceptanceBody, messageBody, reviewBody, sendToAgentBody } from './acceptance';
 
 export type PanelTab = 'changes' | 'progress' | 'output';
 
@@ -52,10 +52,18 @@ export class TaskActions {
 
   show(request: ViewRequest): void { this.request.set({ ...request }); }
 
-  async message(text: string): Promise<void> {
+  /** A message to the task; `change` is the explicit "Change the task" (W7: the one way to an amendment). */
+  async message(text: string, change = false): Promise<void> {
     const n = this.next();
-    await this.run(() => this.api.post(this.path() + '/messages', { text, model: n.model, effort: n.effort, mode: n.mode, preset: n.preset, limits: n.limits }));
+    await this.run(() => this.api.post(this.path() + '/messages', messageBody(text, n, change)));
     void this.store.refreshTask();
+  }
+
+  /** W7 (WF-13): the note attached to an acceptance card goes to the agent; the card's request stays open. */
+  async sendToAgent(card: Card): Promise<boolean> {
+    const task = await this.run(() => this.api.post<Task>(this.path() + '/cards/' + encodeURIComponent(card.id), sendToAgentBody()));
+    this.took(task);
+    return !!task;
   }
 
   async answer(card: Card, option: number | null, text?: string): Promise<void> {

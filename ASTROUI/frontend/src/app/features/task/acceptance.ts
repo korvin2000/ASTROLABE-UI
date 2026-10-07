@@ -1,4 +1,4 @@
-import { Card, ProvenanceClass, Task } from '../../core/model';
+import { Approach, Card, Effort, Limits, Mode, ProvenanceClass, Task } from '../../core/model';
 import { limitKindOf } from './limits';
 
 // The acceptance card (B3) and the "Verified" line of the result: which answers the user has, and how a result was
@@ -70,6 +70,19 @@ export function acceptanceHint(card: Pick<Card, 'note'>): { key: string; params?
 /** The task's active scratch list as the result card shows it (W3): its output roots, `build/, dist/, …`; empty without one. */
 export function scratchRoots(task: Pick<Task, 'scratch'> | null | undefined): string {
   return (task?.scratch?.roots ?? []).map(r => r + '/').join(', ');
+}
+
+/**
+ * The body of `POST /tasks/{id}/messages` (W7, task-workflow §2.2): typed text is untyped for the core — steering — and
+ * only the explicit "Change the task" sends `kind: 'amendment'`.
+ */
+export function messageBody(text: string, next: { model?: string; effort?: Effort; mode?: Mode; preset?: Approach; limits?: Limits }, change = false) {
+  return { text, model: next.model, effort: next.effort, mode: next.mode, preset: next.preset, limits: next.limits, ...(change ? { kind: 'amendment' as const } : {}) };
+}
+
+/** The body of `POST /tasks/{id}/cards/{cardId}` for the card's "Send to agent" (W7): its attached note goes to the agent. */
+export function sendToAgentBody(): { decision: 'send' } {
+  return { decision: 'send' };
 }
 
 /** The body of `POST /tasks/{id}/cards/{cardId}` for an acceptance answer. */

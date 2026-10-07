@@ -81,6 +81,7 @@ import { TaskActions } from './task-actions';
               @for (c of choices(); track c.decision) {
                 <button class="btn" [class.pri]="c.primary" [disabled]="actions.busy() || sent()" (click)="settle(c.decision)"><kbd>{{ $index + 1 }}</kbd>{{ c.label | t }}</button>
               }
+              @if (card().note) { <button class="btn" [disabled]="actions.busy() || sent()" (click)="sendNote()">{{ 'action.send_to_agent' | t }}</button> }
               @if (card().note || card().variant !== 'rejected') { <span class="muted small">{{ hint().key | t: hint().params }}</span> }
             </div>
           }
@@ -211,6 +212,14 @@ export class AskCard {
     this.sent.set(true);
     // A failed request leaves the card open: the user may answer again.
     if (!(await this.actions.settle(this.card(), decision))) this.sent.set(false);
+  }
+
+  /** W7 (WF-13): the attached note goes to the agent; the card still asks for the decision. */
+  async sendNote(): Promise<void> {
+    if (this.sent()) return;
+    this.sent.set(true);
+    await this.actions.sendToAgent(this.card());
+    this.sent.set(false);
   }
 
   @HostListener('keydown', ['$event'])
