@@ -31,8 +31,8 @@ public object AutoProfiles {
     public const val ESTIMATED_CONTEXT: Int = 32_768
     public const val ESTIMATED_OUTPUT: Int = 4_096
 
-    /** OpenRouter upstreams skipped per model-id prefix: their tool-call parser corrupts nested arguments (measured 2026-09-30). */
-    internal val OPENROUTER_UPSTREAM_IGNORES: Map<String, List<String>> = mapOf("z-ai/" to listOf("Together"))
+    /** OpenRouter upstreams skipped per model-id prefix: their tool-call parser corrupts nested arguments (Together measured 2026-09-30, InferenceNet 2026-10-08). */
+    internal val OPENROUTER_UPSTREAM_IGNORES: Map<String, List<String>> = mapOf("z-ai/" to listOf("Together", "InferenceNet"))
 
     /** `auto.<provider>.<model>` with every character outside the profile id alphabet replaced. */
     @JvmStatic
