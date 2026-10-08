@@ -33,7 +33,7 @@
 ## Тесты
 - L1: `:core:test --tests 'io.astrolabe.workflow.DirtyRepoScenarioTest'` — 5/5 (новый тест проходит).
 - Трассировка: тот же класс на `40914b1` (4/4, open 37/25/36 при старом запросе) и на `2a14d74` (4/4, open 38/26/37).
-- L2: L2_RESULT
+- L2: `:core:test --tests 'io.astrolabe.workflow.*' --tests 'io.astrolabe.workspace.*' --tests 'io.astrolabe.campaign.*'` — 56 классов, 511 тестов, 0 падений, 10 пропущено (XML worktree); `./gradlew assemble testClasses checkKotlinAbi -Pastrolabe.aiGateBuild=…` — exit 0 (публичный API не менялся, дампы не трогались).
 - Циклов «правка → тест»: 1. Расход токенов не виден.
 
 ## Отклонения от карточки
@@ -47,4 +47,4 @@
   открытия; один зонд на фазу сократил бы до ~25, но меняет момент проверки формы репозитория.
 - Фикстура 38 против живых 35 — разница не атрибутирована (живого argv нет).
 
-Статус: STATUS_LINE
+Статус: ГОТОВО К СЛИЯНИЮ — последний коммит `7523896` (v2/WG2)
